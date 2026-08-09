@@ -7,8 +7,12 @@ extends CharacterBody3D
 @onready var head: Node3D = $Head
 
 func _ready() -> void:
-	floor_snap_length = 0.45
+	floor_snap_length = 0.9
 	floor_max_angle = deg_to_rad(55.0)
+	floor_constant_speed = true
+	floor_stop_on_slope = false
+	floor_block_on_wall = false
+	safe_margin = 0.02
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -30,4 +34,6 @@ func _physics_process(delta: float) -> void:
 	var direction := (transform.basis * Vector3(input.x, 0, input.y)).normalized()
 	velocity.x = direction.x * move_speed
 	velocity.z = direction.z * move_speed
+	if is_on_floor():
+		apply_floor_snap()
 	move_and_slide()
