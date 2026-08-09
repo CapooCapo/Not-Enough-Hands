@@ -1,3 +1,7 @@
 # Godot 4+ specific ignores
 .godot/
 /android/
+
+# Local Godot AI integration (do not commit)
+/addons/godot_ai/
+/godot-ai-LICENSE.txt
