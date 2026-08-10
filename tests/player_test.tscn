@@ -1,0 +1,183 @@
+[gd_scene format=3 uid="uid://dfvvrio4y440v"]
+
+[ext_resource type="PackedScene" path="res://player/player.tscn" id="1_player"]
+[ext_resource type="Script" uid="uid://ckn40ad61nx2t" path="res://ui/stamina_bar.gd" id="3_03kx2"]
+[ext_resource type="Script" uid="uid://dugs30clyjof8" path="res://ui/interaction_prompt.gd" id="4_63pt7"]
+[ext_resource type="PackedScene" path="res://door/door.tscn" id="4_krg15"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
+
+[sub_resource type="Sky" id="Sky_env"]
+sky_material = SubResource("ProceduralSkyMaterial_sky")
+
+[sub_resource type="Environment" id="Environment_world"]
+background_mode = 2
+sky = SubResource("Sky_env")
+
+[sub_resource type="BoxMesh" id="BoxMesh_ground"]
+size = Vector3(50, 1, 50)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_ground"]
+size = Vector3(50, 1, 50)
+
+[sub_resource type="BoxMesh" id="BoxMesh_jump"]
+size = Vector3(6, 0.8, 2)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_jump"]
+size = Vector3(6, 0.8, 2)
+
+[sub_resource type="BoxMesh" id="BoxMesh_ceiling"]
+size = Vector3(6, 1, 4)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_ceiling"]
+size = Vector3(6, 1, 4)
+
+[sub_resource type="BoxMesh" id="BoxMesh_wall_z"]
+size = Vector3(20, 4, 1)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_wall_z"]
+size = Vector3(20, 4, 1)
+
+[sub_resource type="BoxMesh" id="BoxMesh_wall_x"]
+size = Vector3(1, 4, 36)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_wall_x"]
+size = Vector3(1, 4, 36)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_03kx2"]
+bg_color = Color(0.1, 0.1, 0.1, 0.6)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_krg15"]
+bg_color = Color(0.7, 0.8, 0.8, 1)
+
+[node name="TestEnvironment" type="Node3D" unique_id=142041090]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=2052676992]
+environment = SubResource("Environment_world")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=1470520621]
+transform = Transform3D(0.866025, -0.25, 0.433013, 0, 0.866025, 0.5, -0.5, -0.433013, 0.75, 0, 10, 0)
+shadow_enabled = true
+
+[node name="Ground" type="StaticBody3D" parent="." unique_id=1537722320]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Ground" unique_id=1198227546]
+mesh = SubResource("BoxMesh_ground")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Ground" unique_id=1339036754]
+shape = SubResource("BoxShape3D_ground")
+
+[node name="JumpBlock" type="StaticBody3D" parent="." unique_id=693326937]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.4, -7)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="JumpBlock" unique_id=665781590]
+mesh = SubResource("BoxMesh_jump")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="JumpBlock" unique_id=1583706331]
+shape = SubResource("BoxShape3D_jump")
+
+[node name="LowCeiling" type="StaticBody3D" parent="." unique_id=1040437492]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.6, -12)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="LowCeiling" unique_id=1650342105]
+mesh = SubResource("BoxMesh_ceiling")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="LowCeiling" unique_id=682297313]
+shape = SubResource("BoxShape3D_ceiling")
+
+[node name="WallNorth" type="StaticBody3D" parent="." unique_id=236750674]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, -20)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="WallNorth" unique_id=1792257033]
+mesh = SubResource("BoxMesh_wall_z")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="WallNorth" unique_id=1724558643]
+shape = SubResource("BoxShape3D_wall_z")
+
+[node name="WallSouth" type="StaticBody3D" parent="." unique_id=1200842599]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, 15)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="WallSouth" unique_id=1620576649]
+mesh = SubResource("BoxMesh_wall_z")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="WallSouth" unique_id=582784213]
+shape = SubResource("BoxShape3D_wall_z")
+
+[node name="WallEast" type="StaticBody3D" parent="." unique_id=1484084466]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 1.5, -2.5)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="WallEast" unique_id=35245418]
+mesh = SubResource("BoxMesh_wall_x")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="WallEast" unique_id=4795360]
+shape = SubResource("BoxShape3D_wall_x")
+
+[node name="WallWest" type="StaticBody3D" parent="." unique_id=1113639495]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -10, 1.5, -2.5)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="WallWest" unique_id=1913591833]
+mesh = SubResource("BoxMesh_wall_x")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="WallWest" unique_id=1749798766]
+shape = SubResource("BoxShape3D_wall_x")
+
+[node name="Player" parent="." unique_id=29397802 instance=ExtResource("1_player")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 5)
+
+[node name="CanvasLayer" type="CanvasLayer" parent="." unique_id=1237002139]
+
+[node name="MarginContainer" type="MarginContainer" parent="CanvasLayer" unique_id=1618236649]
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 0
+grow_vertical = 0
+theme_override_constants/margin_right = 40
+theme_override_constants/margin_bottom = 40
+
+[node name="VBoxContainer" type="VBoxContainer" parent="CanvasLayer/MarginContainer" unique_id=498831515]
+layout_mode = 2
+
+[node name="Label" type="RichTextLabel" parent="CanvasLayer/MarginContainer/VBoxContainer" unique_id=1938971220]
+layout_mode = 2
+bbcode_enabled = true
+text = "[center][b][color=#b2cccc]STAMINA[/color][/b][/center]"
+fit_content = true
+scroll_active = false
+autowrap_mode = 0
+
+[node name="StaminaBar" type="ProgressBar" parent="CanvasLayer/MarginContainer/VBoxContainer" unique_id=1487734507]
+custom_minimum_size = Vector2(250, 10)
+layout_mode = 2
+theme_override_styles/background = SubResource("StyleBoxFlat_03kx2")
+theme_override_styles/fill = SubResource("StyleBoxFlat_krg15")
+show_percentage = false
+script = ExtResource("3_03kx2")
+player_path = NodePath("../../../../Player")
+
+[node name="InteractionPrompt" type="CenterContainer" parent="CanvasLayer" unique_id=603539449]
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+mouse_filter = 2
+script = ExtResource("4_63pt7")
+player_path = NodePath("../../Player")
+
+[node name="RichTextLabel" type="RichTextLabel" parent="CanvasLayer/InteractionPrompt" unique_id=717656834]
+layout_mode = 2
+mouse_filter = 2
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 4
+bbcode_enabled = true
+text = "[center]Open Door [E][/center]"
+fit_content = true
+scroll_active = false
+autowrap_mode = 0
+
+[node name="Door" parent="." unique_id=1827564797 instance=ExtResource("4_krg15")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.6, 0, -17)

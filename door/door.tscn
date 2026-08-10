@@ -1,0 +1,22 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://door/door.gd" id="1_vul7k"]
+
+[sub_resource type="BoxMesh" id="BoxMesh_tse0d"]
+size = Vector3(1.2, 2.2, 0.1)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_c57h4"]
+size = Vector3(1.2, 2.2, 0.1)
+
+[node name="Door" type="Node3D"]
+script = ExtResource("1_vul7k")
+
+[node name="Hinge" type="AnimatableBody3D" parent="."]
+
+[node name="DoorMesh" type="MeshInstance3D" parent="Hinge"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.6, 1.1, 0)
+mesh = SubResource("BoxMesh_tse0d")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Hinge"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.6, 1.1, 0)
+shape = SubResource("BoxShape3D_c57h4")
