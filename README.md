@@ -2,9 +2,13 @@
 
 Godot 4 playable graybox of a four-level house. The scene contains environment,
 geometry, collision, route labels, entrance lighting and a first-person test controller.
-The plan uses an approximately 28 x 19.6 metre footprint. The ground floor has
-one large room; the upper floor and attic retain two adjacent rooms opening onto
-a clear corridor. The concealed basement is reached by a west access tunnel.
+The plan uses an approximately 28 x 19.6 metre footprint. Room zoning follows
+the supplied haunted-house specification: foyer/living/dining/library/kitchen on
+the ground floor and residential rooms upstairs; the attic is now a roomless maze.
+An offset entrance foyer and alternating enclosed stair lobbies break direct
+sightlines, creating room-to-corridor-to-landing transitions for chase pacing.
+Each level has a different topology: a basement service loop, asymmetric ground
+floor wings, an upper ring corridor, and a roomless open attic maze.
 
 ## View in Godot
 
