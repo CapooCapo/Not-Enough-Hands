@@ -24,8 +24,9 @@ func interact(player: Node3D) -> void:
 		# local_player_pos.z > 0 means the player is in front of the door's original Z axis.
 		var dot = local_player_pos.z
 		
-		# If dot < 0, open one way, if dot > 0 open the other way.
-		var target_sign = 1 if dot < 0 else -1
+		# If dot < 0 (player is behind), open towards +Z (target_sign = -1)
+		# If dot > 0 (player is in front), open towards -Z (target_sign = 1)
+		var target_sign = -1 if dot < 0 else 1
 		var target_rot_y = deg_to_rad(open_angle) * target_sign * hinge_direction
 		
 		if tween and tween.is_running(): tween.kill()

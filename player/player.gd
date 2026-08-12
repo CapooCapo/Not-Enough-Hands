@@ -5,8 +5,8 @@ extends CharacterBody3D
 @export var jump_velocity: float = 4.5
 @export var crouch_height: float = 1.0
 @export var standing_height: float = 2.0
-@export var crouch_camera_height: float = 0.5
-@export var standing_camera_height: float = 1.5
+@export var crouch_camera_height: float = -0.2
+@export var standing_camera_height: float = 0.8
 @export var crouch_transition_speed: float = 10.0
 
 var is_crouching: bool = false
