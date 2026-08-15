@@ -33,16 +33,6 @@ desktop.ini
 *~
 *.bak
 
-<<<<<<< HEAD
-# Export folders (if you use custom export folders, add them here)
-/export/
-/build/
-/builds/
-
-# AI configs
-.ai/
-||||||| d6b9d71
-=======
 # Export folders
 /export/
 /build/
@@ -54,4 +44,3 @@ desktop.ini
 # Local Godot AI integration (do not commit)
 /addons/godot_ai/
 /godot-ai-LICENSE.txt
->>>>>>> origin/main
