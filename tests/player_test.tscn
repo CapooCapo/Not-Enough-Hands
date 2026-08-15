@@ -1,0 +1,105 @@
+[gd_scene format=3 uid="uid://dfvvrio4y440v"]
+
+[ext_resource type="PackedScene" path="res://player/player.tscn" id="1_player"]
+[ext_resource type="Script" uid="uid://ckn40ad61nx2t" path="res://ui/stamina_bar.gd" id="3_03kx2"]
+[ext_resource type="Script" uid="uid://dugs30clyjof8" path="res://ui/interaction_prompt.gd" id="4_63pt7"]
+[ext_resource type="PackedScene" path="res://door/door.tscn" id="4_krg15"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
+
+[sub_resource type="Sky" id="Sky_env"]
+sky_material = SubResource("ProceduralSkyMaterial_sky")
+
+[sub_resource type="Environment" id="Environment_world"]
+background_mode = 2
+sky = SubResource("Sky_env")
+
+[sub_resource type="BoxMesh" id="BoxMesh_Ground"]
+size = Vector3(100, 0.2, 100)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_Ground"]
+size = Vector3(100, 0.2, 100)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_03kx2"]
+bg_color = Color(0.1, 0.1, 0.1, 0.6)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_krg15"]
+bg_color = Color(0.7, 0.8, 0.8, 1)
+
+[node name="TestEnvironment" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_world")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.866025, -0.25, 0.433013, 0, 0.866025, 0.5, -0.5, -0.433013, 0.75, 0, 10, 0)
+shadow_enabled = true
+
+[node name="Ground" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.1, 0)
+
+[node name="Mesh" type="MeshInstance3D" parent="Ground"]
+mesh = SubResource("BoxMesh_Ground")
+
+[node name="Collision" type="CollisionShape3D" parent="Ground"]
+shape = SubResource("BoxShape3D_Ground")
+
+[node name="Player" parent="." instance=ExtResource("1_player")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.1, -4)
+
+[node name="TestDoor" parent="." instance=ExtResource("4_krg15")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)
+
+[node name="CanvasLayer" type="CanvasLayer" parent="."]
+
+[node name="MarginContainer" type="MarginContainer" parent="CanvasLayer"]
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 0
+grow_vertical = 0
+theme_override_constants/margin_right = 40
+theme_override_constants/margin_bottom = 40
+
+[node name="VBoxContainer" type="VBoxContainer" parent="CanvasLayer/MarginContainer"]
+layout_mode = 2
+
+[node name="Label" type="RichTextLabel" parent="CanvasLayer/MarginContainer/VBoxContainer"]
+layout_mode = 2
+bbcode_enabled = true
+text = "[center][b][color=#b2cccc]STAMINA[/color][/b][/center]"
+fit_content = true
+scroll_active = false
+autowrap_mode = 0
+
+[node name="StaminaBar" type="ProgressBar" parent="CanvasLayer/MarginContainer/VBoxContainer"]
+custom_minimum_size = Vector2(250, 10)
+layout_mode = 2
+theme_override_styles/background = SubResource("StyleBoxFlat_03kx2")
+theme_override_styles/fill = SubResource("StyleBoxFlat_krg15")
+show_percentage = false
+script = ExtResource("3_03kx2")
+player_path = NodePath("../../../../Player")
+
+[node name="InteractionPrompt" type="CenterContainer" parent="CanvasLayer"]
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+mouse_filter = 2
+script = ExtResource("4_63pt7")
+player_path = NodePath("../../Player")
+
+[node name="RichTextLabel" type="RichTextLabel" parent="CanvasLayer/InteractionPrompt"]
+layout_mode = 2
+mouse_filter = 2
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 4
+bbcode_enabled = true
+text = "[center]Open Door [E][/center]"
+fit_content = true
+scroll_active = false
+autowrap_mode = 0
