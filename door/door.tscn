@@ -2,21 +2,70 @@
 
 [ext_resource type="Script" path="res://door/door.gd" id="1_vul7k"]
 
-[sub_resource type="BoxMesh" id="BoxMesh_tse0d"]
-size = Vector3(1.2, 2.2, 0.1)
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_door"]
+albedo_color = Color(0.12, 0.055, 0.025, 1)
+metallic = 0.08
+roughness = 0.78
 
-[sub_resource type="BoxShape3D" id="BoxShape3D_c57h4"]
-size = Vector3(1.2, 2.2, 0.1)
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_trim"]
+albedo_color = Color(0.035, 0.018, 0.01, 1)
+roughness = 0.62
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_handle"]
+albedo_color = Color(0.24, 0.19, 0.08, 1)
+metallic = 0.72
+roughness = 0.28
+
+[sub_resource type="BoxMesh" id="BoxMesh_door"]
+material = SubResource("StandardMaterial3D_door")
+size = Vector3(2.3, 2.3, 0.12)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_door"]
+size = Vector3(2.3, 2.3, 0.12)
+
+[sub_resource type="BoxMesh" id="BoxMesh_panel"]
+material = SubResource("StandardMaterial3D_trim")
+size = Vector3(1.68, 0.64, 0.025)
+
+[sub_resource type="SphereMesh" id="SphereMesh_handle"]
+material = SubResource("StandardMaterial3D_handle")
+radius = 0.09
+height = 0.18
 
 [node name="Door" type="Node3D"]
 script = ExtResource("1_vul7k")
 
 [node name="Hinge" type="AnimatableBody3D" parent="."]
+collision_layer = 3
 
 [node name="DoorMesh" type="MeshInstance3D" parent="Hinge"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.6, 1.1, 0)
-mesh = SubResource("BoxMesh_tse0d")
+position = Vector3(1.15, 1.15, 0)
+mesh = SubResource("BoxMesh_door")
+
+[node name="UpperPanelFront" type="MeshInstance3D" parent="Hinge"]
+position = Vector3(1.15, 1.58, -0.0725)
+mesh = SubResource("BoxMesh_panel")
+
+[node name="LowerPanelFront" type="MeshInstance3D" parent="Hinge"]
+position = Vector3(1.15, 0.72, -0.0725)
+mesh = SubResource("BoxMesh_panel")
+
+[node name="UpperPanelBack" type="MeshInstance3D" parent="Hinge"]
+position = Vector3(1.15, 1.58, 0.0725)
+mesh = SubResource("BoxMesh_panel")
+
+[node name="LowerPanelBack" type="MeshInstance3D" parent="Hinge"]
+position = Vector3(1.15, 0.72, 0.0725)
+mesh = SubResource("BoxMesh_panel")
+
+[node name="FrontHandle" type="MeshInstance3D" parent="Hinge"]
+position = Vector3(1.9, 1.12, -0.13)
+mesh = SubResource("SphereMesh_handle")
+
+[node name="BackHandle" type="MeshInstance3D" parent="Hinge"]
+position = Vector3(1.9, 1.12, 0.13)
+mesh = SubResource("SphereMesh_handle")
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="Hinge"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.6, 1.1, 0)
-shape = SubResource("BoxShape3D_c57h4")
+position = Vector3(1.15, 1.15, 0)
+shape = SubResource("BoxShape3D_door")

@@ -1,19 +1,84 @@
 [gd_scene format=3]
 
 [ext_resource type="Script" path="res://player/player.gd" id="1_script"]
+[ext_resource type="Shader" path="res://ui/horror_overlay.gdshader" id="2_horror_overlay"]
+[ext_resource type="Script" path="res://ui/interaction_prompt.gd" id="3_interaction_prompt"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
 
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_horror_overlay"]
+shader = ExtResource("2_horror_overlay")
+
 [node name="Player" type="CharacterBody3D" unique_id=308502712]
+floor_snap_length = 0.4
+floor_constant_speed = true
 script = ExtResource("1_script")
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=1709885884]
 shape = SubResource("CapsuleShape3D_player")
 
 [node name="CameraPivot" type="Node3D" parent="." unique_id=2142276564]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.8, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.62, 0)
 
 [node name="Camera3D" type="Camera3D" parent="CameraPivot" unique_id=663310931]
+current = true
+fov = 70.0
+far = 45.0
+
+[node name="Flashlight" type="SpotLight3D" parent="CameraPivot/Camera3D"]
+light_color = Color(0.56, 0.67, 0.78, 1)
+light_energy = 2.8
+light_volumetric_fog_energy = 1.5
+shadow_enabled = true
+spot_range = 18.0
+spot_angle = 30.0
+spot_angle_attenuation = 2.2
 
 [node name="InteractRay" type="RayCast3D" parent="CameraPivot/Camera3D" unique_id=1694598043]
 target_position = Vector3(0, 0, -2.5)
+collision_mask = 2
+
+[node name="HorrorOverlay" type="CanvasLayer" parent="."]
+layer = 90
+
+[node name="VignetteAndGrain" type="ColorRect" parent="HorrorOverlay"]
+material = SubResource("ShaderMaterial_horror_overlay")
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="InteractionUI" type="CanvasLayer" parent="."]
+layer = 100
+
+[node name="InteractionPrompt" type="CenterContainer" parent="InteractionUI"]
+visible = false
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -100.0
+offset_top = 48.0
+offset_right = 100.0
+offset_bottom = 84.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("3_interaction_prompt")
+player_path = NodePath("../..")
+
+[node name="RichTextLabel" type="RichTextLabel" parent="InteractionUI/InteractionPrompt"]
+custom_minimum_size = Vector2(200, 32)
+layout_mode = 2
+mouse_filter = 2
+theme_override_colors/default_color = Color(0.86, 0.9, 0.92, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 5
+bbcode_enabled = true
+text = "[center][b]E[/b]  MỞ CỬA[/center]"
+fit_content = true
+scroll_active = false
+autowrap_mode = 0

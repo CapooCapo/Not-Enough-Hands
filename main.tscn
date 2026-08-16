@@ -1,8 +1,65 @@
 [gd_scene format=3 uid="uid://d30ag76yuh2hl"]
 
 [ext_resource type="PackedScene" uid="uid://dunxivm4sidwi" path="res://assets/House.glb" id="1_ig7tw"]
+[ext_resource type="PackedScene" path="res://player/player.tscn" id="2_0xm2m"]
+[ext_resource type="Script" uid="uid://q7p5bw5b7fxt" path="res://main.gd" id="3_main"]
+[ext_resource type="PackedScene" path="res://door/door.tscn" id="4_1bvp3"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_main"]
+sky_top_color = Color(0.22, 0.38, 0.58, 1)
+sky_horizon_color = Color(0.72, 0.82, 0.9, 1)
+ground_bottom_color = Color(0.09, 0.11, 0.14, 1)
+ground_horizon_color = Color(0.45, 0.5, 0.54, 1)
+sun_angle_max = 12.0
+sun_curve = 0.08
+
+[sub_resource type="Sky" id="Sky_main"]
+sky_material = SubResource("ProceduralSkyMaterial_main")
+process_mode = 1
+radiance_size = 2
+
+[sub_resource type="Environment" id="Environment_main"]
+background_mode = 2
+sky = SubResource("Sky_main")
+ambient_light_source = 3
+ambient_light_color = Color(0.7, 0.76, 0.84, 1)
+ambient_light_energy = 0.75
+reflected_light_source = 2
+tonemap_mode = 2
+fog_enabled = true
+fog_light_color = Color(0.45, 0.52, 0.58, 1)
+fog_density = 0.0
+fog_aerial_perspective = 0.8
+fog_height = 2.0
+volumetric_fog_enabled = true
+volumetric_fog_density = 0.0
+volumetric_fog_albedo = Color(0.38, 0.46, 0.5, 1)
+volumetric_fog_emission = Color(0.008, 0.012, 0.016, 1)
+volumetric_fog_emission_energy = 0.0
+volumetric_fog_length = 42.0
+volumetric_fog_detail_spread = 1.8
+volumetric_fog_ambient_inject = 0.35
+volumetric_fog_sky_affect = 0.15
+adjustment_enabled = true
 
 [node name="Node3D" type="Node3D" unique_id=1499828836]
+script = ExtResource("3_main")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=480636631]
+environment = SubResource("Environment_main")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=292491175]
+transform = Transform3D(0.81915206, 0.46984634, -0.32898995, 0, 0.57357645, 0.81915206, 0.57357645, -0.6710101, 0.46984634, 0, 0, 0)
+light_color = Color(1, 0.96, 0.88, 1)
+light_energy = 1.1
+light_angular_distance = 1.5
+shadow_enabled = true
 
 [node name="House" parent="." unique_id=2001469688 instance=ExtResource("1_ig7tw")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 13.014493, 0, 19.701927)
+transform = Transform3D(0.5, 0, 0, 0, 0.5, 0, 0, 0, 0.5, 13.014493, 0, 19.701927)
+
+[node name="Player" parent="." unique_id=308502712 instance=ExtResource("2_0xm2m")]
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 13.014493, 1.1, 8.714412)
+
+[node name="Door" parent="." unique_id=1758612283 instance=ExtResource("4_1bvp3")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7.07997, 0, 13.728837)
