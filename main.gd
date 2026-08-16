@@ -9,7 +9,6 @@ extends Node3D
 @onready var horror_overlay: CanvasLayer = $Player/HorrorOverlay
 @onready var flashlight: SpotLight3D = $Player/CameraPivot/Camera3D/Flashlight
 
-
 func _ready() -> void:
 	if development_lighting:
 		horror_overlay.visible = false
@@ -25,6 +24,56 @@ func _ready() -> void:
 			_make_mesh_two_sided(mesh_instance)
 			mesh_instance.create_trimesh_collision()
 			_enable_backface_collision(mesh_instance)
+
+	_bake_house_navigation()
+
+
+## Bakes a walkable navmesh from the house geometry at runtime, same reason
+## as the collision loop above: the GLB has no pre-authored navmesh. Doors
+## are AnimatableBody3D nodes, so the static-collider parser ignores them: a
+## closed door still blocks movement via physics, but it is not baked as a
+## permanent wall in the route graph.
+func _bake_house_navigation() -> void:
+	var navigation_mesh := NavigationMesh.new()
+	# Both moving capsules are 1.75 m tall. Baking for the statue's old visual
+	# height rejected/skimmed valid low-clearance stair space the player uses.
+	navigation_mesh.agent_height = 1.75
+	navigation_mesh.agent_radius = 0.4
+	navigation_mesh.agent_max_climb = 0.6
+	navigation_mesh.agent_max_slope = 45.0
+	# Match the 40 cm agent radius and the short stair risers without Recast
+	# rounding either measurement up to a coarse voxel boundary.
+	navigation_mesh.cell_size = 0.1
+	navigation_mesh.cell_height = 0.05
+	navigation_mesh.filter_low_hanging_obstacles = true
+	navigation_mesh.filter_ledge_spans = true
+	navigation_mesh.filter_walkable_low_height_spans = true
+	# Parse the generated trimesh colliders (created above), not the raw
+	# visual meshes: some house walls are thin, axis-aligned slabs that
+	# Recast's voxelizer can misread as passable when parsed straight from
+	# render geometry (confirmed - a fully solid, floor-to-ceiling wall was
+	# still baked as walkable space, letting a computed path cut straight
+	# through it). Baking from the same collision shapes move_and_slide()
+	# actually collides with keeps the navmesh and physics in agreement by
+	# construction, and also avoids the CPU readback cost of parsing
+	# RenderingServer meshes at runtime.
+	navigation_mesh.geometry_parsed_geometry_type = NavigationMesh.PARSED_GEOMETRY_STATIC_COLLIDERS
+
+	var source_geometry_data := NavigationMeshSourceGeometryData3D.new()
+	# Parse from this identity-transformed scene root. Parsing from `house`
+	# produces vertices in House-local coordinates; attaching that mesh to an
+	# identity NavigationRegion3D then offsets and scales every route away from
+	# the visible building. The static-collider filter still limits the actual
+	# geometry to the generated colliders under House.
+	NavigationServer3D.parse_source_geometry_data(navigation_mesh, source_geometry_data, self)
+	NavigationServer3D.bake_from_source_geometry_data(navigation_mesh, source_geometry_data)
+
+	# Parsed geometry is now in this node's local/world coordinates, so the
+	# region must remain an identity-transformed sibling of House.
+	var navigation_region := NavigationRegion3D.new()
+	navigation_region.name = "HouseNavigationRegion"
+	navigation_region.navigation_mesh = navigation_mesh
+	add_child(navigation_region)
 
 
 func _make_mesh_two_sided(mesh_instance: MeshInstance3D) -> void:

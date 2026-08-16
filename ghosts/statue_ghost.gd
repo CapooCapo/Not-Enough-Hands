@@ -33,6 +33,14 @@ signal attack_cancelled()
 @export var attack_range: float = 1.15
 @export var attack_windup: float = 0.48
 @export var attack_cooldown: float = 1.4
+## Vertical separation beyond this immediately rules out an attack, cheaply,
+## before paying for an occlusion raycast. Generous enough for normal
+## stair/landing height variance, far short of a full floor-to-floor gap
+## (~2.3m in this house) - stops the statue killing through a floor/ceiling.
+@export var max_attack_height_difference: float = 1.5
+## Height above each body's feet the attack occlusion ray is cast between -
+## roughly torso height, keeps the ray off the floor mesh at close range.
+@export var attack_ray_height: float = 1.1
 
 @export_category('Movement Feel')
 @export var movement_animation_speed: float = 13.0
@@ -40,6 +48,19 @@ signal attack_cancelled()
 @export var steering_duration: float = 0.9
 ## How much the gait is quantised into stop-motion steps. 0 is a smooth walk.
 @export_range(0.0, 1.0) var stop_motion_amount: float = 0.45
+## The statue has no jump, so without an explicit step-up it cannot climb
+## discrete stair risers at all - move_and_slide() only handles continuous
+## slopes, not vertical steps. Mirrors player.gd's _try_step_up.
+@export var max_step_height: float = 0.6
+@export var step_floor_margin: float = 0.08
+## Minimum forward reach used when probing for a landing on top of a step -
+## see player.gd's step_probe_distance for why this can't just be the raw
+## per-frame motion.
+@export var step_probe_distance: float = 0.3
+## Direct pursuit is safe only on roughly the same level. With a larger
+## height gap the statue waits for a valid nav path instead of running to the
+## point directly below a player on another floor.
+@export var direct_chase_max_height_difference: float = 0.8
 
 @export_category('Dread')
 ## Distance at which the statue starts visibly waking up: cracks glow, eyes burn.
@@ -63,6 +84,7 @@ var stuck_timer: float = 0.0
 var steering_timer: float = 0.0
 var steering_sign: float = 1.0
 var last_position: Vector3
+var following_navigation_path: bool = false
 var gravity: float = ProjectSettings.get_setting('physics/3d/default_gravity')
 
 var agitation: float = 0.0
@@ -88,6 +110,7 @@ var eye_material: StandardMaterial3D
 @onready var right_leg_pivot: Node3D = $VisualRoot/RightLegPivot
 @onready var right_shin_pivot: Node3D = $VisualRoot/RightLegPivot/ShinPivot
 @onready var dust: GPUParticles3D = $VisualRoot/Dust
+@onready var nav_agent: NavigationAgent3D = $NavigationAgent3D
 
 # Frozen silhouettes, in degrees. The statue snaps between these the instant it
 # is caught, so it is never in the same shape twice when you look back at it.
@@ -170,15 +193,71 @@ func _physics_process(delta: float) -> void:
 	else:
 		_update_unseen_behavior(delta)
 
-	if not is_on_floor():
+	var was_on_floor := is_on_floor()
+	if not was_on_floor:
 		velocity.y -= gravity * delta
 	else:
 		velocity.y = -0.15
+
+	if was_on_floor and velocity.y <= 0.0:
+		var horizontal_motion := Vector3(velocity.x, 0.0, velocity.z) * delta
+		_try_step_up(horizontal_motion)
 
 	move_and_slide()
 	_update_stuck_state(delta)
 	_update_player_threat()
 	_update_presentation(delta)
+
+
+## Hops the statue up onto a stair riser that's blocking its horizontal
+## motion, exactly like player.gd's _try_step_up: probe forward, probe
+## straight up, probe forward again from the raised height, then probe down
+## to find a walkable landing - only commits if that landing is a small,
+## climbable step, not a wall or a big drop.
+func _try_step_up(horizontal_motion: Vector3) -> void:
+	if horizontal_motion.is_zero_approx():
+		return
+
+	if not test_move(global_transform, horizontal_motion):
+		return
+
+	# Use whatever headroom is actually available, up to max_step_height. The
+	# stairwell ceiling can block a full-height probe while still leaving ample
+	# room to climb the current 20 cm riser.
+	var available_step_height := max_step_height
+	var up_collision := KinematicCollision3D.new()
+	var requested_step_up := Vector3.UP * max_step_height
+	if test_move(global_transform, requested_step_up, up_collision, safe_margin, false):
+		available_step_height = up_collision.get_travel().y
+	if available_step_height <= 0.02:
+		return
+	var step_up := Vector3.UP * available_step_height
+
+	# The landing search needs to clear the riser's front edge, which a
+	# single frame's real motion is often too small to do - probe forward
+	# by at least step_probe_distance in the same direction instead.
+	var probe_motion := horizontal_motion
+	if probe_motion.length() < step_probe_distance:
+		probe_motion = probe_motion.normalized() * step_probe_distance
+
+	var raised_transform := global_transform
+	raised_transform.origin += step_up
+	if test_move(raised_transform, probe_motion):
+		return
+
+	var forward_transform := raised_transform
+	forward_transform.origin += probe_motion
+	var down_collision := KinematicCollision3D.new()
+	var down_motion := Vector3.DOWN * (available_step_height + step_floor_margin)
+	if not test_move(forward_transform, down_motion, down_collision):
+		return
+	if down_collision.get_normal().dot(up_direction) < 0.65:
+		return
+
+	var landing_y := forward_transform.origin.y + down_collision.get_travel().y
+	var step_height := landing_y - global_position.y
+	if step_height > 0.02 and step_height <= available_step_height + step_floor_margin:
+		global_position.y += step_height
 
 
 func _freeze_statue(delta: float) -> void:
@@ -216,19 +295,49 @@ func _update_unseen_behavior(delta: float) -> void:
 		velocity.z = move_toward(velocity.z, 0.0, acceleration * delta)
 		return
 
-	var target_offset := current_target.global_position - global_position
-	target_offset.y = 0.0
-	if target_offset.length() <= attack_range:
-		_begin_attack()
-		return
+	var raw_offset := current_target.global_position - global_position
+	if absf(raw_offset.y) <= max_attack_height_difference:
+		var horizontal_offset := raw_offset
+		horizontal_offset.y = 0.0
+		if horizontal_offset.length() <= attack_range and _has_attack_line_of_sight(current_target):
+			_begin_attack()
+			return
 
 	state = StatueState.STALKING
-	_stalk_target(delta, target_offset)
+	var flat_offset := raw_offset
+	flat_offset.y = 0.0
+	_stalk_target(delta, flat_offset)
+
+
+## Mirrors _camera_can_see_point's occlusion-ray idiom, but for whether the
+## statue's own reach to the player is blocked by a wall/floor/ceiling -
+## nothing equivalent existed before this fix, which is how the statue used
+## to be able to kill through a floor.
+func _has_attack_line_of_sight(target: CharacterBody3D) -> bool:
+	var origin := global_position + Vector3.UP * attack_ray_height
+	var target_point := target.global_position + Vector3.UP * attack_ray_height
+	var query := PhysicsRayQueryParameters3D.create(
+		origin,
+		target_point,
+		sight_blocking_mask,
+		[get_rid(), target.get_rid()]
+	)
+	query.hit_from_inside = true
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	return hit.is_empty()
 
 
 func _stalk_target(delta: float, target_offset: Vector3) -> void:
-	var direction := target_offset.normalized()
-	if steering_timer > 0.0:
+	var direction := _navigation_direction(target_offset)
+	if direction.is_zero_approx():
+		velocity.x = move_toward(velocity.x, 0.0, acceleration * delta)
+		velocity.z = move_toward(velocity.z, 0.0, acceleration * delta)
+		return
+
+	# The navigation corridor already steers around walls and through the
+	# stairwell. The old sideways stuck nudge can push the body off a narrow
+	# tread, so reserve it for nav-less test/open scenes that chase directly.
+	if steering_timer > 0.0 and not following_navigation_path:
 		steering_timer -= delta
 		var sideways := Vector3(-direction.z, 0.0, direction.x) * steering_sign
 		direction = (direction + sideways * 0.82).normalized()
@@ -244,6 +353,34 @@ func _stalk_target(delta: float, target_offset: Vector3) -> void:
 	velocity.x = move_toward(velocity.x, desired_velocity.x, acceleration * delta)
 	velocity.z = move_toward(velocity.z, desired_velocity.z, acceleration * delta)
 	_animate_motion(delta, speed / maxf(base_speed, 0.1))
+
+
+## Direction to steer this frame, sourced from the baked navmesh path. A
+## straight-line fallback is allowed only when there is no navmesh at all
+## (small isolated test scenes) or the player is on roughly the same level.
+## This is important when the map is still syncing or a destination is
+## disconnected: charging toward the player's X/Z coordinate from the floor
+## below can never catch them and makes the statue look oblivious to stairs.
+func _navigation_direction(fallback_offset: Vector3) -> Vector3:
+	following_navigation_path = false
+	nav_agent.target_position = current_target.global_position
+	var next_point := nav_agent.get_next_path_position()
+	var to_next := next_point - global_position
+	to_next.y = 0.0
+	var current_path := nav_agent.get_current_navigation_path()
+	if current_path.size() > 1 and to_next.length_squared() > 0.0001:
+		following_navigation_path = true
+		return to_next.normalized()
+
+	var map_rid := nav_agent.get_navigation_map()
+	var has_navigation := map_rid.is_valid() \
+		and NavigationServer3D.map_get_iteration_id(map_rid) > 0 \
+		and not NavigationServer3D.map_get_regions(map_rid).is_empty()
+	var height_difference := absf(current_target.global_position.y - global_position.y)
+	if (not has_navigation or height_difference <= direct_chase_max_height_difference) \
+		and fallback_offset.length_squared() > 0.0001:
+		return fallback_offset.normalized()
+	return Vector3.ZERO
 
 
 func _begin_attack() -> void:

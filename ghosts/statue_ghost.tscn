@@ -43,7 +43,7 @@ billboard_mode = 3
 
 [sub_resource type="CapsuleShape3D" id="Shape_statue"]
 radius = 0.32
-height = 2.1
+height = 1.75
 
 [sub_resource type="CylinderMesh" id="Mesh_shroud"]
 material = SubResource("Material_stone")
@@ -291,8 +291,15 @@ floor_constant_speed = true
 script = ExtResource("1_statue")
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
-position = Vector3(0, 1.05, 0)
+position = Vector3(0, 0.875, 0)
 shape = SubResource("Shape_statue")
+
+[node name="NavigationAgent3D" type="NavigationAgent3D" parent="."]
+radius = 0.4
+height = 1.75
+path_desired_distance = 0.25
+target_desired_distance = 0.5
+avoidance_enabled = false
 
 [node name="VisualRoot" type="Node3D" parent="."]
 

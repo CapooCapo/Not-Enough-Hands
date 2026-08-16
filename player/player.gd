@@ -12,8 +12,14 @@ signal killed_by_ghost(ghost: Node3D)
 @export var crouch_camera_height: float = 0.05
 @export var standing_camera_height: float = 0.62
 @export var crouch_transition_speed: float = 10.0
-@export var max_step_height: float = 0.35
+@export var max_step_height: float = 0.6
 @export var step_floor_margin: float = 0.08
+## Minimum forward reach used when probing for a landing on top of a step.
+## A single frame's real motion (often just a few cm at walk speed) isn't
+## enough to clear the riser's front edge, so the down-cast lands back on
+## the riser's near-vertical face instead of the flat tread and the whole
+## step-up silently fails every frame.
+@export var step_probe_distance: float = 0.3
 
 @export_category("Camera Feel")
 @export var head_bob_frequency: float = 10.0
@@ -271,20 +277,35 @@ func _try_step_up(horizontal_motion: Vector3) -> void:
 	if not test_move(global_transform, horizontal_motion):
 		return
 
-	var step_up := Vector3.UP * max_step_height
-	if test_move(global_transform, step_up):
+	# Raise as far as the available headroom permits, up to max_step_height.
+	# Requiring the full maximum clearance makes a perfectly climbable 20 cm
+	# stair fail beneath a low ceiling if only (for example) 26 cm is free.
+	var available_step_height := max_step_height
+	var up_collision := KinematicCollision3D.new()
+	var requested_step_up := Vector3.UP * max_step_height
+	if test_move(global_transform, requested_step_up, up_collision, safe_margin, false):
+		available_step_height = up_collision.get_travel().y
+	if available_step_height <= 0.02:
 		return
+	var step_up := Vector3.UP * available_step_height
+
+	# The landing search needs to clear the riser's front edge, which a
+	# single frame's real motion is often too small to do - probe forward
+	# by at least step_probe_distance in the same direction instead.
+	var probe_motion := horizontal_motion
+	if probe_motion.length() < step_probe_distance:
+		probe_motion = probe_motion.normalized() * step_probe_distance
 
 	var raised_transform := global_transform
 	raised_transform.origin += step_up
-	if test_move(raised_transform, horizontal_motion):
+	if test_move(raised_transform, probe_motion):
 		return
 
 	# Find a walkable landing below the raised, forward position.
 	var forward_transform := raised_transform
-	forward_transform.origin += horizontal_motion
+	forward_transform.origin += probe_motion
 	var down_collision := KinematicCollision3D.new()
-	var down_motion := Vector3.DOWN * (max_step_height + step_floor_margin)
+	var down_motion := Vector3.DOWN * (available_step_height + step_floor_margin)
 	if not test_move(forward_transform, down_motion, down_collision):
 		return
 	if down_collision.get_normal().dot(up_direction) < 0.65:
@@ -292,8 +313,9 @@ func _try_step_up(horizontal_motion: Vector3) -> void:
 
 	var landing_y := forward_transform.origin.y + down_collision.get_travel().y
 	var step_height := landing_y - global_position.y
-	if step_height > 0.02 and step_height <= max_step_height + step_floor_margin:
+	if step_height > 0.02 and step_height <= available_step_height + step_floor_margin:
 		global_position.y += step_height
+
 
 func _crouch() -> void:
 	is_crouching = true
