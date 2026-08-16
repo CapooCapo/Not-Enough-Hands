@@ -1,0 +1,658 @@
+﻿[gd_scene format=3]
+
+[ext_resource type="Script" uid="uid://kyjqr4onvu5" path="res://ghosts/statue_ghost.gd" id="1_statue"]
+[ext_resource type="Shader" path="res://ghosts/statue_stone.gdshader" id="2_stone"]
+
+[sub_resource type="ShaderMaterial" id="Material_stone"]
+render_priority = 0
+shader = ExtResource("2_stone")
+shader_parameter/stone_color = Color(0.105, 0.112, 0.107, 1)
+shader_parameter/pale_color = Color(0.21, 0.22, 0.205, 1)
+shader_parameter/grime_color = Color(0.026, 0.031, 0.028, 1)
+shader_parameter/vein_color = Color(0.62, 0.055, 0.025, 1)
+shader_parameter/rim_color = Color(0.34, 0.43, 0.52, 1)
+shader_parameter/noise_scale = 6.0
+shader_parameter/grime_amount = 0.7
+shader_parameter/crack_density = 0.6
+shader_parameter/bump_strength = 1.15
+shader_parameter/rim_power = 3.4
+shader_parameter/rim_strength = 1.1
+shader_parameter/damp_sheen = 0.35
+shader_parameter/agitation = 0.0
+
+[sub_resource type="StandardMaterial3D" id="Material_void"]
+albedo_color = Color(0.006, 0.007, 0.008, 1)
+metallic_specular = 0.0
+roughness = 1.0
+
+[sub_resource type="StandardMaterial3D" id="Material_eye"]
+shading_mode = 0
+albedo_color = Color(0.12, 0.17, 0.18, 1)
+emission_enabled = true
+emission = Color(0.12, 0.17, 0.18, 1)
+emission_energy_multiplier = 1.0
+disable_receive_shadows = true
+
+[sub_resource type="StandardMaterial3D" id="Material_dust"]
+transparency = 1
+shading_mode = 0
+vertex_color_use_as_albedo = true
+albedo_color = Color(0.72, 0.74, 0.7, 1)
+disable_receive_shadows = true
+billboard_mode = 3
+
+[sub_resource type="CapsuleShape3D" id="Shape_statue"]
+radius = 0.32
+height = 2.1
+
+[sub_resource type="CylinderMesh" id="Mesh_shroud"]
+material = SubResource("Material_stone")
+top_radius = 0.24
+bottom_radius = 0.35
+height = 0.48
+radial_segments = 7
+rings = 1
+
+[sub_resource type="BoxMesh" id="Mesh_tatter"]
+material = SubResource("Material_stone")
+size = Vector3(0.1, 0.34, 0.035)
+
+[sub_resource type="BoxMesh" id="Mesh_pelvis"]
+material = SubResource("Material_stone")
+size = Vector3(0.33, 0.24, 0.24)
+
+[sub_resource type="CylinderMesh" id="Mesh_thigh"]
+material = SubResource("Material_stone")
+top_radius = 0.086
+bottom_radius = 0.062
+height = 0.5
+radial_segments = 7
+rings = 1
+
+[sub_resource type="CylinderMesh" id="Mesh_shin"]
+material = SubResource("Material_stone")
+top_radius = 0.058
+bottom_radius = 0.042
+height = 0.44
+radial_segments = 7
+rings = 1
+
+[sub_resource type="SphereMesh" id="Mesh_knee"]
+material = SubResource("Material_stone")
+radius = 0.072
+height = 0.144
+radial_segments = 8
+rings = 4
+
+[sub_resource type="SphereMesh" id="Mesh_ankle"]
+material = SubResource("Material_stone")
+radius = 0.05
+height = 0.1
+radial_segments = 7
+rings = 4
+
+[sub_resource type="BoxMesh" id="Mesh_foot"]
+material = SubResource("Material_stone")
+size = Vector3(0.135, 0.08, 0.28)
+
+[sub_resource type="CylinderMesh" id="Mesh_claw"]
+material = SubResource("Material_stone")
+top_radius = 0.022
+bottom_radius = 0.002
+height = 0.09
+radial_segments = 4
+rings = 1
+
+[sub_resource type="CylinderMesh" id="Mesh_lower_spine"]
+material = SubResource("Material_stone")
+top_radius = 0.16
+bottom_radius = 0.135
+height = 0.26
+radial_segments = 8
+rings = 1
+
+[sub_resource type="CylinderMesh" id="Mesh_ribcage"]
+material = SubResource("Material_stone")
+top_radius = 0.235
+bottom_radius = 0.16
+height = 0.48
+radial_segments = 9
+rings = 1
+
+[sub_resource type="BoxMesh" id="Mesh_rib_low"]
+material = SubResource("Material_stone")
+size = Vector3(0.28, 0.024, 0.045)
+
+[sub_resource type="BoxMesh" id="Mesh_rib_mid"]
+material = SubResource("Material_stone")
+size = Vector3(0.32, 0.026, 0.048)
+
+[sub_resource type="BoxMesh" id="Mesh_rib_high"]
+material = SubResource("Material_stone")
+size = Vector3(0.33, 0.026, 0.048)
+
+[sub_resource type="BoxMesh" id="Mesh_sternum"]
+material = SubResource("Material_stone")
+size = Vector3(0.055, 0.3, 0.05)
+
+[sub_resource type="BoxMesh" id="Mesh_clavicle"]
+material = SubResource("Material_stone")
+size = Vector3(0.46, 0.07, 0.115)
+
+[sub_resource type="SphereMesh" id="Mesh_shoulder"]
+material = SubResource("Material_stone")
+radius = 0.09
+height = 0.18
+radial_segments = 9
+rings = 5
+
+[sub_resource type="BoxMesh" id="Mesh_shoulder_broken"]
+material = SubResource("Material_stone")
+size = Vector3(0.16, 0.15, 0.15)
+
+[sub_resource type="CylinderMesh" id="Mesh_neck"]
+material = SubResource("Material_stone")
+top_radius = 0.082
+bottom_radius = 0.105
+height = 0.24
+radial_segments = 7
+rings = 1
+
+[sub_resource type="SphereMesh" id="Mesh_skull"]
+material = SubResource("Material_stone")
+radius = 0.2
+height = 0.52
+radial_segments = 10
+rings = 6
+
+[sub_resource type="BoxMesh" id="Mesh_brow"]
+material = SubResource("Material_stone")
+size = Vector3(0.215, 0.042, 0.075)
+
+[sub_resource type="BoxMesh" id="Mesh_cheek"]
+material = SubResource("Material_stone")
+size = Vector3(0.065, 0.048, 0.07)
+
+[sub_resource type="BoxMesh" id="Mesh_jaw"]
+material = SubResource("Material_stone")
+size = Vector3(0.155, 0.07, 0.17)
+
+[sub_resource type="CylinderMesh" id="Mesh_tooth_lower"]
+material = SubResource("Material_stone")
+top_radius = 0.001
+bottom_radius = 0.011
+height = 0.05
+radial_segments = 4
+rings = 1
+
+[sub_resource type="CylinderMesh" id="Mesh_upper_arm"]
+material = SubResource("Material_stone")
+top_radius = 0.076
+bottom_radius = 0.054
+height = 0.48
+radial_segments = 7
+rings = 1
+
+[sub_resource type="CylinderMesh" id="Mesh_forearm"]
+material = SubResource("Material_stone")
+top_radius = 0.054
+bottom_radius = 0.038
+height = 0.44
+radial_segments = 7
+rings = 1
+
+[sub_resource type="SphereMesh" id="Mesh_elbow"]
+material = SubResource("Material_stone")
+radius = 0.062
+height = 0.124
+radial_segments = 8
+rings = 4
+
+[sub_resource type="SphereMesh" id="Mesh_wrist"]
+material = SubResource("Material_stone")
+radius = 0.046
+height = 0.092
+radial_segments = 7
+rings = 4
+
+[sub_resource type="BoxMesh" id="Mesh_palm"]
+material = SubResource("Material_stone")
+size = Vector3(0.105, 0.125, 0.048)
+
+[sub_resource type="CylinderMesh" id="Mesh_finger"]
+material = SubResource("Material_stone")
+top_radius = 0.019
+bottom_radius = 0.005
+height = 0.155
+radial_segments = 5
+rings = 1
+
+[sub_resource type="CylinderMesh" id="Mesh_thumb"]
+material = SubResource("Material_stone")
+top_radius = 0.021
+bottom_radius = 0.006
+height = 0.115
+radial_segments = 5
+rings = 1
+
+[sub_resource type="SphereMesh" id="Mesh_socket"]
+material = SubResource("Material_void")
+radius = 0.068
+height = 0.136
+radial_segments = 10
+rings = 5
+
+[sub_resource type="SphereMesh" id="Mesh_eye_glow"]
+material = SubResource("Material_eye")
+radius = 0.0085
+height = 0.017
+radial_segments = 8
+rings = 4
+
+[sub_resource type="BoxMesh" id="Mesh_nasal"]
+material = SubResource("Material_void")
+size = Vector3(0.024, 0.042, 0.032)
+
+[sub_resource type="BoxMesh" id="Mesh_mouth_cavity"]
+material = SubResource("Material_void")
+size = Vector3(0.105, 0.125, 0.085)
+
+[sub_resource type="Gradient" id="Gradient_dust"]
+offsets = PackedFloat32Array(0, 0.22, 1)
+colors = PackedColorArray(0.7, 0.72, 0.68, 0, 0.7, 0.72, 0.68, 0.5, 0.7, 0.72, 0.68, 0)
+
+[sub_resource type="GradientTexture1D" id="GradientTexture1D_dust"]
+gradient = SubResource("Gradient_dust")
+
+[sub_resource type="ParticleProcessMaterial" id="Process_dust"]
+emission_shape = 3
+emission_box_extents = Vector3(0.34, 0.9, 0.28)
+direction = Vector3(0, -1, 0)
+spread = 32.0
+initial_velocity_min = 0.02
+initial_velocity_max = 0.14
+gravity = Vector3(0, -0.3, 0)
+damping_min = 0.1
+damping_max = 0.4
+scale_min = 0.35
+scale_max = 1.0
+color = Color(0.7, 0.72, 0.68, 1)
+color_ramp = SubResource("GradientTexture1D_dust")
+
+[sub_resource type="QuadMesh" id="Mesh_dust"]
+material = SubResource("Material_dust")
+size = Vector2(0.016, 0.016)
+
+[node name="StatueGhost" type="CharacterBody3D" groups=["statue_ghosts"]]
+collision_layer = 4
+collision_mask = 1
+floor_snap_length = 0.28
+floor_constant_speed = true
+script = ExtResource("1_statue")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+position = Vector3(0, 1.05, 0)
+shape = SubResource("Shape_statue")
+
+[node name="VisualRoot" type="Node3D" parent="."]
+
+[node name="Shroud" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(0, 0.8, 0.01)
+mesh = SubResource("Mesh_shroud")
+
+[node name="TatterA" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(-0.268, 0.46, 0.152)
+rotation = Vector3(0.1, -0.95, 0.12)
+mesh = SubResource("Mesh_tatter")
+
+[node name="TatterB" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(0.259, 0.43, 0.17)
+rotation = Vector3(-0.12, 0.75, -0.16)
+mesh = SubResource("Mesh_tatter")
+
+[node name="TatterC" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(0.098, 0.48, -0.295)
+rotation = Vector3(0.15, 0.18, 0.09)
+mesh = SubResource("Mesh_tatter")
+
+[node name="TatterD" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(-0.17, 0.44, -0.259)
+rotation = Vector3(-0.13, -0.4, -0.1)
+mesh = SubResource("Mesh_tatter")
+
+[node name="Pelvis" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(0, 1.02, 0)
+mesh = SubResource("Mesh_pelvis")
+
+[node name="LeftLegPivot" type="Node3D" parent="VisualRoot"]
+position = Vector3(-0.145, 1, 0.01)
+
+[node name="Thigh" type="MeshInstance3D" parent="VisualRoot/LeftLegPivot"]
+position = Vector3(0, -0.25, 0)
+mesh = SubResource("Mesh_thigh")
+
+[node name="Knee" type="MeshInstance3D" parent="VisualRoot/LeftLegPivot"]
+position = Vector3(0, -0.5, 0)
+mesh = SubResource("Mesh_knee")
+
+[node name="ShinPivot" type="Node3D" parent="VisualRoot/LeftLegPivot"]
+position = Vector3(0, -0.5, 0)
+
+[node name="Shin" type="MeshInstance3D" parent="VisualRoot/LeftLegPivot/ShinPivot"]
+position = Vector3(0, -0.22, 0)
+mesh = SubResource("Mesh_shin")
+
+[node name="Ankle" type="MeshInstance3D" parent="VisualRoot/LeftLegPivot/ShinPivot"]
+position = Vector3(0, -0.44, 0)
+mesh = SubResource("Mesh_ankle")
+
+[node name="Foot" type="MeshInstance3D" parent="VisualRoot/LeftLegPivot/ShinPivot"]
+position = Vector3(0, -0.46, -0.07)
+mesh = SubResource("Mesh_foot")
+
+[node name="ToeA" type="MeshInstance3D" parent="VisualRoot/LeftLegPivot/ShinPivot"]
+position = Vector3(-0.046, -0.475, -0.205)
+rotation = Vector3(1.5708, 0, 0.12)
+mesh = SubResource("Mesh_claw")
+
+[node name="ToeB" type="MeshInstance3D" parent="VisualRoot/LeftLegPivot/ShinPivot"]
+position = Vector3(0, -0.478, -0.215)
+rotation = Vector3(1.5708, 0, 0)
+mesh = SubResource("Mesh_claw")
+
+[node name="ToeC" type="MeshInstance3D" parent="VisualRoot/LeftLegPivot/ShinPivot"]
+position = Vector3(0.046, -0.475, -0.205)
+rotation = Vector3(1.5708, 0, -0.12)
+mesh = SubResource("Mesh_claw")
+
+[node name="RightLegPivot" type="Node3D" parent="VisualRoot"]
+position = Vector3(0.145, 1, 0.01)
+
+[node name="Thigh" type="MeshInstance3D" parent="VisualRoot/RightLegPivot"]
+position = Vector3(0, -0.25, 0)
+mesh = SubResource("Mesh_thigh")
+
+[node name="Knee" type="MeshInstance3D" parent="VisualRoot/RightLegPivot"]
+position = Vector3(0, -0.5, 0)
+mesh = SubResource("Mesh_knee")
+
+[node name="ShinPivot" type="Node3D" parent="VisualRoot/RightLegPivot"]
+position = Vector3(0, -0.5, 0)
+
+[node name="Shin" type="MeshInstance3D" parent="VisualRoot/RightLegPivot/ShinPivot"]
+position = Vector3(0, -0.22, 0)
+mesh = SubResource("Mesh_shin")
+
+[node name="Ankle" type="MeshInstance3D" parent="VisualRoot/RightLegPivot/ShinPivot"]
+position = Vector3(0, -0.44, 0)
+mesh = SubResource("Mesh_ankle")
+
+[node name="Foot" type="MeshInstance3D" parent="VisualRoot/RightLegPivot/ShinPivot"]
+position = Vector3(0, -0.46, -0.07)
+mesh = SubResource("Mesh_foot")
+
+[node name="ToeA" type="MeshInstance3D" parent="VisualRoot/RightLegPivot/ShinPivot"]
+position = Vector3(0.046, -0.475, -0.205)
+rotation = Vector3(1.5708, 0, -0.12)
+mesh = SubResource("Mesh_claw")
+
+[node name="ToeB" type="MeshInstance3D" parent="VisualRoot/RightLegPivot/ShinPivot"]
+position = Vector3(0, -0.478, -0.215)
+rotation = Vector3(1.5708, 0, 0)
+mesh = SubResource("Mesh_claw")
+
+[node name="ToeC" type="MeshInstance3D" parent="VisualRoot/RightLegPivot/ShinPivot"]
+position = Vector3(-0.046, -0.475, -0.205)
+rotation = Vector3(1.5708, 0, 0.12)
+mesh = SubResource("Mesh_claw")
+
+[node name="TorsoPivot" type="Node3D" parent="VisualRoot"]
+position = Vector3(0, 1.06, 0)
+
+[node name="LowerSpine" type="MeshInstance3D" parent="VisualRoot/TorsoPivot"]
+position = Vector3(0, 0.13, 0.005)
+mesh = SubResource("Mesh_lower_spine")
+
+[node name="Ribcage" type="MeshInstance3D" parent="VisualRoot/TorsoPivot"]
+position = Vector3(0, 0.5, -0.005)
+mesh = SubResource("Mesh_ribcage")
+
+[node name="RibLow" type="MeshInstance3D" parent="VisualRoot/TorsoPivot"]
+position = Vector3(0, 0.36, -0.158)
+rotation = Vector3(0.2, 0, 0.04)
+mesh = SubResource("Mesh_rib_low")
+
+[node name="RibMid" type="MeshInstance3D" parent="VisualRoot/TorsoPivot"]
+position = Vector3(0, 0.45, -0.178)
+rotation = Vector3(0.16, 0, -0.02)
+mesh = SubResource("Mesh_rib_mid")
+
+[node name="RibHigh" type="MeshInstance3D" parent="VisualRoot/TorsoPivot"]
+position = Vector3(0, 0.54, -0.193)
+rotation = Vector3(0.12, 0, 0.03)
+mesh = SubResource("Mesh_rib_high")
+
+[node name="Sternum" type="MeshInstance3D" parent="VisualRoot/TorsoPivot"]
+position = Vector3(0, 0.46, -0.205)
+rotation = Vector3(0.15, 0, 0)
+mesh = SubResource("Mesh_sternum")
+
+[node name="Clavicle" type="MeshInstance3D" parent="VisualRoot/TorsoPivot"]
+position = Vector3(0, 0.71, -0.02)
+rotation = Vector3(0.07, 0, 0)
+mesh = SubResource("Mesh_clavicle")
+
+[node name="ShoulderLeft" type="MeshInstance3D" parent="VisualRoot/TorsoPivot"]
+position = Vector3(-0.27, 0.68, -0.01)
+mesh = SubResource("Mesh_shoulder")
+
+[node name="ShoulderRightBroken" type="MeshInstance3D" parent="VisualRoot/TorsoPivot"]
+position = Vector3(0.27, 0.68, -0.01)
+rotation = Vector3(0.32, 0.55, 0.38)
+mesh = SubResource("Mesh_shoulder_broken")
+
+[node name="Neck" type="MeshInstance3D" parent="VisualRoot/TorsoPivot"]
+position = Vector3(0, 0.83, 0.015)
+mesh = SubResource("Mesh_neck")
+
+[node name="HeadPivot" type="Node3D" parent="VisualRoot/TorsoPivot"]
+position = Vector3(0, 0.86, 0.03)
+
+[node name="Skull" type="MeshInstance3D" parent="VisualRoot/TorsoPivot/HeadPivot"]
+mesh = SubResource("Mesh_skull")
+
+[node name="Brow" type="MeshInstance3D" parent="VisualRoot/TorsoPivot/HeadPivot"]
+position = Vector3(0, 0.062, -0.15)
+rotation = Vector3(0.3, 0, 0.02)
+mesh = SubResource("Mesh_brow")
+
+[node name="EyeSocketLeft" type="MeshInstance3D" parent="VisualRoot/TorsoPivot/HeadPivot"]
+position = Vector3(-0.09, -0.006, -0.168)
+rotation = Vector3(0, 0, -0.3)
+scale = Vector3(1.22, 0.6, 0.5)
+mesh = SubResource("Mesh_socket")
+
+[node name="EyeSocketRight" type="MeshInstance3D" parent="VisualRoot/TorsoPivot/HeadPivot"]
+position = Vector3(0.09, -0.008, -0.166)
+rotation = Vector3(0, 0, 0.3)
+scale = Vector3(1.18, 0.56, 0.5)
+mesh = SubResource("Mesh_socket")
+
+[node name="EyeGlowLeft" type="MeshInstance3D" parent="VisualRoot/TorsoPivot/HeadPivot"]
+position = Vector3(-0.088, -0.014, -0.2)
+mesh = SubResource("Mesh_eye_glow")
+
+[node name="EyeGlowRight" type="MeshInstance3D" parent="VisualRoot/TorsoPivot/HeadPivot"]
+position = Vector3(0.088, -0.016, -0.198)
+mesh = SubResource("Mesh_eye_glow")
+
+[node name="EyeLight" type="OmniLight3D" parent="VisualRoot/TorsoPivot/HeadPivot"]
+position = Vector3(0, -0.01, -0.21)
+light_color = Color(0.55, 0.68, 0.72, 1)
+light_energy = 0.18
+light_specular = 0.1
+shadow_enabled = false
+omni_range = 0.62
+
+[node name="NasalCavity" type="MeshInstance3D" parent="VisualRoot/TorsoPivot/HeadPivot"]
+position = Vector3(0, -0.078, -0.186)
+rotation = Vector3(0, 0, 0.7854)
+mesh = SubResource("Mesh_nasal")
+
+[node name="CheekLeft" type="MeshInstance3D" parent="VisualRoot/TorsoPivot/HeadPivot"]
+position = Vector3(-0.118, -0.062, -0.14)
+rotation = Vector3(0.12, -0.4, -0.2)
+mesh = SubResource("Mesh_cheek")
+
+[node name="CheekRight" type="MeshInstance3D" parent="VisualRoot/TorsoPivot/HeadPivot"]
+position = Vector3(0.118, -0.062, -0.14)
+rotation = Vector3(0.12, 0.4, 0.2)
+mesh = SubResource("Mesh_cheek")
+
+[node name="MouthCavity" type="MeshInstance3D" parent="VisualRoot/TorsoPivot/HeadPivot"]
+position = Vector3(0, -0.172, -0.128)
+mesh = SubResource("Mesh_mouth_cavity")
+
+[node name="JawPivot" type="Node3D" parent="VisualRoot/TorsoPivot/HeadPivot"]
+position = Vector3(0, -0.168, -0.052)
+
+[node name="Jaw" type="MeshInstance3D" parent="VisualRoot/TorsoPivot/HeadPivot/JawPivot"]
+position = Vector3(0, -0.062, -0.052)
+rotation = Vector3(0.14, 0, 0)
+mesh = SubResource("Mesh_jaw")
+
+[node name="JawToothA" type="MeshInstance3D" parent="VisualRoot/TorsoPivot/HeadPivot/JawPivot"]
+position = Vector3(-0.036, 0.004, -0.108)
+rotation = Vector3(0.06, 0.35, -0.07)
+mesh = SubResource("Mesh_tooth_lower")
+
+[node name="JawToothB" type="MeshInstance3D" parent="VisualRoot/TorsoPivot/HeadPivot/JawPivot"]
+position = Vector3(0, 0.006, -0.115)
+rotation = Vector3(0.04, -0.45, 0.05)
+mesh = SubResource("Mesh_tooth_lower")
+
+[node name="JawToothC" type="MeshInstance3D" parent="VisualRoot/TorsoPivot/HeadPivot/JawPivot"]
+position = Vector3(0.036, 0.002, -0.106)
+rotation = Vector3(0.07, 0.25, 0.09)
+mesh = SubResource("Mesh_tooth_lower")
+
+[node name="LeftArmPivot" type="Node3D" parent="VisualRoot/TorsoPivot"]
+position = Vector3(-0.285, 0.66, -0.01)
+
+[node name="UpperArm" type="MeshInstance3D" parent="VisualRoot/TorsoPivot/LeftArmPivot"]
+position = Vector3(0, -0.24, 0)
+mesh = SubResource("Mesh_upper_arm")
+
+[node name="Elbow" type="MeshInstance3D" parent="VisualRoot/TorsoPivot/LeftArmPivot"]
+position = Vector3(0, -0.48, 0)
+mesh = SubResource("Mesh_elbow")
+
+[node name="ForearmPivot" type="Node3D" parent="VisualRoot/TorsoPivot/LeftArmPivot"]
+position = Vector3(0, -0.48, 0)
+
+[node name="Forearm" type="MeshInstance3D" parent="VisualRoot/TorsoPivot/LeftArmPivot/ForearmPivot"]
+position = Vector3(0, -0.22, 0)
+mesh = SubResource("Mesh_forearm")
+
+[node name="Wrist" type="MeshInstance3D" parent="VisualRoot/TorsoPivot/LeftArmPivot/ForearmPivot"]
+position = Vector3(0, -0.44, 0)
+mesh = SubResource("Mesh_wrist")
+
+[node name="HandPivot" type="Node3D" parent="VisualRoot/TorsoPivot/LeftArmPivot/ForearmPivot"]
+position = Vector3(0, -0.46, 0)
+
+[node name="Palm" type="MeshInstance3D" parent="VisualRoot/TorsoPivot/LeftArmPivot/ForearmPivot/HandPivot"]
+position = Vector3(0, -0.062, -0.004)
+rotation = Vector3(0.06, 0, 0)
+mesh = SubResource("Mesh_palm")
+
+[node name="FingerA" type="MeshInstance3D" parent="VisualRoot/TorsoPivot/LeftArmPivot/ForearmPivot/HandPivot"]
+position = Vector3(-0.043, -0.196, -0.03)
+rotation = Vector3(0.34, 0, 0.22)
+mesh = SubResource("Mesh_finger")
+
+[node name="FingerB" type="MeshInstance3D" parent="VisualRoot/TorsoPivot/LeftArmPivot/ForearmPivot/HandPivot"]
+position = Vector3(-0.015, -0.2, -0.026)
+rotation = Vector3(0.3, 0, 0.07)
+mesh = SubResource("Mesh_finger")
+
+[node name="FingerC" type="MeshInstance3D" parent="VisualRoot/TorsoPivot/LeftArmPivot/ForearmPivot/HandPivot"]
+position = Vector3(0.014, -0.199, -0.028)
+rotation = Vector3(0.33, 0, -0.07)
+mesh = SubResource("Mesh_finger")
+
+[node name="FingerD" type="MeshInstance3D" parent="VisualRoot/TorsoPivot/LeftArmPivot/ForearmPivot/HandPivot"]
+position = Vector3(0.041, -0.194, -0.032)
+rotation = Vector3(0.37, 0, -0.22)
+mesh = SubResource("Mesh_finger")
+
+[node name="Thumb" type="MeshInstance3D" parent="VisualRoot/TorsoPivot/LeftArmPivot/ForearmPivot/HandPivot"]
+position = Vector3(-0.06, -0.112, -0.014)
+rotation = Vector3(0.28, -0.18, 1.18)
+mesh = SubResource("Mesh_thumb")
+
+[node name="RightArmPivot" type="Node3D" parent="VisualRoot/TorsoPivot"]
+position = Vector3(0.285, 0.66, -0.01)
+
+[node name="UpperArm" type="MeshInstance3D" parent="VisualRoot/TorsoPivot/RightArmPivot"]
+position = Vector3(0, -0.24, 0)
+mesh = SubResource("Mesh_upper_arm")
+
+[node name="Elbow" type="MeshInstance3D" parent="VisualRoot/TorsoPivot/RightArmPivot"]
+position = Vector3(0, -0.48, 0)
+mesh = SubResource("Mesh_elbow")
+
+[node name="ForearmPivot" type="Node3D" parent="VisualRoot/TorsoPivot/RightArmPivot"]
+position = Vector3(0, -0.48, 0)
+
+[node name="Forearm" type="MeshInstance3D" parent="VisualRoot/TorsoPivot/RightArmPivot/ForearmPivot"]
+position = Vector3(0, -0.22, 0)
+mesh = SubResource("Mesh_forearm")
+
+[node name="Wrist" type="MeshInstance3D" parent="VisualRoot/TorsoPivot/RightArmPivot/ForearmPivot"]
+position = Vector3(0, -0.44, 0)
+mesh = SubResource("Mesh_wrist")
+
+[node name="HandPivot" type="Node3D" parent="VisualRoot/TorsoPivot/RightArmPivot/ForearmPivot"]
+position = Vector3(0, -0.46, 0)
+
+[node name="Palm" type="MeshInstance3D" parent="VisualRoot/TorsoPivot/RightArmPivot/ForearmPivot/HandPivot"]
+position = Vector3(0, -0.062, -0.004)
+rotation = Vector3(0.06, 0, 0)
+mesh = SubResource("Mesh_palm")
+
+[node name="FingerA" type="MeshInstance3D" parent="VisualRoot/TorsoPivot/RightArmPivot/ForearmPivot/HandPivot"]
+position = Vector3(0.043, -0.196, -0.03)
+rotation = Vector3(0.34, 0, -0.22)
+mesh = SubResource("Mesh_finger")
+
+[node name="FingerB" type="MeshInstance3D" parent="VisualRoot/TorsoPivot/RightArmPivot/ForearmPivot/HandPivot"]
+position = Vector3(0.015, -0.2, -0.026)
+rotation = Vector3(0.3, 0, -0.07)
+mesh = SubResource("Mesh_finger")
+
+[node name="FingerC" type="MeshInstance3D" parent="VisualRoot/TorsoPivot/RightArmPivot/ForearmPivot/HandPivot"]
+position = Vector3(-0.014, -0.199, -0.028)
+rotation = Vector3(0.33, 0, 0.07)
+mesh = SubResource("Mesh_finger")
+
+[node name="FingerD" type="MeshInstance3D" parent="VisualRoot/TorsoPivot/RightArmPivot/ForearmPivot/HandPivot"]
+position = Vector3(-0.041, -0.194, -0.032)
+rotation = Vector3(0.37, 0, 0.22)
+mesh = SubResource("Mesh_finger")
+
+[node name="Thumb" type="MeshInstance3D" parent="VisualRoot/TorsoPivot/RightArmPivot/ForearmPivot/HandPivot"]
+position = Vector3(0.06, -0.112, -0.014)
+rotation = Vector3(0.28, 0.18, -1.18)
+mesh = SubResource("Mesh_thumb")
+
+[node name="Dust" type="GPUParticles3D" parent="VisualRoot"]
+position = Vector3(0, 1.05, 0)
+amount = 26
+amount_ratio = 0.3
+lifetime = 4.5
+randomness = 0.7
+visibility_aabb = AABB(-0.9, -1.3, -0.9, 1.8, 2.7, 1.8)
+local_coords = false
+process_material = SubResource("Process_dust")
+draw_pass_1 = SubResource("Mesh_dust")

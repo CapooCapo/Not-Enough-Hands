@@ -4,6 +4,7 @@
 [ext_resource type="PackedScene" path="res://player/player.tscn" id="2_0xm2m"]
 [ext_resource type="Script" uid="uid://q7p5bw5b7fxt" path="res://main.gd" id="3_main"]
 [ext_resource type="PackedScene" path="res://door/door.tscn" id="4_1bvp3"]
+[ext_resource type="PackedScene" path="res://ghosts/statue_ghost.tscn" id="5_statue"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_main"]
 sky_top_color = Color(0.22, 0.38, 0.58, 1)
@@ -61,5 +62,14 @@ transform = Transform3D(0.5, 0, 0, 0, 0.5, 0, 0, 0, 0.5, 13.014493, 0, 19.701927
 [node name="Player" parent="." unique_id=308502712 instance=ExtResource("2_0xm2m")]
 transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 13.014493, 1.1, 8.714412)
 
-[node name="Door" parent="." unique_id=1758612283 instance=ExtResource("4_1bvp3")]
+[node name="StatueGhost" parent="." instance=ExtResource("5_statue")]
+position = Vector3(13.014493, 0.08, 16.5)
+night_aggression = 0.15
+
+[node name="Node3D" type="Node3D" parent="." unique_id=627228838]
+
+[node name="Door" parent="Node3D" unique_id=1758612283 instance=ExtResource("4_1bvp3")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7.07997, 0, 13.728837)
+
+[node name="Door2" parent="Node3D" unique_id=1538138317 instance=ExtResource("4_1bvp3")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 21.2351, 0, 24.202734)

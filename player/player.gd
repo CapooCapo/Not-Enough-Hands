@@ -1,5 +1,8 @@
 extends CharacterBody3D
 
+signal eyes_closed_changed(closed: bool)
+signal killed_by_ghost(ghost: Node3D)
+
 @export var walk_speed: float = 3.4
 @export var crouch_speed: float = 1.8
 @export var jump_velocity: float = 4.2
@@ -17,6 +20,12 @@ extends CharacterBody3D
 @export var head_bob_horizontal: float = 0.018
 @export var head_bob_vertical: float = 0.028
 
+@export_category('Blink')
+@export var automatic_blink_enabled: bool = true
+@export var blink_interval: float = 7.0
+@export var forced_blink_duration: float = 0.22
+@export var eyelid_transition_speed: float = 16.0
+
 var is_crouching: bool = false
 @export var max_stamina: float = 100.0
 @export var sprint_stamina_drain: float = 20.0
@@ -25,18 +34,29 @@ var is_crouching: bool = false
 
 var current_stamina: float = max_stamina
 var head_bob_time: float = 0.0
+var eyes_closed: bool = false
+var is_alive: bool = true
+var blink_time_remaining: float = blink_interval
+var forced_blink_remaining: float = 0.0
+var statue_threat: float = 0.0
+var eyelid_closure: float = 0.0
 @export var mouse_sensitivity: float = 0.002
 @export var max_interaction_range: float = 10.0
 
 @onready var camera_pivot: Node3D = $CameraPivot
 @onready var interact_ray: RayCast3D = $CameraPivot/Camera3D/InteractRay
 @onready var collision_shape: CollisionShape3D = $CollisionShape3D
+@onready var blink_overlay: ColorRect = $BlinkOverlay/Eyelids
+@onready var blink_bar: ProgressBar = $BlinkUI/BlinkContainer/VBoxContainer/BlinkBar
+@onready var horror_overlay_rect: ColorRect = $HorrorOverlay/VignetteAndGrain
+@onready var death_ui: CanvasLayer = $DeathUI
 
 # Get the gravity from the project settings to be synced with RigidBody nodes.
 var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 
 func _ready() -> void:
 	current_stamina = max_stamina
+	blink_time_remaining = blink_interval
 	var shape := collision_shape.shape as CapsuleShape3D
 	shape.radius = player_radius
 	shape.height = standing_height
@@ -45,6 +65,9 @@ func _ready() -> void:
 		interact_ray.target_position = Vector3(0, 0, -max_interaction_range)
 
 func _unhandled_input(event: InputEvent) -> void:
+	if not is_alive:
+		return
+
 	if event is InputEventMouseMotion and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
 		# Rotate player horizontally
 		rotate_y(-event.relative.x * mouse_sensitivity)
@@ -88,6 +111,11 @@ func _try_interact() -> void:
 		target.interact(self)
 
 func _physics_process(delta: float) -> void:
+	_update_blink(delta)
+	if not is_alive:
+		velocity = Vector3.ZERO
+		return
+
 	var was_on_floor := is_on_floor()
 
 	# Add the gravity.
@@ -153,6 +181,69 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 
 
+func _update_blink(delta: float) -> void:
+	var was_closed := eyes_closed
+	var manual_close := Input.is_action_pressed('blink') and is_alive
+
+	if manual_close:
+		eyes_closed = true
+		blink_time_remaining = blink_interval
+	elif forced_blink_remaining > 0.0:
+		eyes_closed = true
+		forced_blink_remaining = maxf(forced_blink_remaining - delta, 0.0)
+	else:
+		eyes_closed = false
+		if automatic_blink_enabled and is_alive:
+			blink_time_remaining -= delta
+			if blink_time_remaining <= 0.0:
+				forced_blink_remaining = forced_blink_duration
+				blink_time_remaining = blink_interval
+				eyes_closed = true
+
+	var target_closure := 1.0 if eyes_closed else 0.0
+	eyelid_closure = move_toward(
+		eyelid_closure,
+		target_closure,
+		eyelid_transition_speed * delta
+	)
+	var eyelid_material := blink_overlay.material as ShaderMaterial
+	if eyelid_material:
+		eyelid_material.set_shader_parameter('closure', eyelid_closure)
+
+	if blink_bar:
+		blink_bar.value = clampf(blink_time_remaining / maxf(blink_interval, 0.01), 0.0, 1.0) * 100.0
+
+	if was_closed != eyes_closed:
+		eyes_closed_changed.emit(eyes_closed)
+
+
+func force_blink(duration: float = -1.0) -> void:
+	forced_blink_remaining = forced_blink_duration if duration < 0.0 else duration
+	blink_time_remaining = blink_interval
+	if not eyes_closed and is_alive:
+		eyes_closed = true
+		eyes_closed_changed.emit(true)
+
+
+func set_statue_threat(amount: float) -> void:
+	statue_threat = clampf(amount, 0.0, 1.0)
+	var overlay_material := horror_overlay_rect.material as ShaderMaterial
+	if overlay_material:
+		overlay_material.set_shader_parameter('threat_strength', statue_threat)
+
+
+func kill_by_ghost(ghost: Node3D) -> void:
+	if not is_alive:
+		return
+	is_alive = false
+	forced_blink_remaining = 0.0
+	eyes_closed = false
+	velocity = Vector3.ZERO
+	death_ui.visible = true
+	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+	killed_by_ghost.emit(ghost)
+
+
 func _update_camera_motion(delta: float) -> void:
 	var target_height := crouch_camera_height if is_crouching else standing_camera_height
 	var bob_offset := Vector2.ZERO
@@ -165,8 +256,11 @@ func _update_camera_motion(delta: float) -> void:
 		bob_offset.y = sin(head_bob_time) * head_bob_vertical
 
 	var target_position := Vector3(bob_offset.x, target_height + bob_offset.y, 0.0)
+	var threat_wave := sin(Time.get_ticks_msec() * 0.019) * statue_threat
+	target_position.x += threat_wave * 0.008
 	var blend := minf(crouch_transition_speed * delta, 1.0)
 	camera_pivot.position = camera_pivot.position.lerp(target_position, blend)
+	camera_pivot.rotation.z = lerpf(camera_pivot.rotation.z, threat_wave * 0.006, blend)
 
 
 func _try_step_up(horizontal_motion: Vector3) -> void:
