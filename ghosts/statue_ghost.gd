@@ -24,19 +24,27 @@ signal spotted_jumpscare_started()
 ## they looked away. Without this, unseen_grace_time (0.32s) outlasts the
 ## default forced_blink_duration (0.22s) and every automatic blink is a
 ## free no-op. Looking away still uses the full unseen_grace_time.
-@export var blink_unseen_grace_time: float = 0.05
+@export var blink_unseen_grace_time: float = 0.025
+## A blink is the statue's signature attack window. The farther away it is,
+## the harder it surges along its navigation path, so spotting it at the end of
+## a long hall does not make a normal 0.22-second blink feel harmless.
+@export var blink_lunge_near_distance: float = 2.5
+@export var blink_lunge_far_distance: float = 11.0
+@export var blink_lunge_near_speed_multiplier: float = 1.45
+@export var blink_lunge_far_speed_multiplier: float = 5.2
+@export var blink_lunge_acceleration_multiplier: float = 12.0
 
 @export_category('Hunt Cycle')
 ## The statue spends most of its time absent, then sometimes starts an ambush
 ## instead of pursuing continuously for the entire game.
 @export var intermittent_hunts_enabled: bool = true
 @export var start_hidden: bool = true
-@export_range(0.0, 1.0) var hunt_activation_chance: float = 0.65
-@export var initial_hidden_delay_min: float = 5.0
-@export var initial_hidden_delay_max: float = 9.0
-@export var hidden_hunt_delay_min: float = 8.0
-@export var hidden_hunt_delay_max: float = 14.0
-@export var no_hunt_retry_delay: float = 3.0
+@export_range(0.0, 1.0) var hunt_activation_chance: float = 0.4
+@export var initial_hidden_delay_min: float = 12.0
+@export var initial_hidden_delay_max: float = 20.0
+@export var hidden_hunt_delay_min: float = 20.0
+@export var hidden_hunt_delay_max: float = 34.0
+@export var no_hunt_retry_delay: float = 8.0
 ## Once any living player spots it, this countdown continues even if that
 ## player looks away. The statue vanishes when it expires.
 @export var observed_disappear_delay: float = 10.0
@@ -57,7 +65,9 @@ signal spotted_jumpscare_started()
 @export_category('Attack')
 @export var attack_range: float = 1.15
 @export var attack_windup: float = 0.48
-@export var attack_cooldown: float = 1.4
+## Pause after a swing before it may wind up again. Long enough that a survived
+## attack is a real chance to break away rather than a one-second reprieve.
+@export var attack_cooldown: float = 3.0
 ## Vertical separation beyond this immediately rules out an attack, cheaply,
 ## before paying for an occlusion raycast. Generous enough for normal
 ## stair/landing height variance, far short of a full floor-to-floor gap
@@ -291,6 +301,28 @@ func set_dev_attack_suspended(suspended: bool) -> void:
 
 func _attacks_blocked() -> bool:
 	return dev_attack_suspended or attack_resume_grace_remaining > 0.0
+
+
+## Forces the existing statue instance to manifest for development testing,
+## bypassing its hidden timer and random hunt roll.
+func dev_force_spawn(target: CharacterBody3D = null) -> bool:
+	active = true
+	if not is_instance_valid(target):
+		target = _find_closest_living_player()
+	if not is_instance_valid(target):
+		return false
+
+	var ambush_position := _find_ambush_position(target)
+	if ambush_position == Vector3.INF:
+		var fallback := target.global_position \
+			+ target.global_basis.z * maxf(ambush_min_distance, 4.0)
+		var map_rid := nav_agent.get_navigation_map()
+		if map_rid.is_valid() and NavigationServer3D.map_get_iteration_id(map_rid) > 0:
+			fallback = NavigationServer3D.map_get_closest_point(map_rid, fallback)
+		ambush_position = fallback + Vector3.UP * 0.02
+
+	_begin_hunt(target, ambush_position)
+	return true
 
 
 # --- Hunt lifecycle ----------------------------------------------------------
@@ -554,10 +586,33 @@ func _stalk_target(delta: float, target_offset: Vector3) -> void:
 	var speed := base_speed + speed_per_breached_door * breached_door_count
 	speed += lerpf(0.0, 1.5, night_aggression)
 	speed = minf(speed, maximum_speed)
+	var movement_acceleration := acceleration
+	var target_is_blinking: bool = is_instance_valid(current_target) \
+		and 'eyes_closed' in current_target \
+		and current_target.eyes_closed
+	if target_is_blinking:
+		var distance_span := maxf(
+			blink_lunge_far_distance - blink_lunge_near_distance,
+			0.01
+		)
+		var distance_ratio := clampf(
+			(target_offset.length() - blink_lunge_near_distance) / distance_span,
+			0.0,
+			1.0
+		)
+		# Smooth the curve so middle distances escalate naturally while the far
+		# end still delivers the dramatic multi-metre rush the blink promises.
+		distance_ratio = distance_ratio * distance_ratio * (3.0 - 2.0 * distance_ratio)
+		speed *= lerpf(
+			blink_lunge_near_speed_multiplier,
+			blink_lunge_far_speed_multiplier,
+			distance_ratio
+		)
+		movement_acceleration *= blink_lunge_acceleration_multiplier
 	var burst := lerpf(0.82, 1.18, sin(movement_phase * 0.63) * 0.5 + 0.5)
 	var desired_velocity := direction * speed * burst
-	velocity.x = move_toward(velocity.x, desired_velocity.x, acceleration * delta)
-	velocity.z = move_toward(velocity.z, desired_velocity.z, acceleration * delta)
+	velocity.x = move_toward(velocity.x, desired_velocity.x, movement_acceleration * delta)
+	velocity.z = move_toward(velocity.z, desired_velocity.z, movement_acceleration * delta)
 	_animate_motion(delta, speed / maxf(base_speed, 0.1))
 
 

@@ -72,6 +72,31 @@ func start_attack_wave(requested_count: int = -1) -> Array[Node]:
 	return selected
 
 
+## Deterministic development hook: starts a real attack at one authored
+## entrance and skips the stalking delay so the requested door reacts at once.
+func start_attack_at_entrance(entrance_id: int) -> Node:
+	for node: Node in get_tree().get_nodes_in_group("defense_doors"):
+		if not node is DefenseDoor or int(node.get("entrance_id")) != entrance_id:
+			continue
+		var door := node as DefenseDoor
+		if door.current_durability <= 0.0:
+			return null
+		if door.attack_phase in [
+			DefenseDoor.AttackPhase.STALKING,
+			DefenseDoor.AttackPhase.WEAK_ATTACK,
+			DefenseDoor.AttackPhase.STRONG_ATTACK,
+		]:
+			door.drive_ghost_away()
+		if door.attack_phase != DefenseDoor.AttackPhase.IDLE:
+			return null
+		if door.begin_targeting(true, 0.0):
+			var selected: Array[Node] = [door]
+			attack_wave_started.emit(selected)
+			return door
+		return null
+	return null
+
+
 func set_random_seed(value: int) -> void:
 	_rng.seed = value
 

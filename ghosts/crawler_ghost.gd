@@ -71,16 +71,16 @@ signal containment_recovered(escaped_position: Vector3, recovered_position: Vect
 ## bare noise-hunter, which is the control the isolated smoke tests use.
 @export var hunt_cycle_enabled: bool = true
 @export var start_hidden: bool = true
-@export var initial_hidden_delay_min: float = 20.0
-@export var initial_hidden_delay_max: float = 40.0
+@export var initial_hidden_delay_min: float = 35.0
+@export var initial_hidden_delay_max: float = 60.0
 ## The quiet between hunts. This is most of the nerf: for minutes at a time the
 ## house simply does not contain it.
-@export var hidden_delay_min: float = 55.0
-@export var hidden_delay_max: float = 100.0
+@export var hidden_delay_min: float = 95.0
+@export var hidden_delay_max: float = 160.0
 ## Noise while it is hiding cannot summon it directly - the omen always plays
 ## first - but it does bring the next cycle forward by this fraction of the
 ## remaining wait, so a loud house is still a more dangerous house.
-@export_range(0.0, 1.0) var noise_impatience: float = 0.35
+@export_range(0.0, 1.0) var noise_impatience: float = 0.2
 
 @export_category('Omen')
 ## The announced fly-past that precedes every hunt. It cannot kill during this,
@@ -248,8 +248,10 @@ signal containment_recovered(escaped_position: Vector3, recovered_position: Vect
 ## The window a missed pounce hands back to the player. Without this it is
 ## simply unsurvivable in a corridor, and it is long enough here to actually
 ## clear a room and put a door between you.
-@export var pounce_recovery: float = 1.9
-@export var pounce_cooldown: float = 3.6
+@export var pounce_recovery: float = 2.6
+## Minimum gap between leaps. It has one attack, so this is the whole attack
+## rate: after a leap it has to creep and listen again before trying another.
+@export var pounce_cooldown: float = 7.0
 @export_range(0.0, 1.0) var pounce_min_confidence: float = 0.25
 ## How near its noise fix a player has to be before it is willing to leap at
 ## them. It is blind: it lunges at a sound, not at a body, so a player who is
@@ -497,6 +499,42 @@ func set_dev_attack_suspended(suspended: bool) -> void:
 
 func _attacks_blocked() -> bool:
 	return dev_attack_suspended or attack_resume_grace_remaining > 0.0
+
+
+## Forces the existing crawler instance into the world near the chosen player.
+## It resumes its authored patrol instead of waiting for the next hidden cycle.
+func dev_force_spawn(target: CharacterBody3D = null) -> bool:
+	active = true
+	var spawn_position := lair_position
+	if is_instance_valid(target):
+		var camera := target.get_node_or_null("CameraPivot/Camera3D") as Camera3D
+		var forward := -target.global_basis.z
+		if camera:
+			forward = -camera.global_basis.z
+		forward.y = 0.0
+		if forward.length_squared() > 0.0001:
+			forward = forward.normalized()
+			var candidate := _standable_point(target.global_position + forward * 5.5)
+			if candidate != Vector3.INF:
+				spawn_position = candidate
+
+	spawn_position = _clamp_to_containment(spawn_position, containment_recovery_inset)
+	global_position = spawn_position
+	last_position = spawn_position
+	last_contained_position = spawn_position
+	has_contained_position = true
+	velocity = Vector3.ZERO
+	surface_normal = Vector3.UP
+	has_surface = false
+	has_noise_fix = false
+	noise_confidence = 0.0
+	noise_source = null
+	pounce_timer = 0.0
+	pounce_air_time = 0.0
+	pounce_cooldown_timer = 0.0
+	_begin_patrol()
+	chitter_audio.play()
+	return true
 
 
 # --- Level containment --------------------------------------------------------

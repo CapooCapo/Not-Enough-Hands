@@ -81,6 +81,18 @@ func _run() -> void:
 		_fail("Basement stair must run along the west garage wall, not through the room centre.")
 		return
 
+	# Bathroom fixtures belong against walls, not in the circulation path from
+	# the hall doorway. In particular, keep the toilet on the south wall with
+	# the bowl facing into the room.
+	var toilet := generated.find_child("Toilet_*", true, false) as Node3D
+	var expected_toilet_position := Vector3(5.1, 3.0, 0.65)
+	if not toilet or toilet.global_position.distance_to(expected_toilet_position) > 0.05:
+		_fail("Bathroom toilet is not tucked against the south wall.")
+		return
+	if absf(wrapf(toilet.rotation.y - PI, -PI, PI)) > 0.05:
+		_fail("Bathroom toilet does not face into the room.")
+		return
+
 	var smooth_ramps := get_nodes_in_group("smooth_stair_ramps")
 	if smooth_ramps.size() != 4:
 		_fail("Expected 4 smooth stair ramps including the cellar exit, found %d." % smooth_ramps.size())

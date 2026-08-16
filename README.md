@@ -9,7 +9,19 @@ furniture source packs under `assets/map`.
 1. Open `project.godot` in Godot 4.7.
 2. Run `main.tscn` with F6/F5.
 3. Move with WASD, sprint with Shift, crouch with Ctrl, jump with Space, interact
-   with E, blink with B, and release the mouse with Esc.
+   with E, blink with B, and press Alt to show or recapture the mouse.
+
+The bottom-left **THỂ LỰC** bar is connected to the player's sprint reserve: it
+drains while Shift-running and refills while walking or standing still.
+
+Press **F1** to open the development panel. It can toggle invincibility and x3
+movement speed, force the existing Statue or Crawler to manifest, and select
+entrance 01-07 for an immediate real door attack. Opening the panel releases the
+mouse automatically; F1 closes it and restores the previous mouse mode.
+
+Interior bulbs occasionally sputter through a short, localised blackout. The
+electrical snap and buzz is positional at the affected fixture, and the system
+prefers a room near the player so the rare event is not wasted off-screen.
 
 The player starts on the front path facing entrance 01. Every floor is physically
 connected: cellar stairs lead into the garage, the main-hall stairs reach the
@@ -17,10 +29,10 @@ second-floor landing, and a second flight reaches the attic.
 
 ## Survive until dawn
 
-The HUD clock starts at **11:55 PM**. Every five real seconds advances exactly
+The HUD clock starts at **11:55 PM**. Every 2.5 real seconds advances exactly
 one in-game minute, including the midnight rollover. Reaching **6:00 AM** stops
 the threats, pauses the world, and displays the dawn victory screen. The clock
-is hidden while the breached-door flashlight minigame owns the screen.
+is hidden while the door-ghost flashlight minigame owns the screen.
 
 ## House2 layout
 
@@ -37,28 +49,33 @@ Interior partitions use open modular frames so the navigation mesh, player, and
 statue can circulate through every room. The seven exterior entrances remain
 repairable defense doors used by the attack director.
 
-## Breached-door flashlight minigame
+## Door-ghost flashlight minigame
 
-While a door is still being stalked, scratched, or smashed, aiming at it and
-pressing E drives the attacker away immediately. The flashlight minigame is
-reserved for a door that has already reached zero durability.
+As soon as a door starts rustling, scratching, or being smashed, approach it,
+aim at it, and press E to enter the 30-second flashlight minigame. Winning drives
+the attacker away before it can do more damage. Timing out gives the attacker a
+heavy hit and immediately starts a fresh attempt; repeated failures can still
+break the door while the minigame is active.
 
 A defense door that reaches zero durability can no longer be repaired
-immediately. Approach the breach and press E to enter a 25-second flashlight
-minigame. The world is covered in darkness and the mouse moves a small light:
+immediately, but the same E interaction and minigame remain available at the
+breach. The world is covered in darkness and the mouse moves a small light:
 hold it over the hidden face to build an invisible repel meter. Every fifteen
-points the face jumps to another part of the screen and removes three points;
-after a one-second search grace, missing it drains one point every 0.25 seconds.
-On first catching the face in the beam there is also an 18-38 percent
+points the face jumps to another part of the screen and removes three points.
+The balanced assist gives the flashlight a wider beam and face hit area. After
+a 1.25-second grace period with no drain, missing it drains one point every 0.20
+seconds. On first catching the face in the beam there is also a 6-16 percent
 progress-scaled chance that it dodges immediately. Its side-to-side head shake,
 distortion, twitch rate, audio pressure, and instant-dodge chance all intensify
-toward 100 percent.
+toward 100 percent. Every relocation remains random among anchors away from the
+current cursor position, so the face never deliberately appears near the light.
 
-Reaching 100 unlocks physical door repairs. Timing out triggers a jumpscare,
-removes 20 points from the door's repair ceiling (down to a minimum of 10), and
-starts a fresh attempt. The active door cannot take normal damage during the
-minigame. A development safety switch also suspends statue and crawler attacks
-until 1.5 seconds after the minigame closes.
+At an intact door, reaching 100 drives the attacker away; at a breached door it
+unlocks physical repairs. A breached-door timeout triggers a jumpscare and
+removes 20 points from the repair ceiling (down to a minimum of 10). The active
+door cannot take normal damage outside these scripted failure hits. A development
+safety switch also suspends statue and crawler attacks until 1.5 seconds after
+the minigame closes.
 
 ## Ghosts
 
@@ -71,7 +88,7 @@ nothing about surviving the other.
 | Counterplay | Keep looking at it; don't blink | Go quiet: crouch, or stop moving entirely |
 | Space | Floors and stairs, on the navmesh | Floors, walls and ceilings; travels overhead |
 | Arrival | Teleports into a scripted ambush, then vanishes | Announces itself with a fly-past, then sweeps the house |
-| Kill | Grabs you during a blink or a look-away | Leaps 13 m at 21 m/s, or mauls what it touches |
+| Kill | Grabs you during a blink or a look-away; distant statues surge much farther per blink | Leaps 13 m at 21 m/s, or mauls what it touches |
 
 The crawler hunts the last noise it *heard*, not where you are now. Sprinting,
 landing a jump and working a door are loud; crouch-walking barely carries; and
@@ -120,7 +137,8 @@ The smoke tests under `tests/` cover the four-level layout, all seven entrance
 IDs, generated collision, basement-to-attic navigation, physical stair traversal,
 statue stair chases and ambushes, crawler surface-crawling and noise hunting,
 doors, the breached-door minigame, temporary ghost safety, interaction, and
-house audio. `night_clock_smoke.gd` verifies the five-second minute tick,
+house audio. `dev_tools_smoke.gd` covers the F1 development controls, while
+`night_clock_smoke.gd` verifies the 2.5-second minute tick,
 midnight rollover, and the 6:00 AM victory boundary.
 
 Run one with:

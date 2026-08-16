@@ -2,16 +2,27 @@ extends SceneTree
 
 
 class SafetyPlayer:
-	extends Node
+	extends Node3D
 
 	var acquired: int = 0
 	var released: int = 0
+	var minigame: DoorGhostMinigame
 
 	func acquire_minigame_ghost_safety() -> void:
 		acquired += 1
 
 	func release_minigame_ghost_safety() -> void:
 		released += 1
+
+	func start_door_minigame(door: Node) -> bool:
+		if not minigame or not door.has_method("begin_exorcism"):
+			return false
+		if not bool(door.call("begin_exorcism")):
+			return false
+		if minigame.start(self, door):
+			return true
+		door.call("cancel_exorcism")
+		return false
 
 
 func _initialize() -> void:
@@ -36,12 +47,71 @@ func _run() -> void:
 	var player := SafetyPlayer.new()
 	root.add_child(player)
 	var minigame := minigame_scene.instantiate() as DoorGhostMinigame
-	minigame.instant_dodge_chance_start = 0.0
-	minigame.instant_dodge_chance_end = 0.0
 	root.add_child(minigame)
 	minigame.set_process(false)
 	minigame.set_process_input(false)
 	minigame.set_random_seed(7)
+	player.minigame = minigame
+	if not is_equal_approx(minigame.attempt_duration, 30.0) \
+		or not is_equal_approx(minigame.progress_tick_interval, 0.085) \
+		or not is_equal_approx(minigame.search_grace_duration, 1.25) \
+		or not is_equal_approx(minigame.decay_tick_interval, 0.2) \
+		or not is_equal_approx(minigame.instant_dodge_chance_start, 0.06) \
+		or not is_equal_approx(minigame.instant_dodge_chance_end, 0.16):
+		_fail(
+			"The easier minigame balance defaults drifted: %.1fs / %.3f / %.3f / %.3f / %.3f-%.3f."
+			% [
+				minigame.attempt_duration,
+				minigame.progress_tick_interval,
+				minigame.search_grace_duration,
+				minigame.decay_tick_interval,
+				minigame.instant_dodge_chance_start,
+				minigame.instant_dodge_chance_end,
+			]
+		)
+		return
+	minigame.instant_dodge_chance_start = 0.0
+	minigame.instant_dodge_chance_end = 0.0
+	if minigame.get_toggled_mouse_mode(Input.MOUSE_MODE_CAPTURED) != Input.MOUSE_MODE_VISIBLE:
+		_fail("Alt mouse toggle did not release and show the cursor during the minigame.")
+		return
+	if minigame.get_toggled_mouse_mode(Input.MOUSE_MODE_VISIBLE) != Input.MOUSE_MODE_CAPTURED:
+		_fail("Alt mouse toggle did not recapture the cursor.")
+		return
+
+	# The E interaction must open the minigame from the very first rustle, not
+	# silently repel the event and reserve gameplay for an already broken door.
+	door.reset_door()
+	if not door.begin_targeting(true, 30.0):
+		_fail("The intact door could not enter its rustling phase.")
+		return
+	door.interact(player)
+	if not minigame.is_running() or not door.minigame_active:
+		_fail("Pressing E during the rustling phase did not start the minigame.")
+		return
+	var durability_before_failure: float = door.current_durability
+	door.apply_exorcism_failure()
+	if not is_equal_approx(
+		door.current_durability,
+		durability_before_failure - door.minigame_failure_penalty
+	):
+		_fail("An early minigame failure did not give the attacker its heavy hit.")
+		return
+	if not door.complete_exorcism() or int(door.attack_phase) != 0: # IDLE
+		_fail("Winning the intact-door minigame did not drive the attacker away.")
+		return
+	minigame.cancel()
+	if player.acquired != 1 or player.released != 1:
+		_fail("The early minigame did not balance its ghost-safety lock.")
+		return
+
+	# Reset counters so the original breached-door coverage below keeps checking
+	# each acquire/release transition from a clean baseline.
+	player.acquired = 0
+	player.released = 0
+	door.reset_door()
+	door.take_damage(100.0, true)
+	await physics_frame
 
 	if not door.begin_exorcism() or not minigame.start(player, door):
 		_fail("A valid breached door could not start the minigame.")
@@ -66,17 +136,17 @@ func _run() -> void:
 
 	minigame.debug_place_flashlight_on_face()
 	for _tick: int in 15:
-		minigame.debug_step_gameplay(0.1)
+		minigame.debug_step_gameplay(minigame.progress_tick_interval + 0.0001)
 	if not is_equal_approx(minigame.get_hidden_progress(), 12.0):
 		_fail("Fifteen charge ticks must relocate the ghost and leave 12 progress.")
 		return
 
 	minigame.debug_place_flashlight_away()
-	minigame.debug_step_gameplay(1.0)
+	minigame.debug_step_gameplay(minigame.search_grace_duration)
 	if not is_equal_approx(minigame.get_hidden_progress(), 12.0):
-		_fail("Progress decayed during the one-second search grace.")
+		_fail("Progress decayed during the easier search grace.")
 		return
-	minigame.debug_step_gameplay(0.25)
+	minigame.debug_step_gameplay(minigame.decay_tick_interval)
 	if not is_equal_approx(minigame.get_hidden_progress(), 11.0):
 		_fail("Progress did not decay by one after the search grace.")
 		return
@@ -84,7 +154,7 @@ func _run() -> void:
 	minigame.progress = 99.0
 	minigame.charge_since_relocation = 0.0
 	minigame.debug_place_flashlight_on_face()
-	minigame.debug_step_gameplay(0.11)
+	minigame.debug_step_gameplay(minigame.progress_tick_interval_late + 0.0001)
 	if not door.repair_unlocked_after_breach:
 		_fail("Reaching 100 hidden progress did not unlock door repairs.")
 		return
@@ -113,13 +183,17 @@ func _run() -> void:
 	minigame._process(1.0)
 	minigame._process(0.5)
 	if not minigame.is_running() or not is_equal_approx(minigame.get_hidden_progress(), 0.0):
-		_fail("Timeout did not restart a fresh 25-second attempt.")
+		_fail("Timeout did not restart a fresh 30-second attempt.")
 		return
 	minigame.cancel()
 	if player.released != 2:
 		_fail("Cancelling the retry did not release ghost safety.")
 		return
 
+	minigame.queue_free()
+	player.queue_free()
+	door.queue_free()
+	await process_frame
 	print("Door ghost minigame smoke test passed.")
 	quit()
 

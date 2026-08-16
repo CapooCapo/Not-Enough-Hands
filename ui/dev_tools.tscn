@@ -1,0 +1,105 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://ui/dev_tools.gd" id="1_script"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_panel"]
+bg_color = Color(0.025, 0.032, 0.045, 0.96)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.18, 0.72, 0.62, 0.9)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+shadow_color = Color(0, 0, 0, 0.65)
+shadow_size = 12
+
+[node name="DevTools" type="CanvasLayer"]
+layer = 220
+process_mode = 3
+script = ExtResource("1_script")
+
+[node name="Panel" type="PanelContainer" parent="."]
+offset_left = 20.0
+offset_top = 20.0
+offset_right = 420.0
+offset_bottom = 520.0
+theme_override_styles/panel = SubResource("StyleBox_panel")
+
+[node name="Margin" type="MarginContainer" parent="Panel"]
+layout_mode = 2
+theme_override_constants/margin_left = 20
+theme_override_constants/margin_top = 18
+theme_override_constants/margin_right = 20
+theme_override_constants/margin_bottom = 18
+
+[node name="Content" type="VBoxContainer" parent="Panel/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="Title" type="Label" parent="Panel/Margin/Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.42, 1, 0.82, 1)
+theme_override_font_sizes/font_size = 25
+text = "DEV TOOLS  [F1]"
+
+[node name="Hint" type="Label" parent="Panel/Margin/Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.65, 0.72, 0.78, 1)
+text = "Alt: hiện/bắt lại chuột"
+
+[node name="SeparatorA" type="HSeparator" parent="Panel/Margin/Content"]
+layout_mode = 2
+
+[node name="Invincible" type="CheckButton" parent="Panel/Margin/Content"]
+layout_mode = 2
+text = "Bất tử"
+
+[node name="FastMovement" type="CheckButton" parent="Panel/Margin/Content"]
+layout_mode = 2
+text = "Chạy nhanh x3"
+
+[node name="SeparatorB" type="HSeparator" parent="Panel/Margin/Content"]
+layout_mode = 2
+
+[node name="SpawnStatue" type="Button" parent="Panel/Margin/Content"]
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+text = "GỌI STATUE XUẤT HIỆN"
+
+[node name="SpawnCrawler" type="Button" parent="Panel/Margin/Content"]
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+text = "GỌI CRAWLER XUẤT HIỆN"
+
+[node name="DoorTitle" type="Label" parent="Panel/Margin/Content"]
+layout_mode = 2
+text = "Ép ma tấn công một cửa:"
+
+[node name="DoorRow" type="HBoxContainer" parent="Panel/Margin/Content"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Entrance" type="OptionButton" parent="Panel/Margin/Content/DoorRow"]
+custom_minimum_size = Vector2(110, 42)
+layout_mode = 2
+
+[node name="AttackDoor" type="Button" parent="Panel/Margin/Content/DoorRow"]
+custom_minimum_size = Vector2(0, 42)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "TẤN CÔNG NGAY"
+
+[node name="Status" type="Label" parent="Panel/Margin/Content"]
+custom_minimum_size = Vector2(0, 58)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.84, 0.91, 0.88, 1)
+text = "Sẵn sàng."
+autowrap_mode = 2
+
+[node name="Close" type="Button" parent="Panel/Margin/Content"]
+custom_minimum_size = Vector2(0, 38)
+layout_mode = 2
+text = "ĐÓNG [F1]"

@@ -48,12 +48,14 @@ func _run() -> void:
 	if door.attack_phase != DefenseDoor.AttackPhase.WEAK_ATTACK:
 		_fail("Real target event did not enter the weak attack phase.")
 		return
-	if not door.get_interaction_prompt("E").contains("[b]E[/b]"):
-		_fail("Weak door attack prompt did not offer an E repel interaction.")
+	if not door.get_interaction_prompt("E").contains("MINIGAME"):
+		_fail("Weak door attack prompt did not offer the E minigame interaction.")
 		return
-	door.interact()
+	if not door.begin_exorcism() or not door.complete_exorcism():
+		_fail("The weak door attack could not be repelled through the minigame API.")
+		return
 	if door.attack_phase != DefenseDoor.AttackPhase.IDLE:
-		_fail("Pressing E during a weak door attack did not drive the ghost away.")
+		_fail("Winning during a weak door attack did not drive the ghost away.")
 		return
 
 	if not door.begin_targeting(true, 0.1):
@@ -76,9 +78,11 @@ func _run() -> void:
 	if strong_damage < 7.0 or strong_damage > 10.0:
 		_fail("Strong attack did not deal 7-10 HP per second.")
 		return
-	door.interact()
+	if not door.begin_exorcism() or not door.complete_exorcism():
+		_fail("The strong door attack could not be repelled through the minigame API.")
+		return
 	if door.attack_phase != DefenseDoor.AttackPhase.IDLE:
-		_fail("Pressing E during a strong door attack did not drive the ghost away.")
+		_fail("Winning during a strong door attack did not drive the ghost away.")
 		return
 
 	door.reset_door()

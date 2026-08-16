@@ -6,6 +6,9 @@
 [ext_resource type="Shader" path="res://ui/blink_overlay.gdshader" id="4_blink_overlay"]
 [ext_resource type="AudioStream" path="res://assets/audio/536770__doctorphil__footsteps-on-a-wooden-floor.wav" id="5_footsteps_wood"]
 [ext_resource type="PackedScene" path="res://minigames/door_ghost_minigame.tscn" id="6_door_minigame"]
+[ext_resource type="Script" path="res://ui/death_screen.gd" id="7_death_screen"]
+[ext_resource type="Script" path="res://ui/death_visage.gd" id="8_death_visage"]
+[ext_resource type="Script" path="res://ui/stamina_bar.gd" id="9_stamina_bar"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
 
@@ -28,6 +31,123 @@ corner_radius_top_left = 3
 corner_radius_top_right = 3
 corner_radius_bottom_right = 3
 corner_radius_bottom_left = 3
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_stamina_panel"]
+content_margin_left = 14.0
+content_margin_top = 9.0
+content_margin_right = 14.0
+content_margin_bottom = 11.0
+bg_color = Color(0.012, 0.018, 0.025, 0.84)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.24, 0.36, 0.4, 0.72)
+corner_radius_top_left = 5
+corner_radius_top_right = 5
+corner_radius_bottom_right = 5
+corner_radius_bottom_left = 5
+shadow_color = Color(0, 0, 0, 0.68)
+shadow_size = 8
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_stamina_bg"]
+bg_color = Color(0.025, 0.035, 0.04, 0.94)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.12, 0.17, 0.18, 0.9)
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_stamina_fill"]
+bg_color = Color(0.47, 0.68, 0.65, 0.96)
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_death_card"]
+content_margin_left = 46.0
+content_margin_top = 36.0
+content_margin_right = 46.0
+content_margin_bottom = 38.0
+bg_color = Color(0.018, 0.018, 0.021, 0.96)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.38, 0.055, 0.055, 0.9)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+shadow_color = Color(0, 0, 0, 0.72)
+shadow_size = 24
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_restart_normal"]
+content_margin_left = 28.0
+content_margin_top = 13.0
+content_margin_right = 28.0
+content_margin_bottom = 13.0
+bg_color = Color(0.12, 0.022, 0.025, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.52, 0.09, 0.09, 1)
+corner_radius_top_left = 5
+corner_radius_top_right = 5
+corner_radius_bottom_right = 5
+corner_radius_bottom_left = 5
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_restart_hover"]
+content_margin_left = 28.0
+content_margin_top = 13.0
+content_margin_right = 28.0
+content_margin_bottom = 13.0
+bg_color = Color(0.43, 0.035, 0.045, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.94, 0.24, 0.2, 1)
+corner_radius_top_left = 5
+corner_radius_top_right = 5
+corner_radius_bottom_right = 5
+corner_radius_bottom_left = 5
+shadow_color = Color(0.55, 0.02, 0.02, 0.35)
+shadow_size = 8
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_restart_pressed"]
+content_margin_left = 28.0
+content_margin_top = 13.0
+content_margin_right = 28.0
+content_margin_bottom = 13.0
+bg_color = Color(0.7, 0.055, 0.055, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(1, 0.4, 0.32, 1)
+corner_radius_top_left = 5
+corner_radius_top_right = 5
+corner_radius_bottom_right = 5
+corner_radius_bottom_left = 5
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_restart_focus"]
+bg_color = Color(0, 0, 0, 0)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.9, 0.18, 0.15, 0.85)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
 
 [node name="Player" type="CharacterBody3D" unique_id=308502712 groups=["players"]]
 collision_mask = 5
@@ -118,6 +238,46 @@ fit_content = true
 scroll_active = false
 autowrap_mode = 0
 
+[node name="StatusUI" type="CanvasLayer" parent="."]
+layer = 104
+
+[node name="StaminaPanel" type="PanelContainer" parent="StatusUI"]
+anchors_preset = 6
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = -82.0
+offset_right = 280.0
+offset_bottom = -24.0
+grow_vertical = 0
+theme_override_styles/panel = SubResource("StyleBox_stamina_panel")
+
+[node name="Margin" type="MarginContainer" parent="StatusUI/StaminaPanel"]
+layout_mode = 2
+
+[node name="VBox" type="VBoxContainer" parent="StatusUI/StaminaPanel/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 5
+
+[node name="Label" type="Label" parent="StatusUI/StaminaPanel/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.61, 0.75, 0.73, 0.9)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 3
+theme_override_font_sizes/font_size = 12
+text = "THỂ LỰC   ·   SHIFT CHẠY"
+
+[node name="StaminaBar" type="ProgressBar" parent="StatusUI/StaminaPanel/Margin/VBox"]
+custom_minimum_size = Vector2(228, 9)
+layout_mode = 2
+mouse_filter = 2
+theme_override_styles/background = SubResource("StyleBox_stamina_bg")
+theme_override_styles/fill = SubResource("StyleBox_stamina_fill")
+value = 100.0
+show_percentage = false
+script = ExtResource("9_stamina_bar")
+player_path = NodePath("../../../../..")
+
 [node name="BlinkUI" type="CanvasLayer" parent="."]
 layer = 105
 
@@ -173,17 +333,20 @@ color = Color(1, 1, 1, 1)
 [node name="DeathUI" type="CanvasLayer" parent="."]
 visible = false
 layer = 130
+process_mode = 3
+script = ExtResource("7_death_screen")
 
-[node name="Background" type="ColorRect" parent="DeathUI"]
+[node name="Backdrop" type="ColorRect" parent="DeathUI"]
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
-color = Color(0.025, 0, 0, 0.94)
+color = Color(0, 0, 0, 1)
 
 [node name="Message" type="Label" parent="DeathUI"]
+visible = false
 anchors_preset = 8
 anchor_left = 0.5
 anchor_top = 0.5
@@ -202,3 +365,114 @@ theme_override_font_sizes/font_size = 26
 text = "BẠN ĐÃ BỊ TƯỢNG BẮT\\nĐỪNG NHẮM MẮT KHI NÓ Ở GẦN"
 horizontal_alignment = 1
 vertical_alignment = 1
+
+[node name="ImpactFlash" type="ColorRect" parent="DeathUI"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(1, 0.88, 0.8, 0)
+
+[node name="Visage" type="Control" parent="DeathUI"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("8_death_visage")
+
+[node name="GameOver" type="CenterContainer" parent="DeathUI"]
+visible = false
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Card" type="PanelContainer" parent="DeathUI/GameOver"]
+custom_minimum_size = Vector2(590, 360)
+layout_mode = 2
+pivot_offset = Vector2(295, 180)
+theme_override_styles/panel = SubResource("StyleBox_death_card")
+
+[node name="Content" type="VBoxContainer" parent="DeathUI/GameOver/Card"]
+layout_mode = 2
+theme_override_constants/separation = 14
+
+[node name="Eyebrow" type="Label" parent="DeathUI/GameOver/Card/Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.64, 0.25, 0.25, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 4
+theme_override_font_sizes/font_size = 13
+text = "CA TRỰC ĐÃ KẾT THÚC"
+horizontal_alignment = 1
+
+[node name="Title" type="Label" parent="DeathUI/GameOver/Card/Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.88, 0.1, 0.09, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 9
+theme_override_font_sizes/font_size = 56
+text = "GAME OVER"
+horizontal_alignment = 1
+
+[node name="Cause" type="Label" parent="DeathUI/GameOver/Card/Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.76, 0.76, 0.73, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 4
+theme_override_font_sizes/font_size = 17
+text = "BẠN ĐÃ BỊ MA BẮT"
+horizontal_alignment = 1
+
+[node name="Divider" type="ColorRect" parent="DeathUI/GameOver/Card/Content"]
+custom_minimum_size = Vector2(0, 1)
+layout_mode = 2
+mouse_filter = 2
+color = Color(0.42, 0.07, 0.07, 0.85)
+
+[node name="Tip" type="Label" parent="DeathUI/GameOver/Card/Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.53, 0.55, 0.55, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 3
+theme_override_font_sizes/font_size = 14
+text = "Đừng quay lưng. Đừng nhắm mắt khi nó đang ở gần."
+horizontal_alignment = 1
+autowrap_mode = 2
+
+[node name="Spacer" type="Control" parent="DeathUI/GameOver/Card/Content"]
+custom_minimum_size = Vector2(0, 7)
+layout_mode = 2
+mouse_filter = 2
+
+[node name="RestartButton" type="Button" parent="DeathUI/GameOver/Card/Content"]
+custom_minimum_size = Vector2(0, 54)
+layout_mode = 2
+focus_neighbor_top = NodePath(".")
+focus_neighbor_bottom = NodePath(".")
+mouse_default_cursor_shape = 2
+theme_override_colors/font_color = Color(0.94, 0.88, 0.85, 1)
+theme_override_colors/font_hover_color = Color(1, 1, 1, 1)
+theme_override_colors/font_pressed_color = Color(1, 1, 1, 1)
+theme_override_colors/font_focus_color = Color(1, 1, 1, 1)
+theme_override_font_sizes/font_size = 19
+theme_override_styles/normal = SubResource("StyleBox_restart_normal")
+theme_override_styles/hover = SubResource("StyleBox_restart_hover")
+theme_override_styles/pressed = SubResource("StyleBox_restart_pressed")
+theme_override_styles/focus = SubResource("StyleBox_restart_focus")
+text = "CHƠI LẠI"
+
+[node name="RestartHint" type="Label" parent="DeathUI/GameOver/Card/Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.34, 0.35, 0.35, 1)
+theme_override_font_sizes/font_size = 11
+text = "ENTER HOẶC NHẤP CHUỘT"
+horizontal_alignment = 1
+
+[node name="ScareAudio" type="AudioStreamPlayer" parent="DeathUI"]
+volume_db = -1.5

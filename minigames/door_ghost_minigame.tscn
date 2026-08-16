@@ -1,8 +1,8 @@
-[gd_scene load_steps=18 format=3]
+[gd_scene load_steps=16 format=3]
 
 [ext_resource type="Script" path="res://minigames/door_ghost_minigame.gd" id="1_script"]
 [ext_resource type="Shader" path="res://minigames/door_ghost_darkness.gdshader" id="2_shader"]
-[ext_resource type="Texture2D" path="res://assets/minigame/door_ghost_face_online.jpg" id="3_face"]
+[ext_resource type="Texture2D" path="res://assets/minigame/door_ghost_face_v2.png" id="3_face"]
 [ext_resource type="AudioStream" path="res://assets/audio/minigame/door_minigame_drone.mp3" id="4_drone"]
 [ext_resource type="AudioStream" path="res://assets/audio/minigame/door_minigame_heartbeat.mp3" id="5_heartbeat"]
 [ext_resource type="AudioStream" path="res://assets/audio/minigame/door_minigame_whispers.mp3" id="6_whispers"]
@@ -12,15 +12,9 @@
 [ext_resource type="AudioStream" path="res://assets/audio/minigame/door_minigame_success.mp3" id="10_success"]
 [ext_resource type="AudioStream" path="res://assets/audio/minigame/door_minigame_jumpscare.mp3" id="11_jumpscare"]
 [ext_resource type="AudioStream" path="res://assets/audio/minigame/door_minigame_music.ogg" id="12_music"]
-[ext_resource type="Shader" path="res://minigames/door_ghost_face_key.gdshader" id="13_face_key"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_darkness"]
 shader = ExtResource("2_shader")
-
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_face"]
-shader = ExtResource("13_face_key")
-shader_parameter/crop_min = Vector2(0.32, 0.12)
-shader_parameter/crop_max = Vector2(0.68, 0.92)
 
 [sub_resource type="StyleBoxFlat" id="StyleBox_cursor"]
 bg_color = Color(0.78, 0.9, 1, 0.96)
@@ -62,7 +56,6 @@ mouse_filter = 2
 color = Color(0, 0, 0, 1)
 
 [node name="Ghost" type="TextureRect" parent="Root"]
-material = SubResource("ShaderMaterial_face")
 offset_right = 210.0
 offset_bottom = 315.0
 mouse_filter = 2

@@ -64,6 +64,10 @@ var eyelid_closure: float = 0.0
 
 @export_category("Development")
 @export var minigame_ghost_resume_grace: float = 1.5
+@export var dev_speed_multiplier: float = 3.0
+
+var dev_invincible: bool = false
+var dev_fast_movement: bool = false
 
 @onready var camera_pivot: Node3D = $CameraPivot
 @onready var interact_ray: RayCast3D = $CameraPivot/Camera3D/InteractRay
@@ -125,6 +129,10 @@ func _ready() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if not is_alive:
 		return
+	if _is_alt_toggle_event(event):
+		toggle_mouse_capture()
+		get_viewport().set_input_as_handled()
+		return
 	if is_door_minigame_active():
 		return
 
@@ -140,6 +148,27 @@ func _unhandled_input(event: InputEvent) -> void:
 		
 	if event.is_action_pressed("interact"):
 		_try_interact()
+
+
+func toggle_mouse_capture() -> void:
+	Input.set_mouse_mode(get_toggled_mouse_mode(Input.get_mouse_mode()))
+
+
+func get_toggled_mouse_mode(current_mode: Input.MouseMode) -> Input.MouseMode:
+	return (
+		Input.MOUSE_MODE_VISIBLE
+		if current_mode == Input.MOUSE_MODE_CAPTURED
+		else Input.MOUSE_MODE_CAPTURED
+	)
+
+
+func _is_alt_toggle_event(event: InputEvent) -> bool:
+	return (
+		event is InputEventKey
+		and event.pressed
+		and not event.echo
+		and (event.keycode == KEY_ALT or event.physical_keycode == KEY_ALT)
+	)
 
 
 func get_interaction_target() -> Node:
@@ -230,6 +259,10 @@ func _physics_process(delta: float) -> void:
 			current_stamina += stamina_regen_idle * delta
 		else:
 			current_stamina += stamina_regen_moving * delta
+
+	if dev_fast_movement:
+		current_speed *= maxf(dev_speed_multiplier, 1.0)
+		current_stamina = max_stamina
 			
 	current_stamina = clamp(current_stamina, 0.0, max_stamina)
 
@@ -328,8 +361,11 @@ func kill_by_ghost(ghost: Node3D) -> void:
 	eyes_closed = false
 	velocity = Vector3.ZERO
 	_stop_footsteps()
-	death_ui.visible = true
-	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+	if death_ui.has_method("show_jumpscare"):
+		death_ui.call("show_jumpscare", ghost)
+	else:
+		death_ui.visible = true
+		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	killed_by_ghost.emit(ghost)
 
 
@@ -372,11 +408,25 @@ func release_minigame_ghost_safety() -> void:
 
 
 func is_protected_from_ghost_attacks() -> bool:
-	return _minigame_ghost_safety_locks > 0 or _minigame_ghost_release_remaining > 0.0
+	return dev_invincible \
+		or _minigame_ghost_safety_locks > 0 \
+		or _minigame_ghost_release_remaining > 0.0
 
 
 func can_be_targeted_by_ghosts() -> bool:
 	return is_alive and not is_protected_from_ghost_attacks()
+
+
+func set_dev_invincible(enabled: bool) -> void:
+	dev_invincible = enabled
+	if enabled:
+		_clear_all_ghost_threat()
+
+
+func set_dev_fast_movement(enabled: bool) -> void:
+	dev_fast_movement = enabled
+	if enabled:
+		current_stamina = max_stamina
 
 
 func _update_minigame_ghost_safety(delta: float) -> void:

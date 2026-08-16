@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://cjpihrvbi76uu"
-path="res://.godot/imported/door_ghost_face_online.jpg-cf6d1345cc3e15da8391a61754ca34d3.ctex"
+uid="uid://4quhcugut84f"
+path="res://.godot/imported/door_ghost_face_v2.png-5b3e169a9283762b3cc833b1bdf3ca3d.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/minigame/door_ghost_face_online.jpg"
-dest_files=["res://.godot/imported/door_ghost_face_online.jpg-cf6d1345cc3e15da8391a61754ca34d3.ctex"]
+source_file="res://assets/minigame/door_ghost_face_v2.png"
+dest_files=["res://.godot/imported/door_ghost_face_v2.png-5b3e169a9283762b3cc833b1bdf3ca3d.ctex"]
 
 [params]
 

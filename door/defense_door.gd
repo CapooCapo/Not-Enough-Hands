@@ -185,14 +185,7 @@ func repair(amount: float) -> float:
 
 
 func interact(player: Node3D = null) -> void:
-	if attack_phase in [
-		AttackPhase.STALKING,
-		AttackPhase.WEAK_ATTACK,
-		AttackPhase.STRONG_ATTACK,
-	]:
-		drive_ghost_away()
-		return
-	if attack_phase == AttackPhase.BREACHED and not repair_unlocked_after_breach:
+	if _can_start_exorcism():
 		if player and player.has_method("start_door_minigame"):
 			player.call("start_door_minigame", self)
 		return
@@ -200,9 +193,9 @@ func interact(player: Node3D = null) -> void:
 
 
 func get_interaction_prompt(interact_key_name: String) -> String:
+	if minigame_active:
+		return "[center][color=#b9d7e8]ĐANG ĐUỔI THỨ BÊN NGOÀI...[/color][/center]"
 	if attack_phase == AttackPhase.BREACHED:
-		if minigame_active:
-			return "[center][color=#b9d7e8]ĐANG ĐUỔI THỨ BÊN NGOÀI...[/color][/center]"
 		if not repair_unlocked_after_breach:
 			return "[center][b]%s[/b]  CHIẾU ĐÈN ĐUỔI MA — CỬA NGOÀI %02d[/center]" % [
 				interact_key_name,
@@ -211,17 +204,17 @@ func get_interaction_prompt(interact_key_name: String) -> String:
 	var door_name := "CỬA NGOÀI %02d" % entrance_id
 	match attack_phase:
 		AttackPhase.STALKING:
-			return "[center][b]%s[/b]  ĐUỔI THỨ BÊN NGOÀI — %s[/center]" % [
+			return "[center][b]%s[/b]  CHIẾU ĐÈN ĐUỔI MA — %s[/center]" % [
 				interact_key_name,
 				door_name,
 			]
 		AttackPhase.WEAK_ATTACK:
-			return "[center][b]%s[/b]  ĐUỔI MA ĐANG CÀO — %s[/center]" % [
+			return "[center][b]%s[/b]  VÀO MINIGAME ĐUỔI MA — %s[/center]" % [
 				interact_key_name,
 				door_name,
 			]
 		AttackPhase.STRONG_ATTACK:
-			return "[center][color=#e05b4f][b]%s[/b]  ĐUỔI MA NGAY — %s SẮP VỠ![/color][/center]" % [
+			return "[center][color=#e05b4f][b]%s[/b]  CHIẾU ĐÈN NGAY — %s SẮP VỠ![/color][/center]" % [
 				interact_key_name,
 				door_name,
 			]
@@ -262,9 +255,7 @@ func reset_door() -> void:
 
 
 func begin_exorcism() -> bool:
-	if attack_phase != AttackPhase.BREACHED \
-		or repair_unlocked_after_breach \
-		or minigame_active:
+	if not _can_start_exorcism():
 		return false
 	minigame_active = true
 	exorcism_started.emit(self)
@@ -272,27 +263,74 @@ func begin_exorcism() -> bool:
 
 
 func apply_exorcism_failure() -> float:
-	if not minigame_active or attack_phase != AttackPhase.BREACHED:
+	if not minigame_active:
 		return repair_cap
-	var floor_cap := clampf(minimum_repair_cap_after_failure, 0.0, max_durability)
-	repair_cap = maxf(repair_cap - minigame_failure_penalty, floor_cap)
-	repair_cap = maxf(repair_cap, current_durability)
-	durability_changed.emit(self, current_durability, repair_cap)
+
+	if attack_phase == AttackPhase.BREACHED:
+		var floor_cap := clampf(minimum_repair_cap_after_failure, 0.0, max_durability)
+		repair_cap = maxf(repair_cap - minigame_failure_penalty, floor_cap)
+		repair_cap = maxf(repair_cap, current_durability)
+		durability_changed.emit(self, current_durability, repair_cap)
+	elif attack_phase in [
+		AttackPhase.STALKING,
+		AttackPhase.WEAK_ATTACK,
+		AttackPhase.STRONG_ATTACK,
+	]:
+		# A failed early repel attempt gives the attacker one heavy hit. Temporarily
+		# release the damage guard, then immediately keep ownership of the door so
+		# the minigame can perform its built-in retry. Repeated failures can breach
+		# the door and seamlessly continue the same minigame in breached mode.
+		minigame_active = false
+		take_damage(minigame_failure_penalty, true)
+		minigame_active = true
+	else:
+		return repair_cap
+
 	exorcism_failed.emit(self, repair_cap)
 	return repair_cap
 
 
 func complete_exorcism() -> bool:
-	if not minigame_active or attack_phase != AttackPhase.BREACHED:
+	if not minigame_active:
 		return false
+
+	var was_breached := attack_phase == AttackPhase.BREACHED
+	var was_active_attack := attack_phase in [
+		AttackPhase.STALKING,
+		AttackPhase.WEAK_ATTACK,
+		AttackPhase.STRONG_ATTACK,
+	]
+	if not was_breached and not was_active_attack:
+		return false
+
 	minigame_active = false
-	repair_unlocked_after_breach = true
+	if was_breached:
+		repair_unlocked_after_breach = true
+	else:
+		_stop_attack_audio()
+		planned_attack = false
+		phase_time_remaining = 0.0
+		damage_tick_remaining = 0.0
+		_set_attack_phase(AttackPhase.IDLE)
+		ghost_driven_away.emit(self)
 	exorcism_completed.emit(self)
 	return true
 
 
 func cancel_exorcism() -> void:
 	minigame_active = false
+
+
+func _can_start_exorcism() -> bool:
+	if minigame_active:
+		return false
+	if attack_phase == AttackPhase.BREACHED:
+		return not repair_unlocked_after_breach
+	return attack_phase in [
+		AttackPhase.STALKING,
+		AttackPhase.WEAK_ATTACK,
+		AttackPhase.STRONG_ATTACK,
+	]
 
 
 func set_random_seed(value: int) -> void:

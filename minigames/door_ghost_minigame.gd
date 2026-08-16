@@ -15,23 +15,23 @@ enum Phase {
 }
 
 @export_category("Rules")
-@export var attempt_duration: float = 25.0
+@export var attempt_duration: float = 30.0
 @export var progress_per_tick: float = 1.0
-@export var progress_tick_interval: float = 0.1
-@export var progress_tick_interval_mid: float = 0.085
-@export var progress_tick_interval_late: float = 0.07
+@export var progress_tick_interval: float = 0.085
+@export var progress_tick_interval_mid: float = 0.073
+@export var progress_tick_interval_late: float = 0.062
 @export var relocate_after_progress: float = 15.0
 @export var relocate_penalty: float = 3.0
-@export var search_grace_duration: float = 1.0
-@export var decay_tick_interval: float = 0.25
+@export var search_grace_duration: float = 1.25
+@export var decay_tick_interval: float = 0.2
 @export var decay_per_tick: float = 1.0
-@export_range(0.0, 1.0, 0.01) var instant_dodge_chance_start: float = 0.18
-@export_range(0.0, 1.0, 0.01) var instant_dodge_chance_end: float = 0.38
-@export var instant_dodge_cooldown_after_relocate: float = 0.45
+@export_range(0.0, 1.0, 0.01) var instant_dodge_chance_start: float = 0.06
+@export_range(0.0, 1.0, 0.01) var instant_dodge_chance_end: float = 0.16
+@export var instant_dodge_cooldown_after_relocate: float = 0.9
 
 @export_category("Presentation")
-@export var flashlight_radius_start: float = 125.0
-@export var flashlight_radius_end: float = 90.0
+@export var flashlight_radius_start: float = 150.0
+@export var flashlight_radius_end: float = 115.0
 @export var jumpscare_duration: float = 0.72
 @export var retry_delay: float = 0.35
 @export var success_duration: float = 0.62
@@ -153,11 +153,38 @@ func _input(event: InputEvent) -> void:
 	if not active:
 		return
 	if event is InputEventMouseMotion:
-		cursor_position += event.relative
+		if Input.get_mouse_mode() == Input.MOUSE_MODE_VISIBLE:
+			cursor_position = event.position
+		else:
+			cursor_position += event.relative
 		_clamp_cursor()
+		get_viewport().set_input_as_handled()
+	elif _is_alt_toggle_event(event):
+		toggle_mouse_capture()
 		get_viewport().set_input_as_handled()
 	elif event is InputEventMouseButton or event is InputEventKey:
 		get_viewport().set_input_as_handled()
+
+
+func toggle_mouse_capture() -> void:
+	Input.set_mouse_mode(get_toggled_mouse_mode(Input.get_mouse_mode()))
+
+
+func get_toggled_mouse_mode(current_mode: Input.MouseMode) -> Input.MouseMode:
+	return (
+		Input.MOUSE_MODE_VISIBLE
+		if current_mode == Input.MOUSE_MODE_CAPTURED
+		else Input.MOUSE_MODE_CAPTURED
+	)
+
+
+func _is_alt_toggle_event(event: InputEvent) -> bool:
+	return (
+		event is InputEventKey
+		and event.pressed
+		and not event.echo
+		and (event.keycode == KEY_ALT or event.physical_keycode == KEY_ALT)
+	)
 
 
 func _process(delta: float) -> void:
@@ -363,7 +390,7 @@ func _relocate_ghost(apply_penalty: bool) -> void:
 
 
 func _flashlight_hits_face() -> bool:
-	var radii := Vector2(ghost_size.x * 0.36, ghost_size.y * 0.39)
+	var radii := Vector2(ghost_size.x * 0.44, ghost_size.y * 0.46)
 	var normalized := (cursor_position - ghost_center) / radii
 	return normalized.length_squared() <= 1.0
 
@@ -500,7 +527,7 @@ func _update_cursor_and_mask() -> void:
 func _resize_ghost() -> void:
 	var viewport_size := get_viewport().get_visible_rect().size
 	var height := clampf(viewport_size.y * 0.43, 250.0, 430.0)
-	ghost_size = Vector2(height * 0.8, height)
+	ghost_size = Vector2(height * 0.667, height)
 	ghost.size = ghost_size
 	ghost.pivot_offset = ghost_size * 0.5
 

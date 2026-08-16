@@ -489,7 +489,10 @@ func _build_room_props(basement: Node3D, ground: Node3D, upper: Node3D, attic: N
 	_add_asset(FURNITURE_BED_TABLE, upper_props, "EastTVStand", Vector3(7.0, FLOOR_HEIGHT, -0.45), PI)
 	_add_asset(FURNITURE_TV, upper_props, "EastBedroomTV", Vector3(7.0, FLOOR_HEIGHT + 0.98, -0.28), PI)
 	_add_asset(FURNITURE_BATHTUB, upper_props, "BathTub", Vector3(7.4, FLOOR_HEIGHT, 4.4), PI * 0.5)
-	_add_asset(FURNITURE_TOILET, upper_props, "Toilet", Vector3(4.8, FLOOR_HEIGHT, 1.7))
+	# Keep the bathroom's door-to-tub aisle open. The toilet used to sit around
+	# the middle of that approach; tuck its cistern against the south wall and
+	# turn the bowl into the room like a normal fixture.
+	_add_asset(FURNITURE_TOILET, upper_props, "Toilet", Vector3(5.1, FLOOR_HEIGHT, 0.65), PI)
 	_add_asset(FURNITURE_SINK, upper_props, "BathroomSink", Vector3(5.2, FLOOR_HEIGHT, 5.5))
 	_add_asset(FURNITURE_MIRROR, upper_props, "BathroomMirror", Vector3(5.2, FLOOR_HEIGHT + 1.5, 5.88))
 	_add_asset(FURNITURE_WASHER, upper_props, "BathroomWasher", Vector3(8.1, FLOOR_HEIGHT, 1.2), PI)
@@ -805,6 +808,7 @@ func _add_light(
 	light.omni_range = range_value
 	light.omni_attenuation = 1.35
 	light.shadow_enabled = shadows
+	light.add_to_group("flickering_house_lights")
 	parent.add_child(light)
 
 

@@ -83,6 +83,29 @@ func _run() -> void:
 		_fail('Statue barely moved during a normal-length automatic blink: moved %.3f m.' % default_blink_distance)
 		return
 
+	# The signature lunge now scales with distance. Put it at the far end of the
+	# same clear room and verify one identical blink covers substantially more
+	# ground than the nearer blink above.
+	statue.global_position = Vector3(0.0, 0.02, -8.0)
+	statue.velocity = Vector3.ZERO
+	await physics_frame
+	await physics_frame
+	if not statue.get('is_observed'):
+		_fail('Far statue was not observed before the distance-scaled blink check.')
+		return
+	var far_blink_start_position := statue.global_position
+	player.call('force_blink')
+	await create_timer(float(player.get('forced_blink_duration')) + 0.05).timeout
+	var far_blink_distance := statue.global_position.distance_to(far_blink_start_position)
+	if far_blink_distance < 1.5 or far_blink_distance < default_blink_distance * 1.65:
+		_fail(
+			'Far blink lunge was not meaningfully stronger: near %.3f m, far %.3f m.' % [
+				default_blink_distance,
+				far_blink_distance,
+			]
+		)
+		return
+
 	# Restore the pre-check position/baseline so the creep from this check
 	# doesn't carry the statue closer to the player than the rest of this
 	# test expects.
@@ -119,7 +142,12 @@ func _run() -> void:
 	statue.get_node('TeleportAudio').stream = null
 	statue.get_node('AttackAudio').stream = null
 	statue.get_node('SpottedJumpscareAudio').stream = null
-	print('Statue ghost smoke test passed: freeze, blink movement, and attack.')
+	print(
+		'Statue ghost smoke test passed: freeze, near blink %.2f m, far blink %.2f m, and attack.' % [
+			default_blink_distance,
+			far_blink_distance,
+		]
+	)
 	quit()
 
 
