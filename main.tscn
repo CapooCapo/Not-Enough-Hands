@@ -10,6 +10,7 @@
 [ext_resource type="PackedScene" path="res://ghosts/crawler_ghost.tscn" id="8_crawler"]
 [ext_resource type="PackedScene" path="res://ui/night_clock.tscn" id="9_night_clock"]
 [ext_resource type="PackedScene" path="res://ui/dev_tools.tscn" id="10_dev_tools"]
+[ext_resource type="PackedScene" path="res://ghosts/hunter_ghost.tscn" id="11_hunter"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_main"]
 sky_top_color = Color(0.22, 0.38, 0.58, 1)
@@ -153,3 +154,41 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4, 3.4, -3)
 
 [node name="Patrol07AtticEast" type="Marker3D" parent="CrawlerRoute" unique_id=1744792842 groups=["crawler_patrol_points"]]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4, 6.4, 0)
+
+[node name="HunterGhost" parent="." unique_id=1093471288 instance=ExtResource("11_hunter")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 11)
+
+[node name="HunterRoute" type="Node3D" parent="." unique_id=1610337492]
+
+[node name="Sweep01MainHall" type="Marker3D" parent="HunterRoute" unique_id=1832004551 groups=["hunter_sweep_points"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.4, 0)
+
+[node name="Sweep02Kitchen" type="Marker3D" parent="HunterRoute" unique_id=1104553287 groups=["hunter_sweep_points"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4, 0.4, -3)
+
+[node name="Sweep03LivingRoom" type="Marker3D" parent="HunterRoute" unique_id=1428864103 groups=["hunter_sweep_points"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4, 0.4, 3)
+
+[node name="Sweep04Dining" type="Marker3D" parent="HunterRoute" unique_id=1980553226 groups=["hunter_sweep_points"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4, 0.4, 3)
+
+[node name="Sweep05Garage" type="Marker3D" parent="HunterRoute" unique_id=1272894465 groups=["hunter_sweep_points"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4, 0.4, -3)
+
+[node name="Sweep06UpperLanding" type="Marker3D" parent="HunterRoute" unique_id=1546298033 groups=["hunter_sweep_points"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.4, 0)
+
+[node name="Sweep07BedroomWest" type="Marker3D" parent="HunterRoute" unique_id=1919483714 groups=["hunter_sweep_points"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4, 3.4, 3)
+
+[node name="Sweep08BedroomEast" type="Marker3D" parent="HunterRoute" unique_id=1156702449 groups=["hunter_sweep_points"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4, 3.4, -3)
+
+[node name="Sweep09Attic" type="Marker3D" parent="HunterRoute" unique_id=1387660295 groups=["hunter_sweep_points"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 6.4, 0)
+
+[node name="Sweep10Boiler" type="Marker3D" parent="HunterRoute" unique_id=1745092208 groups=["hunter_sweep_points"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4, -2.6, 2)
+
+[node name="Sweep11Cellar" type="Marker3D" parent="HunterRoute" unique_id=1093887744 groups=["hunter_sweep_points"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4, -2.6, -2)

@@ -496,8 +496,25 @@ func _build_room_props(basement: Node3D, ground: Node3D, upper: Node3D, attic: N
 	_add_asset(FURNITURE_SINK, upper_props, "BathroomSink", Vector3(5.2, FLOOR_HEIGHT, 5.5))
 	_add_asset(FURNITURE_MIRROR, upper_props, "BathroomMirror", Vector3(5.2, FLOOR_HEIGHT + 1.5, 5.88))
 	_add_asset(FURNITURE_WASHER, upper_props, "BathroomWasher", Vector3(8.1, FLOOR_HEIGHT, 1.2), PI)
-	_add_asset(FURNITURE_BED_TABLE, upper_props, "UpperHallConsole", Vector3(1.6, FLOOR_HEIGHT, 5.35), PI)
-	_add_asset(FURNITURE_TABLE_LAMP, upper_props, "UpperHallLamp", Vector3(1.6, FLOOR_HEIGHT + 0.98, 5.35), PI)
+	# Keep the stair-head turn clear for full-size navigation capsules. This
+	# console used to begin only 24 cm from the stair opening after accounting
+	# for its real mesh bounds, so the Huntsman could climb successfully and then
+	# fall back into the well while trying to squeeze between it and the rail.
+	# Tuck the whole grouping into the front/bathroom-wall corner instead.
+	_add_asset(
+		FURNITURE_BED_TABLE,
+		upper_props,
+		"UpperHallConsole",
+		Vector3(2.55, FLOOR_HEIGHT, 5.59),
+		PI
+	)
+	_add_asset(
+		FURNITURE_TABLE_LAMP,
+		upper_props,
+		"UpperHallLamp",
+		Vector3(2.55, FLOOR_HEIGHT + 0.98, 5.59),
+		PI
+	)
 
 	var attic_props := _add_container(attic, "Props")
 	for position: Vector3 in [

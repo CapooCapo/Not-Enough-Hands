@@ -12,6 +12,7 @@ enum Phase {
 
 const STATUE_STING = preload("res://assets/audio/statue_spotted_jumpscare.mp3")
 const CRAWLER_STING = preload("res://assets/audio/crawler_scream.ogg")
+const HUNTER_STING = preload("res://assets/audio/creature_reveal.mp3")
 
 @export_category("Timing")
 @export var impact_duration: float = 0.12
@@ -61,8 +62,16 @@ func show_jumpscare(ghost: Node3D) -> void:
 	visage.call("configure", killer_variant)
 	_configure_copy()
 
-	scare_audio.stream = CRAWLER_STING if killer_variant == &"crawler" else STATUE_STING
-	scare_audio.pitch_scale = 0.92 if killer_variant == &"crawler" else 0.97
+	match killer_variant:
+		&"crawler":
+			scare_audio.stream = CRAWLER_STING
+			scare_audio.pitch_scale = 0.92
+		&"hunter":
+			scare_audio.stream = HUNTER_STING
+			scare_audio.pitch_scale = 0.68
+		_:
+			scare_audio.stream = STATUE_STING
+			scare_audio.pitch_scale = 0.97
 	scare_audio.play()
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 	# Only own the global pause when this player belongs to the active gameplay
@@ -146,16 +155,23 @@ func _identify_killer(ghost: Node3D) -> StringName:
 		if ghost.is_in_group("crawler_ghosts") \
 			or "crawler" in ghost.name.to_lower():
 			return &"crawler"
+		if ghost.is_in_group("hunter_ghosts") \
+			or "hunter" in ghost.name.to_lower():
+			return &"hunter"
 	return &"statue"
 
 
 func _configure_copy() -> void:
-	if killer_variant == &"crawler":
-		cause_label.text = "BẠN ĐÃ BỊ KẺ BÒ TRÊN TRẦN BẮT"
-		tip_label.text = "Nó không cần nhìn thấy bạn. Đứng im và đừng gây tiếng động."
-	else:
-		cause_label.text = "BẠN ĐÃ BỊ TƯỢNG ĐÁ BẮT"
-		tip_label.text = "Đừng quay lưng. Đừng nhắm mắt khi nó đang ở gần."
+	match killer_variant:
+		&"crawler":
+			cause_label.text = "BẠN ĐÃ BỊ KẺ BÒ TRÊN TRẦN BẮT"
+			tip_label.text = "Nó không cần nhìn thấy bạn. Đứng im và đừng gây tiếng động."
+		&"hunter":
+			cause_label.text = "THỢ SĂN ĐÃ TÓM ĐƯỢC BẠN"
+			tip_label.text = "Nó lần theo dấu chân bạn để lại. Đừng quay về lối cũ, và đừng bao giờ đứng yên trong vệt đèn của nó."
+		_:
+			cause_label.text = "BẠN ĐÃ BỊ TƯỢNG ĐÁ BẮT"
+			tip_label.text = "Đừng quay lưng. Đừng nhắm mắt khi nó đang ở gần."
 
 
 func _on_restart_pressed() -> void:

@@ -25,7 +25,7 @@ script = ExtResource("1_script")
 offset_left = 20.0
 offset_top = 20.0
 offset_right = 420.0
-offset_bottom = 520.0
+offset_bottom = 584.0
 theme_override_styles/panel = SubResource("StyleBox_panel")
 
 [node name="Margin" type="MarginContainer" parent="Panel"]
@@ -73,6 +73,11 @@ text = "GỌI STATUE XUẤT HIỆN"
 custom_minimum_size = Vector2(0, 44)
 layout_mode = 2
 text = "GỌI CRAWLER XUẤT HIỆN"
+
+[node name="SpawnHunter" type="Button" parent="Panel/Margin/Content"]
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+text = "GỌI THỢ SĂN VÀO NHÀ"
 
 [node name="DoorTitle" type="Label" parent="Panel/Margin/Content"]
 layout_mode = 2

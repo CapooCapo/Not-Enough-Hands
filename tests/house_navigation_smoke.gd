@@ -76,6 +76,37 @@ func _run() -> void:
 		_fail("The stair path did not gain enough height to reach the upper floor.")
 		return
 
+	# Door 05 opens from the east second-floor bedroom. Reaching that room from
+	# the stair head must stay on the second floor; a disconnected hall/bedroom
+	# island can otherwise make an agent take the ground-floor stairs twice.
+	var room_five_start := NavigationServer3D.map_get_closest_point(
+		map_rid,
+		Vector3(1.65, 3.05, 4.24)
+	)
+	var room_five_point := NavigationServer3D.map_get_closest_point(
+		map_rid,
+		Vector3(7.4, 3.1, -3.0)
+	)
+	var room_five_path := NavigationServer3D.map_get_path(
+		map_rid,
+		room_five_start,
+		room_five_point,
+		true
+	)
+	if room_five_path.is_empty() \
+		or room_five_path[room_five_path.size() - 1].distance_to(room_five_point) > 0.5:
+		_fail("No complete second-floor path was found from the landing to Door 05's room.")
+		return
+	var room_five_min_y := INF
+	for point: Vector3 in room_five_path:
+		room_five_min_y = minf(room_five_min_y, point.y)
+	if room_five_min_y < 2.5:
+		_fail(
+			"The route to Door 05's room detours below the second floor (minimum y %.2f)."
+			% room_five_min_y
+		)
+		return
+
 	var basement_point := NavigationServer3D.map_get_closest_point(
 		map_rid,
 		Vector3(-6.0, -2.9, -1.0)

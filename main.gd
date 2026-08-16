@@ -107,6 +107,38 @@ func _add_stair_navigation_links() -> void:
 		link.add_to_group("smooth_stair_navigation_links")
 		add_child(link)
 
+		# Recast erodes both edges of the narrow 2 m landing tile. The longitudinal
+		# link above can therefore finish on a tiny valid island at the stair head
+		# which is not connected laterally to the floor around the stairwell. A
+		# navigation-driven body then receives no path, falls back to a straight
+		# line across the opening, and wedges on the bannister. Bridge that final
+		# turn explicitly for each of the three internal staircases.
+		if ramp.name in [
+			"StairBasementToGroundSmoothRamp",
+			"StairGroundToSecondSmoothRamp",
+			"StairSecondToAtticSmoothRamp",
+		]:
+			_add_upper_landing_navigation_link(
+				ramp,
+				horizontal_uphill,
+				link.end_position
+			)
+
+
+func _add_upper_landing_navigation_link(
+	ramp: StaticBody3D,
+	horizontal_uphill: Vector3,
+	upper_stair_end: Vector3
+) -> void:
+	var into_floor := Vector3.UP.cross(horizontal_uphill).normalized()
+	var landing_link := NavigationLink3D.new()
+	landing_link.name = ramp.name.trim_suffix("SmoothRamp") + "UpperLandingNavigationLink"
+	landing_link.bidirectional = true
+	landing_link.start_position = upper_stair_end
+	landing_link.end_position = upper_stair_end + into_floor * 1.55
+	landing_link.add_to_group("smooth_stair_landing_links")
+	add_child(landing_link)
+
 
 func _make_mesh_two_sided(mesh_instance: MeshInstance3D) -> void:
 	for surface_index: int in mesh_instance.mesh.get_surface_count():

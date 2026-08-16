@@ -6,6 +6,7 @@ signal panel_toggled(open: bool)
 @export var player_path: NodePath = NodePath("../Player")
 @export var statue_path: NodePath = NodePath("../StatueGhost")
 @export var crawler_path: NodePath = NodePath("../CrawlerGhost")
+@export var hunter_path: NodePath = NodePath("../HunterGhost")
 @export var door_director_path: NodePath = NodePath("../DoorAttackDirector")
 
 var panel_open: bool = false
@@ -25,6 +26,7 @@ func _ready() -> void:
 	fast_toggle.toggled.connect(set_fast_movement_enabled)
 	$Panel/Margin/Content/SpawnStatue.pressed.connect(spawn_statue)
 	$Panel/Margin/Content/SpawnCrawler.pressed.connect(spawn_crawler)
+	$Panel/Margin/Content/SpawnHunter.pressed.connect(spawn_hunter)
 	$Panel/Margin/Content/DoorRow/AttackDoor.pressed.connect(force_selected_door_attack)
 	$Panel/Margin/Content/Close.pressed.connect(func() -> void: set_panel_open(false))
 	set_panel_open(false)
@@ -84,6 +86,19 @@ func spawn_crawler() -> bool:
 		and crawler.has_method("dev_force_spawn") \
 		and bool(crawler.call("dev_force_spawn", player))
 	status_label.text = "Crawler đã xuất hiện." if spawned else "Không thể gọi Crawler."
+	return spawned
+
+
+## Puts the huntsman in the house without waiting for a door to break. It still
+## needs a real breach to ever walk back out, so a forced spawn into an intact
+## house seals it in on purpose - which is the state worth testing.
+func spawn_hunter() -> bool:
+	var hunter := get_node_or_null(hunter_path)
+	var player := _player() as CharacterBody3D
+	var spawned := hunter != null \
+		and hunter.has_method("dev_force_spawn") \
+		and bool(hunter.call("dev_force_spawn", player))
+	status_label.text = "Thợ Săn đã vào nhà." if spawned else "Không thể gọi Thợ Săn."
 	return spawned
 
 

@@ -17,14 +17,16 @@ func _run() -> void:
 	var player := game.get_node("Player") as CharacterBody3D
 	var statue := game.get_node("StatueGhost") as CharacterBody3D
 	var crawler := game.get_node("CrawlerGhost") as CharacterBody3D
+	var hunter := game.get_node("HunterGhost") as CharacterBody3D
 	var director := game.get_node("DoorAttackDirector") as DoorAttackDirector
-	if not dev_tools or not player or not statue or not crawler or not director:
+	if not dev_tools or not player or not statue or not crawler or not hunter or not director:
 		_fail("Dev Tools could not resolve its main-scene dependencies.")
 		return
 
 	director.automatic_waves = false
 	statue.set_physics_process(false)
 	crawler.set_physics_process(false)
+	hunter.set_physics_process(false)
 	for door: Node in get_nodes_in_group("defense_doors"):
 		door.set_physics_process(false)
 
@@ -53,6 +55,13 @@ func _run() -> void:
 		return
 	if not dev_tools.spawn_crawler() or not bool(crawler.get("manifested")):
 		_fail("Dev Tools did not force the crawler to manifest.")
+		return
+	# The huntsman normally needs a breached door, so the forced spawn also has
+	# to put it in the "already inside" state rather than only making it visible.
+	if not dev_tools.spawn_hunter() \
+		or not bool(hunter.get("manifested")) \
+		or not bool(hunter.get("inside_house")):
+		_fail("Dev Tools did not put the huntsman inside the house.")
 		return
 
 	dev_tools.set_selected_entrance(4)
@@ -84,11 +93,18 @@ func _run() -> void:
 		crawler.get_node("BreathAudio"),
 		crawler.get_node("ScreamAudio"),
 		crawler.get_node("BoneAudio"),
+		hunter.get_node("FootstepAudio"),
+		hunter.get_node("HookAudio"),
+		hunter.get_node("BreathAudio"),
+		hunter.get_node("SniffAudio"),
+		hunter.get_node("HornAudio"),
+		hunter.get_node("SeizeAudio"),
+		hunter.get_node("BreachAudio"),
 	]:
 		audio.stop()
 	game.queue_free()
 	await process_frame
-	print("Dev Tools smoke test passed: invincibility, x3 speed, both ghosts, and selected-door attack.")
+	print("Dev Tools smoke test passed: invincibility, x3 speed, all three ghosts, and selected-door attack.")
 	quit()
 
 

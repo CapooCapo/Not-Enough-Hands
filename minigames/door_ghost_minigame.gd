@@ -15,7 +15,7 @@ enum Phase {
 }
 
 @export_category("Rules")
-@export var attempt_duration: float = 30.0
+@export var attempt_duration: float = 32.0
 @export var progress_per_tick: float = 1.0
 @export var progress_tick_interval: float = 0.085
 @export var progress_tick_interval_mid: float = 0.073
@@ -25,8 +25,8 @@ enum Phase {
 @export var search_grace_duration: float = 1.25
 @export var decay_tick_interval: float = 0.2
 @export var decay_per_tick: float = 1.0
-@export_range(0.0, 1.0, 0.01) var instant_dodge_chance_start: float = 0.06
-@export_range(0.0, 1.0, 0.01) var instant_dodge_chance_end: float = 0.16
+@export_range(0.0, 1.0, 0.01) var instant_dodge_chance_start: float = 0.05
+@export_range(0.0, 1.0, 0.01) var instant_dodge_chance_end: float = 0.15
 @export var instant_dodge_cooldown_after_relocate: float = 0.9
 
 @export_category("Presentation")

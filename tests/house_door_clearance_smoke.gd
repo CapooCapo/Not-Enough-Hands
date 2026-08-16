@@ -14,6 +14,9 @@ const DOOR_CLEARANCES: Array[Dictionary] = [
 	{"name": "West Bedroom / Hall", "center": Vector3(-5, 3, 0), "half": Vector2(0.72, 1.05)},
 	{"name": "East Bedroom / Hall", "center": Vector3(4, 3, 0), "half": Vector2(0.72, 1.05)},
 	{"name": "Hall / Bathroom", "center": Vector3(3, 3, 3), "half": Vector2(1.05, 0.72)},
+	# Capsule turning space from the narrow ground-to-second stair landing onto
+	# the east side of the hall. The console must stay beyond this region.
+	{"name": "Second-floor stair-head turn", "center": Vector3(1.5, 3, 4.9), "half": Vector2(0.5, 0.55)},
 	# All seven defended exterior entrances, including clearance on both sides
 	# of the wall rather than only inside the room.
 	{"name": "Entrance #1 Front", "center": Vector3(0, 0, 6), "half": Vector2(0.85, 1.25)},

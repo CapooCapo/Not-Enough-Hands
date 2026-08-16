@@ -105,6 +105,9 @@ func _run() -> void:
 	if get_nodes_in_group("smooth_stair_navigation_links").size() != 4:
 		_fail("Every smooth stair ramp must have a matching navigation link.")
 		return
+	if get_nodes_in_group("smooth_stair_landing_links").size() != 3:
+		_fail("Every internal stair must bridge its narrow upper landing to the floor.")
+		return
 
 	var entrance_ids: Array[int] = []
 	var entrance_elevations := {1: 0.0, 2: 0.0, 3: 0.0, 4: 3.0, 5: 3.0, 6: -3.0, 7: 6.0}

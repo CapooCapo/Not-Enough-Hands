@@ -15,9 +15,11 @@ The bottom-left **THỂ LỰC** bar is connected to the player's sprint reserve:
 drains while Shift-running and refills while walking or standing still.
 
 Press **F1** to open the development panel. It can toggle invincibility and x3
-movement speed, force the existing Statue or Crawler to manifest, and select
-entrance 01-07 for an immediate real door attack. Opening the panel releases the
-mouse automatically; F1 closes it and restores the previous mouse mode.
+movement speed, force the existing Statue, Crawler or Huntsman to manifest, and
+select entrance 01-07 for an immediate real door attack. Opening the panel
+releases the mouse automatically; F1 closes it and restores the previous mouse
+mode. Forcing the Huntsman in puts it inside a house with no breach, which seals
+it in — see below.
 
 Interior bulbs occasionally sputter through a short, localised blackout. The
 electrical snap and buzz is positional at the affected fixture, and the system
@@ -79,16 +81,21 @@ the minigame closes.
 
 ## Ghosts
 
-The two ghosts are built to be opposites, so that learning one teaches you
-nothing about surviving the other.
+The three ghosts are built to be opposites, so that learning one teaches you
+nothing about surviving the others.
 
-| | Statue (`ghosts/statue_ghost.gd`) | Crawler (`ghosts/crawler_ghost.gd`) |
-|---|---|---|
-| Senses | Sight — it freezes while any player can see it | Sound — it is blind, and hears movement |
-| Counterplay | Keep looking at it; don't blink | Go quiet: crouch, or stop moving entirely |
-| Space | Floors and stairs, on the navmesh | Floors, walls and ceilings; travels overhead |
-| Arrival | Teleports into a scripted ambush, then vanishes | Announces itself with a fly-past, then sweeps the house |
-| Kill | Grabs you during a blink or a look-away; distant statues surge much farther per blink | Leaps 13 m at 21 m/s, or mauls what it touches |
+| | Statue (`ghosts/statue_ghost.gd`) | Crawler (`ghosts/crawler_ghost.gd`) | Huntsman (`ghosts/hunter_ghost.gd`) |
+|---|---|---|---|
+| Senses | Sight — it freezes while any player can see it | Sound — it is blind, and hears movement | Tracks — it reads the marks you left on the floor |
+| Counterplay | Keep looking at it; don't blink | Go quiet: crouch, or stop moving entirely | Keep off ground you have already walked; break its line at corners |
+| Space | Floors and stairs, on the navmesh | Floors, walls and ceilings; travels overhead | Every room on every floor, on foot, room by room |
+| Arrival | Teleports into a scripted ambush, then vanishes | Announces itself with a fly-past, then sweeps the house | Walks in through a door it has already broken |
+| Presence | Gone the moment you look away | Gone between hunts | Never teleports, never vanishes while inside |
+| Kill | Grabs you during a blink or a look-away; distant statues surge much farther per blink | Leaps 13 m at 21 m/s, or mauls what it touches | Charges faster than a sprint, then a half-second grab |
+
+Standing still is the correct answer to the crawler, staring is the correct
+answer to the statue, and neither does anything at all to the huntsman. That is
+what it is for.
 
 The crawler hunts the last noise it *heard*, not where you are now. Sprinting,
 landing a jump and working a door are loud; crouch-walking barely carries; and
@@ -128,7 +135,96 @@ Route markers and the lair are level data, not code — drop `Marker3D`s into th
 `crawler_patrol_points` and `crawler_lair` groups and the creature picks them up.
 With no markers present it falls back to sweeping around wherever it was placed.
 
-Both ghosts report threat through `Player.set_threat_from`, which keeps the
+### The Huntsman — what comes in when a door finally breaks
+
+The other two are summoned by the night. This one is summoned by failure: a
+defense door that reaches zero durability is a hole, and `hunter_ghost.gd`
+subscribes to every door's `breached` signal. `entry_delay_min`–`entry_delay_max`
+seconds later it is standing outside that doorway, and then it walks in — on
+foot, in view, no teleport. Rebuild the door inside that window and nothing ever
+enters.
+
+Once inside it stops in the doorway and sweeps the house with its lantern for
+`entry_scan_duration` seconds. That is the announcement, and it is the only one.
+
+**It hunts by track.** Every `spoor_interval` (0.4 s) each player writes a mark
+to the floor: a position, a time, and a strength. Sprinting prints hard,
+crouch-walking barely prints, and standing perfectly still still prints — faintly,
+directly under your feet. Marks fade over `spoor_lifetime` (110 s) and become
+unreadable below `cold_trail_strength`. The huntsman reads only what is inside
+`nose_range` (7.5 m), takes the freshest mark it can find there, walks to it, and
+reads again — and it only ever accepts marks *newer* than the last one it used,
+so it walks your route forwards and can never be sent in a circle by your
+history. Its knowledge is therefore local: rooms it has not physically reached
+are genuinely safe, and the trail it is following is one you already left.
+
+**Losing it and being found again.** With no readable mark it stops, sniffs and
+turns on the spot (`cast_duration`). Then it lifts its head and takes the longest
+scent it has — the freshest mark anywhere within `cast_lead_range` (30 m, most of
+the house) — and walks to where that was. Against a player who keeps moving this
+lead is always one address out of date and costs them nothing. Against a player
+who has stopped, it is the thing that eventually opens their door. Only with
+nothing readable anywhere does it fall back to quartering the house along the
+`hunter_sweep_points` markers. A full sprint within `running_hearing_range` does
+not make it hunt sound; it just gives it somewhere new to go and read the floor.
+
+**Knowing when it is beaten.** Two separate tests, because wedging has two
+shapes. The fast one watches the ground it actually covers, not the distance to
+its destination — a route to the room above starts by walking *away* from it
+toward the stairs, so distance-closed is a lie on a staircase. The slow one
+(`no_closing_time`) watches whether it has closed any distance on its goal at
+all over several seconds, which is what catches a body sliding back and forth
+along a rail at full speed and getting nowhere. Fail either and it gives up on
+that destination: it peels off at an angle
+(`unstick_duration`), burns the mark, and writes off that patch of floor for
+`give_up_memory` seconds so a motionless player printing fresh marks in an
+unreachable spot cannot pin it there. Three failures in a row and, only while
+nobody can see it, it relocates to the nearest room on its route. Without all of
+this it was possible to leave it standing on a staircase for the rest of the
+night, which is the one failure state a creature built on relentlessness cannot
+have.
+
+**The lantern is its eye.** It sweeps while it searches and locks dead-on when it
+finds you, so a beam that stops moving is the worst thing you can see. Time in
+the beam builds toward a lock (`spot_time_near`–`spot_time_far`, halved against a
+crouched shape); inside `certain_range` it does not need the beam at all. A lock
+means a horn and a charge at `charge_speed` (3.5 m/s against a 3.25 m/s sprint) —
+a straight corridor is simply lost. What saves you is that it has `acceleration`
+of a loaded truck and cannot move at full speed in a direction it is not already
+facing (`off_axis_speed_floor`), so corners, doorways and stairs are the escape.
+Break its line for `lose_sight_time` and it drops back to the trail — the trail
+that is now hottest exactly where it lost you. And once it has had you in the
+light it keeps your scent for the rest of the night (`marked_nose_bonus`), and
+every lock extends its stay.
+
+**The grab.** At `seize_range` it plants and reaches: `seize_windup` is half a
+second, and that half second is the only window there is. The reach is
+deliberately longer than a person's (2.35 m) because it is two and a half metres
+of hunched shoulders with a hook on one arm — it takes people over the stairwell
+bannister and through the gap in a doorway it cannot itself fit through. A
+shorter reach left a player standing two metres away, lit, being stared at, and
+completely untouchable.
+
+**It does not give up on somebody it can see.** If it cannot close — pressed
+against a rail with you on the other side — it drops navigation for
+`direct_press_duration` and pushes straight at you instead, because pathfinding
+is exactly what dithers along a railing. Only losing sight of you for
+`lose_sight_time` ends a lock.
+
+**The trap.** It leaves the way it came in, after `hunt_duration`, through any
+door that is still a hole — and after `reentry_cooldown_min`–`reentry_cooldown_max`
+seconds of quiet it lets itself back in through that same hole, so a breach left
+standing keeps costing you all night. Rebuild every breach while it is inside and it has no
+way out: it is sealed in with you until dawn (`sealed_inside`), it stops pacing
+itself, and it gets faster and sharper-nosed. Repairing your own house is
+therefore no longer an unambiguously correct move, which is the decision the
+whole creature exists to force.
+
+Route markers are level data, not code — drop `Marker3D`s into the
+`hunter_sweep_points` group and it picks them up, and the average of those
+markers is also what tells it which side of any doorway is indoors.
+
+All three ghosts report threat through `Player.set_threat_from`, which keeps the
 horror overlay on whichever is currently worse.
 
 ## Verification
@@ -140,6 +236,18 @@ doors, the breached-door minigame, temporary ghost safety, interaction, and
 house audio. `dev_tools_smoke.gd` covers the F1 development controls, while
 `night_clock_smoke.gd` verifies the 2.5-second minute tick,
 midnight rollover, and the 6:00 AM victory boundary.
+
+`hunter_ghost_smoke.gd` covers the huntsman's contract: it only gets in through a
+breach, a door rebuilt before it arrives keeps it out entirely, it follows a
+trail laid on the floor with no sight or sound to go on, a mark it can smell but
+cannot reach does not freeze it, its lantern lock leads to a kill, attack safety
+still blocks that kill, sealing the last breach traps it inside, and an open
+breach lets it walk back out (and invites it back in).
+`house_hunter_sweep_smoke.gd` then drops it into House2 itself, in three stages:
+it must search real rooms across the baked navmesh instead of grinding into the
+first wall; it must find a player standing perfectly still two floors above it;
+and it must take a player who stands at the head of the stairs with the bannister
+between them, which is the specific place it used to fail.
 
 Run one with:
 
