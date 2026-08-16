@@ -51,7 +51,11 @@ var eyes_closed: bool = false
 var is_alive: bool = true
 var blink_time_remaining: float = blink_interval
 var forced_blink_remaining: float = 0.0
+## Highest threat currently reported by any ghost - drives the horror overlay
+## and the camera sway. Kept under its original name because the shader
+## parameter and the camera code already read it.
 var statue_threat: float = 0.0
+var threat_sources: Dictionary = {}
 var eyelid_closure: float = 0.0
 @export var mouse_sensitivity: float = 0.002
 @export var max_interaction_range: float = 10.0
@@ -273,7 +277,24 @@ func force_blink(duration: float = -1.0) -> void:
 
 
 func set_statue_threat(amount: float) -> void:
-	statue_threat = clampf(amount, 0.0, 1.0)
+	set_threat_from('statue', amount)
+
+
+## Threat is tracked per source and the overlay shows the worst of them. Two
+## ghosts both writing a single shared value every physics frame would fight
+## over it, and whichever ran second would win - so a crawler two rooms away
+## could silently erase the dread of a statue standing behind you.
+func set_threat_from(source: StringName, amount: float) -> void:
+	var clamped := clampf(amount, 0.0, 1.0)
+	if clamped <= 0.0:
+		threat_sources.erase(source)
+	else:
+		threat_sources[source] = clamped
+
+	statue_threat = 0.0
+	for value: float in threat_sources.values():
+		statue_threat = maxf(statue_threat, value)
+
 	var overlay_material := horror_overlay_rect.material as ShaderMaterial
 	if overlay_material:
 		overlay_material.set_shader_parameter('threat_strength', statue_threat)

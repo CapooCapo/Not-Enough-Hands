@@ -7,6 +7,7 @@
 [ext_resource type="PackedScene" path="res://ghosts/statue_ghost.tscn" id="5_statue"]
 [ext_resource type="Script" uid="uid://d3dtpcwe6oum" path="res://door/door_attack_director.gd" id="6_door_director"]
 [ext_resource type="Script" uid="uid://c5asiy3bo4o3p" path="res://audio/house_ambience.gd" id="7_house_ambience"]
+[ext_resource type="PackedScene" path="res://ghosts/crawler_ghost.tscn" id="8_crawler"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_main"]
 sky_top_color = Color(0.22, 0.38, 0.58, 1)
@@ -111,3 +112,33 @@ panning_strength = 1.35
 [node name="StatueGhost" parent="." unique_id=795322254 instance=ExtResource("5_statue")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.08, 3.8)
 night_aggression = 0.15
+
+[node name="CrawlerGhost" parent="." instance=ExtResource("8_crawler")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4, 6.4, 2)
+patrol_point_timeout = 22.0
+
+[node name="CrawlerRoute" type="Node3D" parent="."]
+
+[node name="Lair" type="Marker3D" parent="CrawlerRoute" groups=["crawler_lair"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4, 6.4, 2)
+
+[node name="Patrol01AtticWest" type="Marker3D" parent="CrawlerRoute" groups=["crawler_patrol_points"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4, 6.4, 2)
+
+[node name="Patrol02BedroomWest" type="Marker3D" parent="CrawlerRoute" groups=["crawler_patrol_points"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4, 3.4, 3)
+
+[node name="Patrol03KitchenHall" type="Marker3D" parent="CrawlerRoute" groups=["crawler_patrol_points"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4, 0.4, -3)
+
+[node name="Patrol04Basement" type="Marker3D" parent="CrawlerRoute" groups=["crawler_patrol_points"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4, -2.6, 2)
+
+[node name="Patrol05DiningEast" type="Marker3D" parent="CrawlerRoute" groups=["crawler_patrol_points"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4, 0.4, 3)
+
+[node name="Patrol06BedroomEast" type="Marker3D" parent="CrawlerRoute" groups=["crawler_patrol_points"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4, 3.4, -3)
+
+[node name="Patrol07AtticEast" type="Marker3D" parent="CrawlerRoute" groups=["crawler_patrol_points"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4, 6.4, 0)

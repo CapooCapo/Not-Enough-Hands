@@ -36,3 +36,22 @@ provenance.
 - `house_floor_creaks.mp3` — “Floor Creak Hardwood, Old House” by TRP
   (CC0):
   https://freesound.org/people/TRP/sounds/715636/
+- `crawler_bone_snap.wav` — “Deep Bone Crack/Break SFX” by Zane Little Music
+  (CC0), one file from the pack. Played by the crawler every time it re-grips
+  a new surface:
+  https://opengameart.org/content/deep-bone-crackbreak-sfx
+- `crawler_chitter.ogg` — “80 CC0 creature SFX” by rubberduck (CC0), the
+  `bug_09` file. The crawler's lurking/listening vocalisation:
+  https://opengameart.org/content/80-cc0-creture-sfx-2
+- `crawler_breath.ogg` — “80 CC0 creature SFX” by rubberduck (CC0), the
+  `breath` file. Only audible within a few metres of the crawler:
+  https://opengameart.org/content/80-cc0-creature-sfx
+- `crawler_scream.ogg` — “80 CC0 creature SFX” by rubberduck (CC0), the
+  `scream_01` file. The pounce:
+  https://opengameart.org/content/80-cc0-creature-sfx
+
+The four `crawler_*` files were picked by name from CC0 packs rather than
+auditioned, so they are the most likely thing in the creature to want swapping.
+They are plain `AudioStreamPlayer3D` streams in `ghosts/crawler_ghost.tscn` -
+replacing a file keeps every behaviour intact. `creature_reveal.mp3` above is
+still unused and is a reasonable alternative for the pounce.

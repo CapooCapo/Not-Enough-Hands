@@ -12,10 +12,23 @@ var state: DoorState = DoorState.CLOSED
 @onready var hinge: AnimatableBody3D = $Hinge
 var tween: Tween
 
+## Loudness of working a door, on the crawler's 0-1 hearing scale. Well above a
+## sprint: shutting a door behind you buys cover from the thing that hunts by
+## sight and hands your position to the thing that hunts by sound.
+@export_range(0.0, 1.0) var noise_loudness: float = 0.7
+
 func interact(player: Node3D = null) -> void:
 	if state == DoorState.OPENING or state == DoorState.CLOSING:
 		return
-		
+
+	get_tree().call_group(
+		'crawler_ghosts',
+		'report_noise',
+		global_position,
+		noise_loudness,
+		self
+	)
+
 	if state == DoorState.CLOSED:
 		state = DoorState.OPENING
 		

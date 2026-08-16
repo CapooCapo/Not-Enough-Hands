@@ -1,0 +1,580 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://ghosts/crawler_ghost.gd" id="1_crawler"]
+[ext_resource type="Shader" path="res://ghosts/crawler_flesh.gdshader" id="2_flesh"]
+[ext_resource type="AudioStream" path="res://assets/audio/417537__danthaiwang__scratching-with-fingernails.wav" id="3_crawl"]
+[ext_resource type="AudioStream" path="res://assets/audio/crawler_chitter.ogg" id="4_chitter"]
+[ext_resource type="AudioStream" path="res://assets/audio/crawler_breath.ogg" id="5_breath"]
+[ext_resource type="AudioStream" path="res://assets/audio/crawler_scream.ogg" id="6_scream"]
+[ext_resource type="AudioStream" path="res://assets/audio/crawler_bone_snap.wav" id="7_bone"]
+
+[sub_resource type="ShaderMaterial" id="Material_flesh"]
+render_priority = 0
+shader = ExtResource("2_flesh")
+shader_parameter/flesh_color = Color(0.185, 0.135, 0.128, 1)
+shader_parameter/pale_color = Color(0.365, 0.315, 0.285, 1)
+shader_parameter/bruise_color = Color(0.115, 0.055, 0.075, 1)
+shader_parameter/vein_color = Color(0.34, 0.045, 0.045, 1)
+shader_parameter/wet_tint = Color(0.62, 0.66, 0.7, 1)
+shader_parameter/noise_scale = 8.5
+shader_parameter/pore_scale = 26.0
+shader_parameter/bone_show_through = 0.66
+shader_parameter/vein_density = 0.55
+shader_parameter/bump_strength = 1.35
+shader_parameter/wetness = 0.78
+shader_parameter/rim_power = 2.6
+shader_parameter/rim_strength = 0.85
+shader_parameter/agitation = 0.0
+shader_parameter/breath = 0.0
+
+[sub_resource type="StandardMaterial3D" id="Material_void"]
+albedo_color = Color(0.004, 0.004, 0.005, 1)
+metallic_specular = 0.0
+roughness = 1.0
+
+[sub_resource type="StandardMaterial3D" id="Material_drip"]
+transparency = 1
+shading_mode = 0
+vertex_color_use_as_albedo = true
+albedo_color = Color(0.16, 0.13, 0.13, 1)
+disable_receive_shadows = true
+billboard_mode = 3
+
+[sub_resource type="SphereShape3D" id="Shape_crawler"]
+radius = 0.34
+
+[sub_resource type="BoxMesh" id="Mesh_pelvis"]
+material = SubResource("Material_flesh")
+size = Vector3(0.27, 0.17, 0.24)
+
+[sub_resource type="BoxMesh" id="Mesh_vertebra"]
+material = SubResource("Material_flesh")
+size = Vector3(0.13, 0.115, 0.125)
+
+[sub_resource type="BoxMesh" id="Mesh_spine_spur"]
+material = SubResource("Material_flesh")
+size = Vector3(0.03, 0.115, 0.045)
+
+[sub_resource type="SphereMesh" id="Mesh_ribcage"]
+material = SubResource("Material_flesh")
+radius = 0.185
+height = 0.37
+radial_segments = 10
+rings = 6
+
+[sub_resource type="BoxMesh" id="Mesh_rib"]
+material = SubResource("Material_flesh")
+size = Vector3(0.31, 0.022, 0.042)
+
+[sub_resource type="BoxMesh" id="Mesh_scapula"]
+material = SubResource("Material_flesh")
+size = Vector3(0.14, 0.028, 0.13)
+
+[sub_resource type="BoxMesh" id="Mesh_neck_vertebra"]
+material = SubResource("Material_flesh")
+size = Vector3(0.085, 0.08, 0.09)
+
+[sub_resource type="SphereMesh" id="Mesh_skull"]
+material = SubResource("Material_flesh")
+radius = 0.125
+height = 0.25
+radial_segments = 10
+rings = 6
+
+[sub_resource type="BoxMesh" id="Mesh_brow"]
+material = SubResource("Material_flesh")
+size = Vector3(0.16, 0.035, 0.06)
+
+[sub_resource type="BoxMesh" id="Mesh_eye_seam"]
+material = SubResource("Material_flesh")
+size = Vector3(0.075, 0.014, 0.05)
+
+[sub_resource type="BoxMesh" id="Mesh_mouth_cavity"]
+material = SubResource("Material_void")
+size = Vector3(0.105, 0.09, 0.08)
+
+[sub_resource type="BoxMesh" id="Mesh_jaw"]
+material = SubResource("Material_flesh")
+size = Vector3(0.125, 0.05, 0.155)
+
+[sub_resource type="CylinderMesh" id="Mesh_tooth"]
+material = SubResource("Material_flesh")
+top_radius = 0.001
+bottom_radius = 0.011
+height = 0.052
+radial_segments = 4
+rings = 1
+
+[sub_resource type="CylinderMesh" id="Mesh_upper_limb"]
+material = SubResource("Material_flesh")
+top_radius = 0.062
+bottom_radius = 0.044
+height = 0.42
+radial_segments = 7
+rings = 1
+
+[sub_resource type="CylinderMesh" id="Mesh_lower_limb"]
+material = SubResource("Material_flesh")
+top_radius = 0.044
+bottom_radius = 0.028
+height = 0.38
+radial_segments = 7
+rings = 1
+
+[sub_resource type="SphereMesh" id="Mesh_joint"]
+material = SubResource("Material_flesh")
+radius = 0.056
+height = 0.112
+radial_segments = 8
+rings = 4
+
+[sub_resource type="SphereMesh" id="Mesh_wrist"]
+material = SubResource("Material_flesh")
+radius = 0.036
+height = 0.072
+radial_segments = 7
+rings = 4
+
+[sub_resource type="BoxMesh" id="Mesh_palm"]
+material = SubResource("Material_flesh")
+size = Vector3(0.08, 0.03, 0.09)
+
+[sub_resource type="CylinderMesh" id="Mesh_finger"]
+material = SubResource("Material_flesh")
+top_radius = 0.016
+bottom_radius = 0.003
+height = 0.175
+radial_segments = 5
+rings = 1
+
+[sub_resource type="CylinderMesh" id="Mesh_tail"]
+material = SubResource("Material_flesh")
+top_radius = 0.075
+bottom_radius = 0.05
+height = 0.3
+radial_segments = 7
+rings = 1
+
+[sub_resource type="CylinderMesh" id="Mesh_tail_tip"]
+material = SubResource("Material_flesh")
+top_radius = 0.05
+bottom_radius = 0.008
+height = 0.36
+radial_segments = 6
+rings = 1
+
+[sub_resource type="Gradient" id="Gradient_drip"]
+offsets = PackedFloat32Array(0, 0.25, 1)
+colors = PackedColorArray(0.18, 0.14, 0.14, 0, 0.18, 0.14, 0.14, 0.75, 0.18, 0.14, 0.14, 0)
+
+[sub_resource type="GradientTexture1D" id="GradientTexture1D_drip"]
+gradient = SubResource("Gradient_drip")
+
+[sub_resource type="ParticleProcessMaterial" id="Process_drip"]
+emission_shape = 3
+emission_box_extents = Vector3(0.16, 0.06, 0.42)
+direction = Vector3(0, -1, 0)
+spread = 12.0
+initial_velocity_min = 0.05
+initial_velocity_max = 0.2
+gravity = Vector3(0, -2.4, 0)
+scale_min = 0.4
+scale_max = 1.0
+color = Color(0.18, 0.14, 0.14, 1)
+color_ramp = SubResource("GradientTexture1D_drip")
+
+[sub_resource type="QuadMesh" id="Mesh_drip"]
+material = SubResource("Material_drip")
+size = Vector2(0.012, 0.026)
+
+[node name="CrawlerGhost" type="CharacterBody3D" groups=["crawler_ghosts"]]
+collision_layer = 4
+collision_mask = 1
+floor_stop_on_slope = false
+floor_constant_speed = true
+floor_block_on_wall = false
+floor_max_angle = 1.4
+safe_margin = 0.02
+script = ExtResource("1_crawler")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("Shape_crawler")
+
+[node name="NavigationAgent3D" type="NavigationAgent3D" parent="."]
+radius = 0.36
+height = 0.7
+path_desired_distance = 0.5
+target_desired_distance = 0.5
+avoidance_enabled = false
+
+[node name="CrawlAudio" type="AudioStreamPlayer3D" parent="."]
+stream = ExtResource("3_crawl")
+volume_db = -9.0
+unit_size = 4.0
+max_distance = 26.0
+panning_strength = 1.4
+
+[node name="ChitterAudio" type="AudioStreamPlayer3D" parent="."]
+stream = ExtResource("4_chitter")
+volume_db = -6.0
+unit_size = 5.0
+max_distance = 30.0
+panning_strength = 1.4
+
+[node name="BreathAudio" type="AudioStreamPlayer3D" parent="."]
+stream = ExtResource("5_breath")
+volume_db = -8.0
+unit_size = 2.5
+max_distance = 12.0
+panning_strength = 1.5
+
+[node name="ScreamAudio" type="AudioStreamPlayer3D" parent="."]
+stream = ExtResource("6_scream")
+volume_db = -2.0
+unit_size = 6.0
+max_distance = 36.0
+
+[node name="BoneAudio" type="AudioStreamPlayer3D" parent="."]
+stream = ExtResource("7_bone")
+volume_db = -11.0
+unit_size = 4.0
+max_distance = 24.0
+
+[node name="VisualRoot" type="Node3D" parent="."]
+position = Vector3(0, -0.06, 0)
+
+[node name="BodyPivot" type="Node3D" parent="VisualRoot"]
+
+[node name="Pelvis" type="MeshInstance3D" parent="VisualRoot/BodyPivot"]
+position = Vector3(0, 0.005, 0.4)
+rotation = Vector3(-0.09, 0, 0.04)
+mesh = SubResource("Mesh_pelvis")
+
+[node name="VertebraA" type="MeshInstance3D" parent="VisualRoot/BodyPivot"]
+position = Vector3(0.005, 0.03, 0.26)
+rotation = Vector3(0.06, 0.05, -0.07)
+mesh = SubResource("Mesh_vertebra")
+
+[node name="VertebraB" type="MeshInstance3D" parent="VisualRoot/BodyPivot"]
+position = Vector3(-0.006, 0.045, 0.13)
+rotation = Vector3(0.02, -0.08, 0.09)
+mesh = SubResource("Mesh_vertebra")
+
+[node name="VertebraC" type="MeshInstance3D" parent="VisualRoot/BodyPivot"]
+position = Vector3(0.004, 0.05, 0.005)
+rotation = Vector3(-0.03, 0.04, -0.05)
+mesh = SubResource("Mesh_vertebra")
+
+[node name="SpineSpurA" type="MeshInstance3D" parent="VisualRoot/BodyPivot"]
+position = Vector3(0.004, 0.115, 0.26)
+rotation = Vector3(0.32, 0.06, -0.1)
+mesh = SubResource("Mesh_spine_spur")
+
+[node name="SpineSpurB" type="MeshInstance3D" parent="VisualRoot/BodyPivot"]
+position = Vector3(-0.005, 0.13, 0.13)
+rotation = Vector3(0.24, -0.05, 0.12)
+mesh = SubResource("Mesh_spine_spur")
+
+[node name="SpineSpurC" type="MeshInstance3D" parent="VisualRoot/BodyPivot"]
+position = Vector3(0.003, 0.135, 0.005)
+rotation = Vector3(0.18, 0.03, -0.08)
+mesh = SubResource("Mesh_spine_spur")
+
+[node name="Ribcage" type="MeshInstance3D" parent="VisualRoot/BodyPivot"]
+position = Vector3(0, 0.02, -0.19)
+scale = Vector3(0.95, 0.66, 1.28)
+mesh = SubResource("Mesh_ribcage")
+
+[node name="RibA" type="MeshInstance3D" parent="VisualRoot/BodyPivot"]
+position = Vector3(0, 0.095, -0.05)
+rotation = Vector3(-0.22, 0, 0.05)
+mesh = SubResource("Mesh_rib")
+
+[node name="RibB" type="MeshInstance3D" parent="VisualRoot/BodyPivot"]
+position = Vector3(0, 0.115, -0.17)
+rotation = Vector3(-0.05, 0, -0.03)
+mesh = SubResource("Mesh_rib")
+
+[node name="RibC" type="MeshInstance3D" parent="VisualRoot/BodyPivot"]
+position = Vector3(0, 0.105, -0.29)
+rotation = Vector3(0.16, 0, 0.04)
+mesh = SubResource("Mesh_rib")
+
+[node name="ScapulaLeft" type="MeshInstance3D" parent="VisualRoot/BodyPivot"]
+position = Vector3(-0.13, 0.115, -0.28)
+rotation = Vector3(0.14, 0.3, -0.5)
+mesh = SubResource("Mesh_scapula")
+
+[node name="ScapulaRight" type="MeshInstance3D" parent="VisualRoot/BodyPivot"]
+position = Vector3(0.13, 0.115, -0.28)
+rotation = Vector3(0.14, -0.3, 0.5)
+mesh = SubResource("Mesh_scapula")
+
+[node name="NeckPivot" type="Node3D" parent="VisualRoot/BodyPivot"]
+position = Vector3(0, 0.02, -0.4)
+
+[node name="NeckVertebraA" type="MeshInstance3D" parent="VisualRoot/BodyPivot/NeckPivot"]
+position = Vector3(0, -0.005, -0.07)
+rotation = Vector3(0.1, 0.06, 0)
+mesh = SubResource("Mesh_neck_vertebra")
+
+[node name="NeckVertebraB" type="MeshInstance3D" parent="VisualRoot/BodyPivot/NeckPivot"]
+position = Vector3(0.004, -0.02, -0.15)
+rotation = Vector3(0.16, -0.05, 0.04)
+mesh = SubResource("Mesh_neck_vertebra")
+
+[node name="HeadPivot" type="Node3D" parent="VisualRoot/BodyPivot/NeckPivot"]
+position = Vector3(0, -0.035, -0.22)
+
+[node name="Skull" type="MeshInstance3D" parent="VisualRoot/BodyPivot/NeckPivot/HeadPivot"]
+position = Vector3(0, 0, -0.075)
+scale = Vector3(1, 0.94, 1.32)
+mesh = SubResource("Mesh_skull")
+
+[node name="Brow" type="MeshInstance3D" parent="VisualRoot/BodyPivot/NeckPivot/HeadPivot"]
+position = Vector3(0, 0.055, -0.145)
+rotation = Vector3(0.34, 0, 0.03)
+mesh = SubResource("Mesh_brow")
+
+[node name="EyeSeamLeft" type="MeshInstance3D" parent="VisualRoot/BodyPivot/NeckPivot/HeadPivot"]
+position = Vector3(-0.062, 0.012, -0.166)
+rotation = Vector3(0.1, 0.24, -0.42)
+mesh = SubResource("Mesh_eye_seam")
+
+[node name="EyeSeamRight" type="MeshInstance3D" parent="VisualRoot/BodyPivot/NeckPivot/HeadPivot"]
+position = Vector3(0.062, 0.01, -0.164)
+rotation = Vector3(0.1, -0.24, 0.42)
+mesh = SubResource("Mesh_eye_seam")
+
+[node name="MouthCavity" type="MeshInstance3D" parent="VisualRoot/BodyPivot/NeckPivot/HeadPivot"]
+position = Vector3(0, -0.052, -0.135)
+mesh = SubResource("Mesh_mouth_cavity")
+
+[node name="JawPivot" type="Node3D" parent="VisualRoot/BodyPivot/NeckPivot/HeadPivot"]
+position = Vector3(0, -0.048, -0.045)
+
+[node name="Jaw" type="MeshInstance3D" parent="VisualRoot/BodyPivot/NeckPivot/HeadPivot/JawPivot"]
+position = Vector3(0, -0.03, -0.075)
+rotation = Vector3(0.1, 0, 0)
+mesh = SubResource("Mesh_jaw")
+
+[node name="ToothA" type="MeshInstance3D" parent="VisualRoot/BodyPivot/NeckPivot/HeadPivot/JawPivot"]
+position = Vector3(-0.034, 0.004, -0.126)
+rotation = Vector3(-0.12, 0.3, -0.08)
+mesh = SubResource("Mesh_tooth")
+
+[node name="ToothB" type="MeshInstance3D" parent="VisualRoot/BodyPivot/NeckPivot/HeadPivot/JawPivot"]
+position = Vector3(0, 0.006, -0.134)
+rotation = Vector3(-0.14, -0.4, 0.05)
+mesh = SubResource("Mesh_tooth")
+
+[node name="ToothC" type="MeshInstance3D" parent="VisualRoot/BodyPivot/NeckPivot/HeadPivot/JawPivot"]
+position = Vector3(0.034, 0.003, -0.124)
+rotation = Vector3(-0.11, 0.22, 0.09)
+mesh = SubResource("Mesh_tooth")
+
+[node name="TailPivot" type="Node3D" parent="VisualRoot/BodyPivot"]
+position = Vector3(0, 0.01, 0.48)
+
+[node name="Tail" type="MeshInstance3D" parent="VisualRoot/BodyPivot/TailPivot"]
+position = Vector3(0, -0.01, 0.15)
+rotation = Vector3(1.5708, 0, 0)
+mesh = SubResource("Mesh_tail")
+
+[node name="TailTipPivot" type="Node3D" parent="VisualRoot/BodyPivot/TailPivot"]
+position = Vector3(0, -0.02, 0.3)
+
+[node name="TailTip" type="MeshInstance3D" parent="VisualRoot/BodyPivot/TailPivot/TailTipPivot"]
+position = Vector3(0, -0.015, 0.18)
+rotation = Vector3(1.5708, 0, 0)
+mesh = SubResource("Mesh_tail_tip")
+
+[node name="Limbs" type="Node3D" parent="VisualRoot/BodyPivot"]
+
+[node name="FrontLeft" type="Node3D" parent="VisualRoot/BodyPivot/Limbs"]
+position = Vector3(-0.145, 0.06, -0.27)
+
+[node name="Upper" type="MeshInstance3D" parent="VisualRoot/BodyPivot/Limbs/FrontLeft"]
+position = Vector3(0, -0.21, 0)
+mesh = SubResource("Mesh_upper_limb")
+
+[node name="Joint" type="MeshInstance3D" parent="VisualRoot/BodyPivot/Limbs/FrontLeft"]
+position = Vector3(0, -0.42, 0)
+mesh = SubResource("Mesh_joint")
+
+[node name="LowerPivot" type="Node3D" parent="VisualRoot/BodyPivot/Limbs/FrontLeft"]
+position = Vector3(0, -0.42, 0)
+
+[node name="Lower" type="MeshInstance3D" parent="VisualRoot/BodyPivot/Limbs/FrontLeft/LowerPivot"]
+position = Vector3(0, -0.19, 0)
+mesh = SubResource("Mesh_lower_limb")
+
+[node name="Wrist" type="MeshInstance3D" parent="VisualRoot/BodyPivot/Limbs/FrontLeft/LowerPivot"]
+position = Vector3(0, -0.38, 0)
+mesh = SubResource("Mesh_wrist")
+
+[node name="HandPivot" type="Node3D" parent="VisualRoot/BodyPivot/Limbs/FrontLeft/LowerPivot"]
+position = Vector3(0, -0.39, 0)
+
+[node name="Palm" type="MeshInstance3D" parent="VisualRoot/BodyPivot/Limbs/FrontLeft/LowerPivot/HandPivot"]
+position = Vector3(0, -0.02, -0.02)
+mesh = SubResource("Mesh_palm")
+
+[node name="FingerA" type="MeshInstance3D" parent="VisualRoot/BodyPivot/Limbs/FrontLeft/LowerPivot/HandPivot"]
+position = Vector3(-0.03, -0.115, -0.055)
+rotation = Vector3(0.42, 0, 0.24)
+mesh = SubResource("Mesh_finger")
+
+[node name="FingerB" type="MeshInstance3D" parent="VisualRoot/BodyPivot/Limbs/FrontLeft/LowerPivot/HandPivot"]
+position = Vector3(0, -0.12, -0.062)
+rotation = Vector3(0.46, 0, 0)
+mesh = SubResource("Mesh_finger")
+
+[node name="FingerC" type="MeshInstance3D" parent="VisualRoot/BodyPivot/Limbs/FrontLeft/LowerPivot/HandPivot"]
+position = Vector3(0.03, -0.115, -0.055)
+rotation = Vector3(0.42, 0, -0.24)
+mesh = SubResource("Mesh_finger")
+
+[node name="FrontRight" type="Node3D" parent="VisualRoot/BodyPivot/Limbs"]
+position = Vector3(0.145, 0.06, -0.27)
+
+[node name="Upper" type="MeshInstance3D" parent="VisualRoot/BodyPivot/Limbs/FrontRight"]
+position = Vector3(0, -0.21, 0)
+mesh = SubResource("Mesh_upper_limb")
+
+[node name="Joint" type="MeshInstance3D" parent="VisualRoot/BodyPivot/Limbs/FrontRight"]
+position = Vector3(0, -0.42, 0)
+mesh = SubResource("Mesh_joint")
+
+[node name="LowerPivot" type="Node3D" parent="VisualRoot/BodyPivot/Limbs/FrontRight"]
+position = Vector3(0, -0.42, 0)
+
+[node name="Lower" type="MeshInstance3D" parent="VisualRoot/BodyPivot/Limbs/FrontRight/LowerPivot"]
+position = Vector3(0, -0.19, 0)
+mesh = SubResource("Mesh_lower_limb")
+
+[node name="Wrist" type="MeshInstance3D" parent="VisualRoot/BodyPivot/Limbs/FrontRight/LowerPivot"]
+position = Vector3(0, -0.38, 0)
+mesh = SubResource("Mesh_wrist")
+
+[node name="HandPivot" type="Node3D" parent="VisualRoot/BodyPivot/Limbs/FrontRight/LowerPivot"]
+position = Vector3(0, -0.39, 0)
+
+[node name="Palm" type="MeshInstance3D" parent="VisualRoot/BodyPivot/Limbs/FrontRight/LowerPivot/HandPivot"]
+position = Vector3(0, -0.02, -0.02)
+mesh = SubResource("Mesh_palm")
+
+[node name="FingerA" type="MeshInstance3D" parent="VisualRoot/BodyPivot/Limbs/FrontRight/LowerPivot/HandPivot"]
+position = Vector3(0.03, -0.115, -0.055)
+rotation = Vector3(0.42, 0, -0.24)
+mesh = SubResource("Mesh_finger")
+
+[node name="FingerB" type="MeshInstance3D" parent="VisualRoot/BodyPivot/Limbs/FrontRight/LowerPivot/HandPivot"]
+position = Vector3(0, -0.12, -0.062)
+rotation = Vector3(0.46, 0, 0)
+mesh = SubResource("Mesh_finger")
+
+[node name="FingerC" type="MeshInstance3D" parent="VisualRoot/BodyPivot/Limbs/FrontRight/LowerPivot/HandPivot"]
+position = Vector3(-0.03, -0.115, -0.055)
+rotation = Vector3(0.42, 0, 0.24)
+mesh = SubResource("Mesh_finger")
+
+[node name="BackLeft" type="Node3D" parent="VisualRoot/BodyPivot/Limbs"]
+position = Vector3(-0.135, 0.035, 0.31)
+
+[node name="Upper" type="MeshInstance3D" parent="VisualRoot/BodyPivot/Limbs/BackLeft"]
+position = Vector3(0, -0.21, 0)
+mesh = SubResource("Mesh_upper_limb")
+
+[node name="Joint" type="MeshInstance3D" parent="VisualRoot/BodyPivot/Limbs/BackLeft"]
+position = Vector3(0, -0.42, 0)
+mesh = SubResource("Mesh_joint")
+
+[node name="LowerPivot" type="Node3D" parent="VisualRoot/BodyPivot/Limbs/BackLeft"]
+position = Vector3(0, -0.42, 0)
+
+[node name="Lower" type="MeshInstance3D" parent="VisualRoot/BodyPivot/Limbs/BackLeft/LowerPivot"]
+position = Vector3(0, -0.19, 0)
+mesh = SubResource("Mesh_lower_limb")
+
+[node name="Wrist" type="MeshInstance3D" parent="VisualRoot/BodyPivot/Limbs/BackLeft/LowerPivot"]
+position = Vector3(0, -0.38, 0)
+mesh = SubResource("Mesh_wrist")
+
+[node name="HandPivot" type="Node3D" parent="VisualRoot/BodyPivot/Limbs/BackLeft/LowerPivot"]
+position = Vector3(0, -0.39, 0)
+
+[node name="Palm" type="MeshInstance3D" parent="VisualRoot/BodyPivot/Limbs/BackLeft/LowerPivot/HandPivot"]
+position = Vector3(0, -0.02, -0.02)
+mesh = SubResource("Mesh_palm")
+
+[node name="FingerA" type="MeshInstance3D" parent="VisualRoot/BodyPivot/Limbs/BackLeft/LowerPivot/HandPivot"]
+position = Vector3(-0.03, -0.115, -0.055)
+rotation = Vector3(0.42, 0, 0.24)
+mesh = SubResource("Mesh_finger")
+
+[node name="FingerB" type="MeshInstance3D" parent="VisualRoot/BodyPivot/Limbs/BackLeft/LowerPivot/HandPivot"]
+position = Vector3(0, -0.12, -0.062)
+rotation = Vector3(0.46, 0, 0)
+mesh = SubResource("Mesh_finger")
+
+[node name="FingerC" type="MeshInstance3D" parent="VisualRoot/BodyPivot/Limbs/BackLeft/LowerPivot/HandPivot"]
+position = Vector3(0.03, -0.115, -0.055)
+rotation = Vector3(0.42, 0, -0.24)
+mesh = SubResource("Mesh_finger")
+
+[node name="BackRight" type="Node3D" parent="VisualRoot/BodyPivot/Limbs"]
+position = Vector3(0.135, 0.035, 0.31)
+
+[node name="Upper" type="MeshInstance3D" parent="VisualRoot/BodyPivot/Limbs/BackRight"]
+position = Vector3(0, -0.21, 0)
+mesh = SubResource("Mesh_upper_limb")
+
+[node name="Joint" type="MeshInstance3D" parent="VisualRoot/BodyPivot/Limbs/BackRight"]
+position = Vector3(0, -0.42, 0)
+mesh = SubResource("Mesh_joint")
+
+[node name="LowerPivot" type="Node3D" parent="VisualRoot/BodyPivot/Limbs/BackRight"]
+position = Vector3(0, -0.42, 0)
+
+[node name="Lower" type="MeshInstance3D" parent="VisualRoot/BodyPivot/Limbs/BackRight/LowerPivot"]
+position = Vector3(0, -0.19, 0)
+mesh = SubResource("Mesh_lower_limb")
+
+[node name="Wrist" type="MeshInstance3D" parent="VisualRoot/BodyPivot/Limbs/BackRight/LowerPivot"]
+position = Vector3(0, -0.38, 0)
+mesh = SubResource("Mesh_wrist")
+
+[node name="HandPivot" type="Node3D" parent="VisualRoot/BodyPivot/Limbs/BackRight/LowerPivot"]
+position = Vector3(0, -0.39, 0)
+
+[node name="Palm" type="MeshInstance3D" parent="VisualRoot/BodyPivot/Limbs/BackRight/LowerPivot/HandPivot"]
+position = Vector3(0, -0.02, -0.02)
+mesh = SubResource("Mesh_palm")
+
+[node name="FingerA" type="MeshInstance3D" parent="VisualRoot/BodyPivot/Limbs/BackRight/LowerPivot/HandPivot"]
+position = Vector3(0.03, -0.115, -0.055)
+rotation = Vector3(0.42, 0, -0.24)
+mesh = SubResource("Mesh_finger")
+
+[node name="FingerB" type="MeshInstance3D" parent="VisualRoot/BodyPivot/Limbs/BackRight/LowerPivot/HandPivot"]
+position = Vector3(0, -0.12, -0.062)
+rotation = Vector3(0.46, 0, 0)
+mesh = SubResource("Mesh_finger")
+
+[node name="FingerC" type="MeshInstance3D" parent="VisualRoot/BodyPivot/Limbs/BackRight/LowerPivot/HandPivot"]
+position = Vector3(-0.03, -0.115, -0.055)
+rotation = Vector3(0.42, 0, 0.24)
+mesh = SubResource("Mesh_finger")
+
+[node name="Drip" type="GPUParticles3D" parent="VisualRoot"]
+position = Vector3(0, -0.02, 0)
+emitting = false
+amount = 18
+amount_ratio = 0.3
+lifetime = 1.6
+randomness = 0.8
+visibility_aabb = AABB(-0.8, -2.2, -1.0, 1.6, 2.6, 2.0)
+local_coords = false
+process_material = SubResource("Process_drip")
+draw_pass_1 = SubResource("Mesh_drip")
