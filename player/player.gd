@@ -3,8 +3,9 @@ extends CharacterBody3D
 signal eyes_closed_changed(closed: bool)
 signal killed_by_ghost(ghost: Node3D)
 
-@export var walk_speed: float = 3.4
-@export var crouch_speed: float = 1.8
+@export var walk_speed: float = 2.45
+@export var crouch_speed: float = 1.35
+@export var sprint_speed_multiplier: float = 1.22
 @export var jump_velocity: float = 4.2
 @export var player_radius: float = 0.32
 @export var crouch_height: float = 1.05
@@ -22,9 +23,9 @@ signal killed_by_ghost(ghost: Node3D)
 @export var step_probe_distance: float = 0.3
 
 @export_category("Camera Feel")
-@export var head_bob_frequency: float = 10.0
-@export var head_bob_horizontal: float = 0.018
-@export var head_bob_vertical: float = 0.028
+@export var head_bob_frequency: float = 8.0
+@export var head_bob_horizontal: float = 0.012
+@export var head_bob_vertical: float = 0.018
 
 @export_category("Movement Audio")
 @export var walk_step_interval: float = 0.48
@@ -197,7 +198,7 @@ func _physics_process(delta: float) -> void:
 	var current_speed = walk_speed
 	
 	if is_sprinting:
-		current_speed = walk_speed * 1.3
+		current_speed = walk_speed * sprint_speed_multiplier
 		current_stamina -= sprint_stamina_drain * delta
 	else:
 		if is_crouching:
@@ -375,9 +376,25 @@ func _update_camera_motion(delta: float) -> void:
 func _try_step_up(horizontal_motion: Vector3) -> void:
 	if horizontal_motion.is_zero_approx():
 		return
+	# A slope already supplies continuous vertical motion. Treating that plane
+	# as a blocked horizontal step repeatedly teleports the capsule upward and
+	# is exactly what made the old stair camera judder.
+	if is_on_floor() and get_floor_normal().dot(up_direction) < 0.98:
+		return
 
-	# Only step when the normal movement is blocked by a stair riser.
-	if not test_move(global_transform, horizontal_motion):
+	# Only step when the normal movement is blocked by a near-vertical riser.
+	# At the first frame of a ramp the previous floor normal is still flat, so
+	# inspect the forward hit too and let move_and_slide() handle walkable slopes.
+	var forward_collision := KinematicCollision3D.new()
+	if not test_move(
+		global_transform,
+		horizontal_motion,
+		forward_collision,
+		safe_margin,
+		false
+	):
+		return
+	if forward_collision.get_normal().dot(up_direction) >= cos(floor_max_angle):
 		return
 
 	# Raise as far as the available headroom permits, up to max_step_height.

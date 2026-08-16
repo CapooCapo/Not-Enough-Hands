@@ -11,9 +11,9 @@ func _run() -> void:
 	root.add_child(main_scene)
 	await process_frame
 
-	var house := main_scene.get_node("House") as Node3D
+	var house := main_scene.get_node("House2") as Node3D
 	var concave_shape_count := 0
-	for node: Node in house.find_children("*", "CollisionShape3D"):
+	for node: Node in house.find_children("*", "CollisionShape3D", true, false):
 		var collision_shape := node as CollisionShape3D
 		var concave_shape := collision_shape.shape as ConcavePolygonShape3D
 		if concave_shape:

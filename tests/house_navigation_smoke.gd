@@ -27,8 +27,8 @@ func _run() -> void:
 		return
 
 	var map_rid := navigation_region.get_navigation_map()
-	var ground_probe := Vector3(15.15, 0.1, 29.1)
-	var upper_probe := Vector3(13.15, 2.44, 22.15)
+	var ground_probe := Vector3(0.0, 0.1, -1.0)
+	var upper_probe := Vector3(0.0, 3.1, 4.6)
 
 	# NavigationServer3D links a freshly-baked region into the map's live
 	# query structures on a separate pass that isn't guaranteed to finish
@@ -63,7 +63,10 @@ func _run() -> void:
 	var path := NavigationServer3D.map_get_path(map_rid, ground_point, upper_point, true)
 	while path.is_empty() or path[path.size() - 1].distance_to(upper_point) > 0.5:
 		if Time.get_ticks_msec() > sync_deadline_msec:
-			_fail("No complete path was found through the stairs from the ground floor to the upper floor.")
+			_fail(
+				"No complete path was found through the stairs from %s to %s (partial points: %d)."
+				% [ground_point, upper_point, path.size()]
+			)
 			return
 		await physics_frame
 		path = NavigationServer3D.map_get_path(map_rid, ground_point, upper_point, true)
@@ -73,7 +76,32 @@ func _run() -> void:
 		_fail("The stair path did not gain enough height to reach the upper floor.")
 		return
 
-	print("House navigation smoke test passed: %d polygons, ground->upper path with %d points." % [navigation_mesh.get_polygon_count(), path.size()])
+	var basement_point := NavigationServer3D.map_get_closest_point(
+		map_rid,
+		Vector3(-6.0, -2.9, -1.0)
+	)
+	var attic_point := NavigationServer3D.map_get_closest_point(
+		map_rid,
+		Vector3(-4.0, 6.1, 4.8)
+	)
+	var full_house_path := NavigationServer3D.map_get_path(
+		map_rid,
+		basement_point,
+		attic_point,
+		true
+	)
+	if full_house_path.is_empty() \
+		or full_house_path[full_house_path.size() - 1].distance_to(attic_point) > 0.5:
+		_fail("No complete basement-to-attic route was found through all three staircases.")
+		return
+	if attic_point.y - basement_point.y < 8.5:
+		_fail("The full-house route did not span all four authored elevations.")
+		return
+
+	print(
+		"House navigation smoke test passed: %d polygons, %d-point basement-to-attic route."
+		% [navigation_mesh.get_polygon_count(), full_house_path.size()]
+	)
 	quit()
 
 

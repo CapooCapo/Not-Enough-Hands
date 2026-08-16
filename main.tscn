@@ -1,13 +1,12 @@
 [gd_scene format=3 uid="uid://d30ag76yuh2hl"]
 
-[ext_resource type="PackedScene" uid="uid://dunxivm4sidwi" path="res://assets/House.glb" id="1_ig7tw"]
+[ext_resource type="PackedScene" path="res://house2/house2.tscn" id="1_house2"]
 [ext_resource type="PackedScene" path="res://player/player.tscn" id="2_0xm2m"]
 [ext_resource type="PackedScene" path="res://door/defense_door.tscn" id="3_7mycd"]
 [ext_resource type="Script" uid="uid://q7p5bw5b7fxt" path="res://main.gd" id="3_main"]
-[ext_resource type="PackedScene" path="res://door/door.tscn" id="4_1bvp3"]
 [ext_resource type="PackedScene" path="res://ghosts/statue_ghost.tscn" id="5_statue"]
-[ext_resource type="Script" path="res://door/door_attack_director.gd" id="6_door_director"]
-[ext_resource type="Script" path="res://audio/house_ambience.gd" id="7_house_ambience"]
+[ext_resource type="Script" uid="uid://d3dtpcwe6oum" path="res://door/door_attack_director.gd" id="6_door_director"]
+[ext_resource type="Script" uid="uid://c5asiy3bo4o3p" path="res://audio/house_ambience.gd" id="7_house_ambience"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_main"]
 sky_top_color = Color(0.22, 0.38, 0.58, 1)
@@ -49,7 +48,7 @@ adjustment_enabled = true
 [node name="Node3D" type="Node3D" unique_id=1499828836]
 script = ExtResource("3_main")
 
-[node name="DoorAttackDirector" type="Node" parent="."]
+[node name="DoorAttackDirector" type="Node" parent="." unique_id=759908914]
 script = ExtResource("6_door_director")
 automatic_waves = true
 
@@ -63,35 +62,52 @@ light_energy = 1.1
 light_angular_distance = 1.5
 shadow_enabled = true
 
-[node name="House" parent="." unique_id=2001469688 instance=ExtResource("1_ig7tw")]
-transform = Transform3D(0.5, 0, 0, 0, 0.5, 0, 0, 0, 0.5, 13.014493, 0, 19.701927)
+[node name="House2" parent="." unique_id=1005991017 instance=ExtResource("1_house2")]
 
-[node name="DefenseDoor" parent="House" unique_id=1222159282 instance=ExtResource("3_7mycd")]
-transform = Transform3D(2.7211492, 0, 0, 0, 1.769036, 0, 0, 0, 1, 1.4024754, 0.20483518, -25.788212)
+[node name="Entrances" type="Node3D" parent="." unique_id=983562123]
+
+[node name="Entrance01FrontDoor" parent="Entrances" unique_id=901150317 instance=ExtResource("3_7mycd")]
+transform = Transform3D(-1, 0, -3.2584137e-07, 0, 1, 0, 3.2584137e-07, 0, -1, 0, 0, 6)
+
+[node name="Entrance02KitchenSide" parent="Entrances" unique_id=280211158 instance=ExtResource("3_7mycd")]
+transform = Transform3D(3.1391647e-07, 0, 1, 0, 1, 0, -1, 0, 3.1391647e-07, -9, 0, -3)
+entrance_id = 2
+
+[node name="Entrance03DiningPatio" parent="Entrances" unique_id=1224911681 instance=ExtResource("3_7mycd")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6, 0, -6)
+entrance_id = 3
+
+[node name="Entrance04BedroomBalcony" parent="Entrances" unique_id=156928332 instance=ExtResource("3_7mycd")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -6, 3, -6)
+entrance_id = 4
+
+[node name="Entrance05EastBalcony" parent="Entrances" unique_id=1776526336 instance=ExtResource("3_7mycd")]
+transform = Transform3D(3.1391647e-07, 0, -1, 0, 1, 0, 1, 0, 3.1391647e-07, 9, 3, -3)
+entrance_id = 5
+
+[node name="Entrance06CellarExit" parent="Entrances" unique_id=1894165772 instance=ExtResource("3_7mycd")]
+transform = Transform3D(3.1391647e-07, 0, -1, 0, 1, 0, 1, 0, 3.1391647e-07, 9, -3, 0)
+entrance_id = 6
+
+[node name="Entrance07RoofEntry" parent="Entrances" unique_id=1039925767 instance=ExtResource("3_7mycd")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 6, -6)
+entrance_id = 7
 
 [node name="Player" parent="." unique_id=308502712 instance=ExtResource("2_0xm2m")]
-transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 13.014493, 1.1, 26.639688)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 5.5677166)
 
-[node name="HouseAmbience" type="Node" parent="."]
+[node name="HouseAmbience" type="Node" parent="." unique_id=252337975]
 script = ExtResource("7_house_ambience")
 
-[node name="AmbientBed" type="AudioStreamPlayer" parent="HouseAmbience"]
+[node name="AmbientBed" type="AudioStreamPlayer" parent="HouseAmbience" unique_id=1268805560]
 volume_db = -60.0
 
-[node name="HouseEvent" type="AudioStreamPlayer3D" parent="HouseAmbience"]
+[node name="HouseEvent" type="AudioStreamPlayer3D" parent="HouseAmbience" unique_id=429828470]
 volume_db = -13.0
 unit_size = 5.0
 max_distance = 28.0
 panning_strength = 1.35
 
 [node name="StatueGhost" parent="." unique_id=795322254 instance=ExtResource("5_statue")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 13.014493, 0.08, 16.5)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.08, 3.8)
 night_aggression = 0.15
-
-[node name="Node3D" type="Node3D" parent="." unique_id=627228838]
-
-[node name="Door" parent="Node3D" unique_id=1758612283 instance=ExtResource("4_1bvp3")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7.07997, 0, 13.728837)
-
-[node name="Door2" parent="Node3D" unique_id=1538138317 instance=ExtResource("4_1bvp3")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 21.2351, 0, 24.202734)

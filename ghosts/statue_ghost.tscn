@@ -291,6 +291,8 @@ collision_layer = 4
 collision_mask = 1
 floor_snap_length = 0.28
 floor_constant_speed = true
+floor_block_on_wall = false
+floor_max_angle = 0.959931
 script = ExtResource("1_statue")
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
@@ -300,7 +302,7 @@ shape = SubResource("Shape_statue")
 [node name="NavigationAgent3D" type="NavigationAgent3D" parent="."]
 radius = 0.4
 height = 1.75
-path_desired_distance = 0.25
+path_desired_distance = 0.55
 target_desired_distance = 0.5
 avoidance_enabled = false
 

@@ -1,45 +1,37 @@
-# Not Enough Hands — Graybox House
+# Not Enough Hands — House2
 
-Godot 4 playable graybox of a four-level house. The scene contains environment,
-geometry, collision, route labels, entrance lighting and a first-person test controller.
-The plan uses an approximately 28 x 19.6 metre footprint. Room zoning follows
-the supplied haunted-house specification: foyer/living/dining/library/kitchen on
-the ground floor and residential rooms upstairs; the attic is now a roomless maze.
-An offset entrance foyer and alternating enclosed stair lobbies break direct
-sightlines, creating room-to-corridor-to-landing transitions for chase pacing.
-Each level has a different topology: a basement service loop, asymmetric ground
-floor wings, an upper ring corridor, and a roomless open attic maze.
+Godot 4 first-person horror prototype built around a four-level modular house.
+`main.tscn` now uses `house2/house2.tscn`, assembled from the architecture and
+furniture source packs under `assets/map`.
 
-## View in Godot
+## Play
 
-1. Import/open `project.godot` with Godot 4.7.
-2. Press **F6/F5** to run `main.tscn`.
-3. Use **WASD** to move, mouse to look, **Space** to jump and **Esc** to release the mouse.
-4. Follow the numbered, color-coded entrance markers and the east stairwell.
+1. Open `project.godot` in Godot 4.7.
+2. Run `main.tscn` with F6/F5.
+3. Move with WASD, sprint with Shift, crouch with Ctrl, jump with Space, interact
+   with E, blink with B, and release the mouse with Esc.
 
-The test player starts outside the front entrance, facing the house. A flat
-80 x 80 metre ground plane surrounds the house at ground-floor height, placing
-the basement fully underground. A lower hidden foundation prevents map falls.
+The player starts on the front path facing entrance 01. Every floor is physically
+connected: cellar stairs lead into the garage, the main-hall stairs reach the
+second-floor landing, and a second flight reaches the attic.
 
-## Layout
+## House2 layout
 
-- Basement: storage loop, main stair hall, purple cellar entrance.
-- Ground floor: foyer and utility/side rooms; green front door, orange back
-  door, and cyan side window.
-- Upper floor: landing and bedroom loop; pink balcony door and yellow window.
-- Attic: open circulation space; red attic hatch/catwalk entrance.
-- Three broad staircases with real steps form the internal route through all four levels.
-- A pitched two-slab roof encloses the attic and gives the graybox a believable
-  residential silhouette.
+- Basement: boiler and storage room; cellar exit 06 opens into a sunken exterior
+  stairwell.
+- Ground floor: kitchen, living room, dining room, garage, main hall, and storage.
+  Entrances 01–03 are the front door, kitchen side door, and dining patio door.
+- Second floor: two bedrooms, a large hall/stair landing, and bathroom. Entrances
+  04 and 05 connect to separate exterior balconies.
+- Attic: one full-footprint storage space beneath a pitched modular roof. Entrance
+  07 opens onto a roof-entry deck.
 
-Every infiltration point uses a unique color, silhouette/size, light, and a
-world-space label describing the room or route it enters.
+Interior partitions use open modular frames so the navigation mesh, player, and
+statue can circulate through every room. The seven exterior entrances remain
+repairable defense doors used by the attack director.
 
-## Acceptance check
+## Verification
 
-1. Inspect the U-shaped stairs from basement through ground and upper floor to
-   the attic.
-2. Verify all seven numbered markers are visually distinct and open into a
-   room or circulation route.
-3. Walk through `main.tscn`; the included controller is intentionally minimal and
-   exists only to verify traversal and collision.
+The smoke tests under `tests/` cover the four-level layout, all seven entrance
+IDs, generated collision, basement-to-attic navigation, physical stair traversal,
+statue stair chases and ambushes, doors, interaction, and house audio.

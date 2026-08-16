@@ -16,7 +16,7 @@ func _run() -> void:
 	var map_rid := region.get_navigation_map()
 	statue.set("active", false)
 	player.set_physics_process(false)
-	player.global_position = Vector3(14.8, 0.98, 29.1)
+	player.global_position = Vector3(0.0, 0.98, -1.0)
 
 	var sync_deadline_msec := Time.get_ticks_msec() + 5000
 	while NavigationServer3D.map_get_iteration_id(map_rid) == 0:
@@ -26,7 +26,7 @@ func _run() -> void:
 		await physics_frame
 
 	var stair_start := NavigationServer3D.map_get_closest_point(map_rid, player.global_position)
-	var stair_end := NavigationServer3D.map_get_closest_point(map_rid, Vector3(13.15, 2.44, 22.15))
+	var stair_end := NavigationServer3D.map_get_closest_point(map_rid, Vector3(0.0, 3.1, 4.6))
 	var path := NavigationServer3D.map_get_path(map_rid, stair_start, stair_end, true)
 	while path.size() < 2 or path[path.size() - 1].distance_to(stair_end) > 0.5:
 		if Time.get_ticks_msec() > sync_deadline_msec:
@@ -34,7 +34,7 @@ func _run() -> void:
 			return
 		await physics_frame
 		stair_start = NavigationServer3D.map_get_closest_point(map_rid, player.global_position)
-		stair_end = NavigationServer3D.map_get_closest_point(map_rid, Vector3(13.15, 2.44, 22.15))
+		stair_end = NavigationServer3D.map_get_closest_point(map_rid, Vector3(0.0, 3.1, 4.6))
 		path = NavigationServer3D.map_get_path(map_rid, stair_start, stair_end, true)
 
 	var path_index := 0
@@ -77,12 +77,19 @@ func _run() -> void:
 			return
 		await physics_frame
 
+	var blocking_colliders: Array[String] = []
+	for collision_index: int in player.get_slide_collision_count():
+		var hit := player.get_slide_collision(collision_index)
+		var collider := hit.get_collider() as Node
+		blocking_colliders.append(
+			"%s normal=%s" % [collider.name if collider else "unknown", hit.get_normal()]
+		)
 	_fail(
 		(
 			"Player never reached the upper floor while following the valid stair route "
-			+ "(highest y=%.2f, final=%s)."
+			+ "(highest y=%.2f, final=%s, velocity=%s, real=%s, max slope=%.1f, colliders=%s)."
 		)
-		% [highest_y, player.global_position]
+		% [highest_y, player.global_position, player.velocity, player.get_real_velocity(), rad_to_deg(player.floor_max_angle), blocking_colliders]
 	)
 
 

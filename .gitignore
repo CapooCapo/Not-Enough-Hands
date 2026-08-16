@@ -38,8 +38,45 @@ desktop.ini
 /build/
 /builds/
 
-# Local source packs. Add individual assets explicitly once a scene uses them.
-/assets/map/
+# Local source packs. House2 checks in the architecture kit and only the
+# furniture models/textures it actually instantiates.
+/assets/map/**
+!/assets/map/retro_modular_house/
+!/assets/map/retro_modular_house/retro_modular_house/
+!/assets/map/retro_modular_house/retro_modular_house/**
+!/assets/map/Furniture/
+!/assets/map/Furniture/FBX/
+!/assets/map/Furniture/FBX/Separated/
+!/assets/map/Furniture/FBX/Separated/Bed Base 1 1.fbx
+!/assets/map/Furniture/FBX/Separated/Bed 1 Sheets.fbx
+!/assets/map/Furniture/FBX/Separated/Sofa 1.fbx
+!/assets/map/Furniture/FBX/Separated/Coffee Table.fbx
+!/assets/map/Furniture/FBX/Separated/Dining Table.fbx
+!/assets/map/Furniture/FBX/Separated/Chair.fbx
+!/assets/map/Furniture/FBX/Separated/Bathtub.fbx
+!/assets/map/Furniture/FBX/Separated/Toilet.fbx
+!/assets/map/Furniture/FBX/Separated/Fridge.fbx
+!/assets/map/Furniture/FBX/Separated/Oven.fbx
+!/assets/map/Furniture/FBX/Separated/Counter Connected.fbx
+!/assets/map/Furniture/FBX/Separated/Counter Connected - Sink.fbx
+!/assets/map/Furniture/FBX/Separated/Modern Shelves.fbx
+!/assets/map/Furniture/FBX/Separated/Box.fbx
+!/assets/map/Furniture/FBX/Separated/Bed Table.fbx
+!/assets/map/Furniture/FBX/Separated/Wardrobe.fbx
+!/assets/map/Furniture/FBX/Separated/TV 1.fbx
+!/assets/map/Furniture/FBX/Separated/Chair 2.fbx
+!/assets/map/Furniture/FBX/Separated/Washing Machine.fbx
+!/assets/map/Furniture/FBX/Separated/Sink.fbx
+!/assets/map/Furniture/FBX/Separated/Mirror 2.fbx
+!/assets/map/Furniture/FBX/Separated/Ladder 2.fbx
+!/assets/map/Furniture/FBX/Separated/Radio.fbx
+!/assets/map/Furniture/FBX/Separated/Tire.fbx
+!/assets/map/Furniture/FBX/Separated/Table Lamp 1.fbx
+!/assets/map/Furniture/FBX/Separated/Ceiling Lamp 2.fbx
+!/assets/map/Furniture/Textures/
+!/assets/map/Furniture/Textures/palette1.png
+!/assets/map/Furniture/Textures/rug tile 2.png
+/assets/map/**/*.import
 /assets/audio/freesound_community-concrete-footsteps-6752.mp3
 /assets/audio/freesound_community-concrete-footsteps-6752.mp3.import
 

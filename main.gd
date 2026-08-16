@@ -3,7 +3,7 @@ extends Node3D
 @export_category("Development")
 @export var development_lighting: bool = false
 
-@onready var house: Node3D = $House
+@onready var house: Node3D = $House2
 @onready var world_environment: WorldEnvironment = $WorldEnvironment
 @onready var moon_light: DirectionalLight3D = $DirectionalLight3D
 @onready var horror_overlay: CanvasLayer = $Player/HorrorOverlay
@@ -16,11 +16,12 @@ func _ready() -> void:
 	else:
 		_apply_horror_lighting()
 
-	# The imported GLB contains render meshes only. Generate static trimesh
-	# colliders and make its surfaces visible from both sides.
-	for node: Node in house.find_children("*", "MeshInstance3D"):
+	# The modular source pack contains render meshes only. Generate static
+	# trimesh colliders and make its surfaces visible from both sides. Stair
+	# visuals are excluded because House2 gives them authored smooth ramps.
+	for node: Node in house.find_children("*", "MeshInstance3D", true, false):
 		var mesh_instance := node as MeshInstance3D
-		if mesh_instance.mesh:
+		if mesh_instance.mesh and not _should_skip_generated_collision(mesh_instance):
 			_make_mesh_two_sided(mesh_instance)
 			mesh_instance.create_trimesh_collision()
 			_enable_backface_collision(mesh_instance)
@@ -40,7 +41,9 @@ func _bake_house_navigation() -> void:
 	navigation_mesh.agent_height = 1.75
 	navigation_mesh.agent_radius = 0.4
 	navigation_mesh.agent_max_climb = 0.6
-	navigation_mesh.agent_max_slope = 45.0
+	# The authored smooth stair ramps are 45 degrees. Give Recast a small
+	# tolerance above that exact angle so voxel rounding cannot split a landing.
+	navigation_mesh.agent_max_slope = 50.0
 	# Match the 40 cm agent radius and the short stair risers without Recast
 	# rounding either measurement up to a coarse voxel boundary.
 	navigation_mesh.cell_size = 0.1
@@ -74,6 +77,35 @@ func _bake_house_navigation() -> void:
 	navigation_region.name = "HouseNavigationRegion"
 	navigation_region.navigation_mesh = navigation_mesh
 	add_child(navigation_region)
+	_add_stair_navigation_links()
+
+
+## Recast erodes walkable surfaces by the agent radius. At the exact line
+## where a 45-degree ramp meets a flat landing this can leave two nav islands
+## even though physics has one continuous floor. These links run along the
+## same ramp centerline and make that authored connection explicit for AI.
+func _add_stair_navigation_links() -> void:
+	for ramp_node: Node in get_tree().get_nodes_in_group("smooth_stair_ramps"):
+		var ramp := ramp_node as StaticBody3D
+		if not ramp or not house.is_ancestor_of(ramp):
+			continue
+		var uphill := ramp.global_basis.x.normalized()
+		var horizontal_uphill := Vector3(uphill.x, 0.0, uphill.z).normalized()
+		var link := NavigationLink3D.new()
+		link.name = ramp.name.trim_suffix("SmoothRamp") + "NavigationLink"
+		link.bidirectional = true
+		link.start_position = (
+			ramp.global_position
+			- horizontal_uphill * 1.7
+			- Vector3.UP * 1.4
+		)
+		link.end_position = (
+			ramp.global_position
+			+ horizontal_uphill * 2.25
+			+ Vector3.UP * 1.6
+		)
+		link.add_to_group("smooth_stair_navigation_links")
+		add_child(link)
 
 
 func _make_mesh_two_sided(mesh_instance: MeshInstance3D) -> void:
@@ -90,8 +122,19 @@ func _make_mesh_two_sided(mesh_instance: MeshInstance3D) -> void:
 		mesh_instance.set_surface_override_material(surface_index, two_sided_material)
 
 
+## Interactive props own their collision shape and must not receive a second,
+## static trimesh body from the architecture pass.
+func _should_skip_generated_collision(mesh_instance: MeshInstance3D) -> bool:
+	var ancestor := mesh_instance.get_parent()
+	while ancestor and ancestor != house:
+		if ancestor is CollisionObject3D or ancestor.is_in_group("smooth_stair_visual"):
+			return true
+		ancestor = ancestor.get_parent()
+	return false
+
+
 func _enable_backface_collision(mesh_instance: MeshInstance3D) -> void:
-	for node: Node in mesh_instance.find_children("*", "CollisionShape3D"):
+	for node: Node in mesh_instance.find_children("*", "CollisionShape3D", true, false):
 		var collision_shape := node as CollisionShape3D
 		var concave_shape := collision_shape.shape as ConcavePolygonShape3D
 		if concave_shape:
@@ -100,17 +143,17 @@ func _enable_backface_collision(mesh_instance: MeshInstance3D) -> void:
 
 func _apply_horror_lighting() -> void:
 	var environment := world_environment.environment
-	environment.ambient_light_color = Color(0.12, 0.17, 0.23)
-	environment.ambient_light_energy = 0.36
-	environment.tonemap_exposure = 0.96
+	environment.ambient_light_color = Color(0.075, 0.105, 0.15)
+	environment.ambient_light_energy = 0.22
+	environment.tonemap_exposure = 0.84
 	environment.adjustment_enabled = true
-	environment.adjustment_brightness = 0.94
-	environment.adjustment_contrast = 1.1
-	environment.adjustment_saturation = 0.75
+	environment.adjustment_brightness = 0.86
+	environment.adjustment_contrast = 1.14
+	environment.adjustment_saturation = 0.68
 	environment.fog_enabled = true
 	environment.fog_light_color = Color(0.075, 0.105, 0.13)
-	environment.fog_light_energy = 0.62
-	environment.fog_density = 0.035
+	environment.fog_light_energy = 0.42
+	environment.fog_density = 0.042
 	environment.fog_height = 2.0
 	environment.fog_height_density = 0.08
 	environment.fog_aerial_perspective = 0.8
@@ -133,4 +176,4 @@ func _apply_horror_lighting() -> void:
 		sky_material.ground_horizon_color = Color(0.012, 0.018, 0.024)
 
 	moon_light.light_color = Color(0.34, 0.43, 0.62)
-	moon_light.light_energy = 0.48
+	moon_light.light_energy = 0.3

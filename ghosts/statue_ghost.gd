@@ -386,8 +386,19 @@ func _random_delay(minimum: float, maximum: float) -> float:
 func _try_step_up(horizontal_motion: Vector3) -> void:
 	if horizontal_motion.is_zero_approx():
 		return
+	if is_on_floor() and get_floor_normal().dot(up_direction) < 0.98:
+		return
 
-	if not test_move(global_transform, horizontal_motion):
+	var forward_collision := KinematicCollision3D.new()
+	if not test_move(
+		global_transform,
+		horizontal_motion,
+		forward_collision,
+		safe_margin,
+		false
+	):
+		return
+	if forward_collision.get_normal().dot(up_direction) >= cos(floor_max_angle):
 		return
 
 	# Use whatever headroom is actually available, up to max_step_height. The
@@ -533,7 +544,11 @@ func _stalk_target(delta: float, target_offset: Vector3) -> void:
 ## below can never catch them and makes the statue look oblivious to stairs.
 func _navigation_direction(fallback_offset: Vector3) -> Vector3:
 	following_navigation_path = false
-	nav_agent.target_position = current_target.global_position
+	# Reassigning the same target every frame forces a fresh path from the
+	# statue's current ramp polygon. On an off-mesh stair link that repeatedly
+	# sends it back to the lower endpoint instead of allowing link traversal.
+	if nav_agent.target_position.distance_squared_to(current_target.global_position) > 0.04:
+		nav_agent.target_position = current_target.global_position
 	var next_point := nav_agent.get_next_path_position()
 	var to_next := next_point - global_position
 	to_next.y = 0.0

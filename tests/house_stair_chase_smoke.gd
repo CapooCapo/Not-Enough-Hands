@@ -21,8 +21,8 @@ func _run() -> void:
 	# Put the target just inside the upper landing and the statue at the foot
 	# of the ground-floor staircase. Character origins differ: the player's
 	# capsule is centred on its origin while the statue's origin is at its feet.
-	player.global_position = Vector3(13.15, 3.34, 22.15)
-	statue.global_position = Vector3(15.15, 0.1, 29.1)
+	player.global_position = Vector3(0.0, 3.98, 4.6)
+	statue.global_position = Vector3(0.0, 0.1, -1.0)
 	statue.set("unseen_grace_time", 0.0)
 	statue.set("attack_range", 0.1)
 
@@ -55,12 +55,20 @@ func _run() -> void:
 			quit()
 			return
 
+	var nav_agent := statue.get_node("NavigationAgent3D") as NavigationAgent3D
+	var blocking_colliders: Array[String] = []
+	for collision_index: int in statue.get_slide_collision_count():
+		var hit := statue.get_slide_collision(collision_index)
+		var collider := hit.get_collider() as Node
+		blocking_colliders.append(
+			"%s normal=%s" % [collider.name if collider else "unknown", hit.get_normal()]
+		)
 	_fail(
 		(
 			"Statue never reached the upper floor during a valid stair chase "
-			+ "(highest y=%.2f, started y=%.2f, final=%s)."
+			+ "(highest y=%.2f, started y=%.2f, final=%s, next=%s, path=%s, colliders=%s)."
 		)
-		% [highest_y, start_y, statue.global_position]
+		% [highest_y, start_y, statue.global_position, nav_agent.get_next_path_position(), nav_agent.get_current_navigation_path(), blocking_colliders]
 	)
 
 
