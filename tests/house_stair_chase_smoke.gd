@@ -17,6 +17,7 @@ func _run() -> void:
 
 	player.set("automatic_blink_enabled", false)
 	player.call("force_blink", 20.0)
+	statue.set("intermittent_hunts_enabled", false)
 	# Put the target just inside the upper landing and the statue at the foot
 	# of the ground-floor staircase. Character origins differ: the player's
 	# capsule is centred on its origin while the statue's origin is at its feet.

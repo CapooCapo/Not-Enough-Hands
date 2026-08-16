@@ -28,6 +28,7 @@ func _run() -> void:
 
 	var statue_scene := load('res://ghosts/statue_ghost.tscn') as PackedScene
 	var statue := statue_scene.instantiate() as CharacterBody3D
+	statue.set('intermittent_hunts_enabled', false)
 	statue.set('unseen_grace_time', 0.0)
 	root.add_child(statue)
 	statue.global_position = Vector3(0.0, 0.02, -5.0)
@@ -112,6 +113,10 @@ func _run() -> void:
 		_fail('Statue attack did not kill an unobserving nearby player.')
 		return
 
+	statue.get_node('TeleportAudio').stop()
+	statue.get_node('AttackAudio').stop()
+	statue.get_node('TeleportAudio').stream = null
+	statue.get_node('AttackAudio').stream = null
 	print('Statue ghost smoke test passed: freeze, blink movement, and attack.')
 	quit()
 

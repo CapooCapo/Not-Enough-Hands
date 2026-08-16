@@ -1,15 +1,17 @@
 ﻿extends CharacterBody3D
 
-enum StatueState { DORMANT, FROZEN, STALKING, ATTACK_WINDUP, COOLDOWN }
+enum StatueState { DORMANT, HIDDEN, FROZEN, STALKING, ATTACK_WINDUP, COOLDOWN }
 
 signal observation_changed(is_observed: bool)
 signal attack_started(target: Node3D)
 signal attack_cancelled()
+signal hunt_started(target: Node3D, ambush_position: Vector3)
+signal disappeared()
 
 @export_category('Behavior')
 @export var active: bool = true
-@export var base_speed: float = 5.0
-@export var maximum_speed: float = 7.2
+@export var base_speed: float = 5.25
+@export var maximum_speed: float = 7.45
 @export var speed_per_breached_door: float = 0.32
 @export_range(0, 7) var breached_door_count: int = 0
 @export_range(0.0, 1.0) var night_aggression: float = 0.2
@@ -22,6 +24,28 @@ signal attack_cancelled()
 ## default forced_blink_duration (0.22s) and every automatic blink is a
 ## free no-op. Looking away still uses the full unseen_grace_time.
 @export var blink_unseen_grace_time: float = 0.05
+
+@export_category('Hunt Cycle')
+## The statue spends most of its time absent, then sometimes starts an ambush
+## instead of pursuing continuously for the entire game.
+@export var intermittent_hunts_enabled: bool = true
+@export var start_hidden: bool = true
+@export_range(0.0, 1.0) var hunt_activation_chance: float = 0.65
+@export var initial_hidden_delay_min: float = 5.0
+@export var initial_hidden_delay_max: float = 9.0
+@export var hidden_hunt_delay_min: float = 8.0
+@export var hidden_hunt_delay_max: float = 14.0
+@export var no_hunt_retry_delay: float = 3.0
+## Once any living player spots it, this countdown continues even if that
+## player looks away. The statue vanishes when it expires.
+@export var observed_disappear_delay: float = 10.0
+## Hunt candidates must be moving and are ranked by how few teammates are
+## within this radius. This naturally selects a lone moving player.
+@export var moving_target_speed: float = 0.2
+@export var isolation_radius: float = 7.0
+@export var ambush_min_distance: float = 6.0
+@export var ambush_max_distance: float = 10.0
+@export_range(4, 32, 1) var ambush_candidate_count: int = 16
 
 @export_category('Observation')
 @export var observation_half_angle: float = 38.0
@@ -79,12 +103,16 @@ var unseen_time: float = 0.0
 var attack_timer: float = 0.0
 var cooldown_timer: float = 0.0
 var target_refresh_timer: float = 0.0
+var hidden_timer: float = 0.0
+var spotted_disappear_timer: float = -1.0
 var movement_phase: float = 0.0
 var stuck_timer: float = 0.0
 var steering_timer: float = 0.0
 var steering_sign: float = 1.0
 var last_position: Vector3
 var following_navigation_path: bool = false
+var normal_collision_layer: int
+var normal_collision_mask: int
 var gravity: float = ProjectSettings.get_setting('physics/3d/default_gravity')
 
 var agitation: float = 0.0
@@ -111,6 +139,8 @@ var eye_material: StandardMaterial3D
 @onready var right_shin_pivot: Node3D = $VisualRoot/RightLegPivot/ShinPivot
 @onready var dust: GPUParticles3D = $VisualRoot/Dust
 @onready var nav_agent: NavigationAgent3D = $NavigationAgent3D
+@onready var teleport_audio: AudioStreamPlayer3D = $TeleportAudio
+@onready var attack_audio: AudioStreamPlayer3D = $AttackAudio
 
 # Frozen silhouettes, in degrees. The statue snaps between these the instant it
 # is caught, so it is never in the same shape twice when you look back at it.
@@ -164,10 +194,16 @@ const IDLE_POSES: Array[Dictionary] = [
 
 
 func _ready() -> void:
+	normal_collision_layer = collision_layer
+	normal_collision_mask = collision_mask
 	last_position = global_position
 	_prepare_materials()
 	_apply_idle_pose(randi() % IDLE_POSES.size())
-	state = StatueState.FROZEN if active else StatueState.DORMANT
+	if active and intermittent_hunts_enabled and start_hidden:
+		_enter_hidden(_random_delay(initial_hidden_delay_min, initial_hidden_delay_max), false)
+	else:
+		state = StatueState.FROZEN if active else StatueState.DORMANT
+		_set_manifested(active)
 
 
 func _physics_process(delta: float) -> void:
@@ -175,18 +211,37 @@ func _physics_process(delta: float) -> void:
 		state = StatueState.DORMANT
 		velocity = Vector3.ZERO
 		return
+	if state == StatueState.HIDDEN:
+		_update_hidden_hunt(delta)
+		_update_player_threat()
+		return
 
-	target_refresh_timer -= delta
-	if target_refresh_timer <= 0.0 or not is_instance_valid(current_target):
-		current_target = _find_closest_living_player()
-		target_refresh_timer = 0.2
+	if intermittent_hunts_enabled:
+		if not is_instance_valid(current_target) or (
+			'is_alive' in current_target and not current_target.is_alive
+		):
+			_disappear()
+			return
+	else:
+		target_refresh_timer -= delta
+		if target_refresh_timer <= 0.0 or not is_instance_valid(current_target):
+			current_target = _find_closest_living_player()
+			target_refresh_timer = 0.2
 
 	var observed_now := _is_observed_by_any_player()
 	if observed_now != is_observed:
 		is_observed = observed_now
 		if is_observed:
 			_on_caught_in_the_open()
+			if spotted_disappear_timer < 0.0:
+				spotted_disappear_timer = observed_disappear_delay
 		observation_changed.emit(is_observed)
+
+	if spotted_disappear_timer >= 0.0:
+		spotted_disappear_timer -= delta
+		if spotted_disappear_timer <= 0.0:
+			_disappear()
+			return
 
 	if is_observed:
 		_freeze_statue(delta)
@@ -207,6 +262,110 @@ func _physics_process(delta: float) -> void:
 	_update_stuck_state(delta)
 	_update_player_threat()
 	_update_presentation(delta)
+
+
+# --- Hunt lifecycle ----------------------------------------------------------
+
+
+func _update_hidden_hunt(delta: float) -> void:
+	velocity = Vector3.ZERO
+	if not intermittent_hunts_enabled:
+		current_target = _find_closest_living_player()
+		state = StatueState.FROZEN
+		_set_manifested(true)
+		return
+
+	hidden_timer -= delta
+	if hidden_timer > 0.0:
+		return
+
+	# A failed roll creates a real quiet interval instead of checking every
+	# frame until success, which would make the probability meaningless.
+	if hunt_activation_chance <= 0.0 or (
+		hunt_activation_chance < 1.0 and randf() > hunt_activation_chance
+	):
+		hidden_timer = no_hunt_retry_delay
+		return
+
+	var target := _find_most_isolated_moving_player()
+	if not target:
+		hidden_timer = no_hunt_retry_delay
+		return
+
+	var ambush_position := _find_ambush_position(target)
+	if ambush_position == Vector3.INF:
+		hidden_timer = no_hunt_retry_delay
+		return
+
+	_begin_hunt(target, ambush_position)
+
+
+func _begin_hunt(target: CharacterBody3D, ambush_position: Vector3) -> void:
+	current_target = target
+	global_position = ambush_position
+	last_position = ambush_position
+	velocity = Vector3.ZERO
+	unseen_time = unseen_grace_time
+	spotted_disappear_timer = -1.0
+	is_observed = false
+	state = StatueState.STALKING
+	_set_manifested(true)
+
+	var flat_target := target.global_position - global_position
+	flat_target.y = 0.0
+	if not flat_target.is_zero_approx():
+		rotation.y = atan2(-flat_target.x, -flat_target.z)
+	_apply_idle_pose(_pick_new_pose_index())
+	teleport_audio.play()
+	hunt_started.emit(target, ambush_position)
+
+
+func _disappear() -> void:
+	var was_observed := is_observed
+	if state == StatueState.ATTACK_WINDUP:
+		attack_cancelled.emit()
+	attack_audio.stop()
+	if state != StatueState.HIDDEN:
+		teleport_audio.play()
+
+	state = StatueState.HIDDEN
+	velocity = Vector3.ZERO
+	unseen_time = 0.0
+	attack_timer = 0.0
+	stuck_timer = 0.0
+	steering_timer = 0.0
+	spotted_disappear_timer = -1.0
+	is_observed = false
+	current_target = null
+	hidden_timer = _random_delay(hidden_hunt_delay_min, hidden_hunt_delay_max)
+	_set_manifested(false)
+	if was_observed:
+		observation_changed.emit(false)
+	disappeared.emit()
+
+
+func _enter_hidden(delay: float, play_sound: bool = true) -> void:
+	state = StatueState.HIDDEN
+	hidden_timer = maxf(delay, 0.0)
+	spotted_disappear_timer = -1.0
+	current_target = null
+	velocity = Vector3.ZERO
+	if play_sound:
+		teleport_audio.play()
+	_set_manifested(false)
+
+
+func _set_manifested(manifested: bool) -> void:
+	visual_root.visible = manifested
+	dust.emitting = manifested
+	collision_layer = normal_collision_layer if manifested else 0
+	collision_mask = normal_collision_mask if manifested else 0
+
+
+func _random_delay(minimum: float, maximum: float) -> float:
+	var low := minf(minimum, maximum)
+	var high := maxf(minimum, maximum)
+	return randf_range(maxf(low, 0.0), maxf(high, 0.0))
 
 
 ## Hops the statue up onto a stair riser that's blocking its horizontal
@@ -263,6 +422,7 @@ func _try_step_up(horizontal_motion: Vector3) -> void:
 func _freeze_statue(delta: float) -> void:
 	if state == StatueState.ATTACK_WINDUP:
 		attack_cancelled.emit()
+		attack_audio.stop()
 	state = StatueState.FROZEN
 	unseen_time = 0.0
 	attack_timer = 0.0
@@ -388,6 +548,7 @@ func _begin_attack() -> void:
 	attack_timer = attack_windup
 	velocity.x = 0.0
 	velocity.z = 0.0
+	attack_audio.play()
 	attack_started.emit(current_target)
 
 
@@ -406,6 +567,127 @@ func _update_attack_windup(delta: float) -> void:
 
 	state = StatueState.COOLDOWN
 	cooldown_timer = attack_cooldown
+
+
+func _find_most_isolated_moving_player() -> CharacterBody3D:
+	var living_players := _living_players()
+	var best_player: CharacterBody3D
+	var fewest_neighbors := INF
+	var largest_nearest_neighbor_distance := -INF
+
+	for candidate: CharacterBody3D in living_players:
+		var horizontal_speed := Vector2(candidate.velocity.x, candidate.velocity.z).length()
+		if horizontal_speed < moving_target_speed:
+			continue
+
+		var nearby_players := 0
+		var nearest_neighbor_distance := INF
+		for other: CharacterBody3D in living_players:
+			if other == candidate:
+				continue
+			var distance := candidate.global_position.distance_to(other.global_position)
+			nearest_neighbor_distance = minf(nearest_neighbor_distance, distance)
+			if distance <= isolation_radius:
+				nearby_players += 1
+
+		if nearby_players < fewest_neighbors or (
+			nearby_players == fewest_neighbors
+			and nearest_neighbor_distance > largest_nearest_neighbor_distance
+		):
+			fewest_neighbors = nearby_players
+			largest_nearest_neighbor_distance = nearest_neighbor_distance
+			best_player = candidate
+
+	return best_player
+
+
+func _living_players() -> Array[CharacterBody3D]:
+	var players: Array[CharacterBody3D] = []
+	for node: Node in get_tree().get_nodes_in_group('players'):
+		var player := node as CharacterBody3D
+		if not player:
+			continue
+		if 'is_alive' in player and not player.is_alive:
+			continue
+		players.append(player)
+	return players
+
+
+func _find_ambush_position(target: CharacterBody3D) -> Vector3:
+	var map_rid := nav_agent.get_navigation_map()
+	var has_navigation := map_rid.is_valid() \
+		and NavigationServer3D.map_get_iteration_id(map_rid) > 0 \
+		and not NavigationServer3D.map_get_regions(map_rid).is_empty()
+	if has_navigation:
+		var target_nav_point := NavigationServer3D.map_get_closest_point(
+			map_rid,
+			target.global_position
+		)
+		for sample_index: int in ambush_candidate_count:
+			var angle := randf() * TAU
+			var distance := randf_range(ambush_min_distance, ambush_max_distance)
+			var radial_offset := Vector3(cos(angle), 0.0, sin(angle)) * distance
+			var nav_point := NavigationServer3D.map_get_closest_point(
+				map_rid,
+				target_nav_point + radial_offset
+			)
+			var flat_distance := Vector2(
+				nav_point.x - target_nav_point.x,
+				nav_point.z - target_nav_point.z
+			).length()
+			if flat_distance < ambush_min_distance or flat_distance > ambush_max_distance:
+				continue
+			if absf(nav_point.y - target_nav_point.y) > direct_chase_max_height_difference:
+				continue
+
+			var route := NavigationServer3D.map_get_path(
+				map_rid,
+				nav_point,
+				target_nav_point,
+				true
+			)
+			if route.is_empty() or route[route.size() - 1].distance_to(target_nav_point) > 0.75:
+				continue
+
+			var spawn_position := nav_point + Vector3.UP * 0.02
+			if not _is_position_observed_by_any_player(spawn_position):
+				return spawn_position
+		return Vector3.INF
+
+	# Small standalone test scenes have no NavigationRegion3D. They still get
+	# the same distance/visibility rules on their flat floor.
+	var floor_y := _player_foot_y(target)
+	for sample_index: int in ambush_candidate_count:
+		var angle := randf() * TAU
+		var distance := randf_range(ambush_min_distance, ambush_max_distance)
+		var candidate := Vector3(
+			target.global_position.x + cos(angle) * distance,
+			floor_y + 0.02,
+			target.global_position.z + sin(angle) * distance
+		)
+		if not _is_position_observed_by_any_player(candidate):
+			return candidate
+	return Vector3.INF
+
+
+func _player_foot_y(player: CharacterBody3D) -> float:
+	var shape_node := player.get_node_or_null('CollisionShape3D') as CollisionShape3D
+	if shape_node:
+		var capsule := shape_node.shape as CapsuleShape3D
+		if capsule:
+			return shape_node.global_position.y - capsule.height * 0.5
+	return player.global_position.y
+
+
+func _is_position_observed_by_any_player(position: Vector3) -> bool:
+	var observation_point := position + Vector3.UP * observation_point_height
+	for player: CharacterBody3D in _living_players():
+		if 'eyes_closed' in player and player.eyes_closed:
+			continue
+		var camera := player.get_node_or_null('CameraPivot/Camera3D') as Camera3D
+		if camera and _camera_can_see_point(camera, player, observation_point):
+			return true
+	return false
 
 
 func _find_closest_living_player() -> CharacterBody3D:
@@ -491,10 +773,12 @@ func _update_player_threat() -> void:
 		var player := node as CharacterBody3D
 		if not player or not player.has_method('set_statue_threat'):
 			continue
-		var distance := global_position.distance_to(player.global_position)
-		var amount := clampf(1.0 - distance / 12.0, 0.0, 1.0)
-		if is_observed:
-			amount *= 0.45
+		var amount := 0.0
+		if state != StatueState.HIDDEN and state != StatueState.DORMANT:
+			var distance := global_position.distance_to(player.global_position)
+			amount = clampf(1.0 - distance / 12.0, 0.0, 1.0)
+			if is_observed:
+				amount *= 0.45
 		player.set_statue_threat(amount)
 
 
@@ -670,7 +954,7 @@ func _update_presentation(delta: float) -> void:
 			target_agitation = 1.0
 		StatueState.COOLDOWN:
 			target_agitation = maxf(proximity, 0.7)
-		StatueState.DORMANT:
+		StatueState.HIDDEN, StatueState.DORMANT:
 			target_agitation = 0.0
 	agitation = move_toward(agitation, target_agitation, delta * 2.6)
 
