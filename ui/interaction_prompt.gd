@@ -31,7 +31,9 @@ func _process(_delta: float) -> void:
 	if player:
 		var interact_target: Node = player.get_interaction_target()
 		if interact_target and player.can_interact_with(interact_target):
-			if "state" in interact_target:
+			if interact_target.has_method("get_interaction_prompt"):
+				_set_prompt_text(interact_target.get_interaction_prompt(interact_key_name))
+			elif "state" in interact_target:
 				var state: int = interact_target.state
 				if state == 1 or state == 3: # OPENING or CLOSING
 					visible = false

@@ -4,6 +4,7 @@
 [ext_resource type="Shader" path="res://ghosts/statue_stone.gdshader" id="2_stone"]
 [ext_resource type="AudioStream" path="res://assets/audio/statue_teleport.wav" id="3_teleport"]
 [ext_resource type="AudioStream" path="res://assets/audio/statue_attack.ogg" id="4_attack"]
+[ext_resource type="AudioStream" path="res://assets/audio/statue_spotted_jumpscare.mp3" id="5_jumpscare"]
 
 [sub_resource type="ShaderMaterial" id="Material_stone"]
 render_priority = 0
@@ -312,6 +313,12 @@ max_distance = 30.0
 [node name="AttackAudio" type="AudioStreamPlayer3D" parent="."]
 stream = ExtResource("4_attack")
 volume_db = -7.0
+unit_size = 5.0
+max_distance = 34.0
+
+[node name="SpottedJumpscareAudio" type="AudioStreamPlayer3D" parent="."]
+stream = ExtResource("5_jumpscare")
+volume_db = -2.0
 unit_size = 5.0
 max_distance = 34.0
 

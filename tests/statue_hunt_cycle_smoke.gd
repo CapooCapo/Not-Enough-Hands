@@ -2,6 +2,7 @@ extends SceneTree
 
 var hunted_target: Node3D
 var hunted_position := Vector3.INF
+var spotted_jumpscare_count: int = 0
 
 
 func _initialize() -> void:
@@ -35,7 +36,11 @@ func _run() -> void:
 	root.add_child(statue)
 	await physics_frame
 
-	if statue.get_node('TeleportAudio').stream == null or statue.get_node('AttackAudio').stream == null:
+	if (
+		statue.get_node('TeleportAudio').stream == null
+		or statue.get_node('AttackAudio').stream == null
+		or statue.get_node('SpottedJumpscareAudio').stream == null
+	):
 		_fail('Statue 3D sound effects were not loaded.')
 		return
 	# This test exits immediately after the disappear assertion; mute playback
@@ -43,6 +48,7 @@ func _run() -> void:
 	# WAV playback object to flush during shutdown.
 	statue.get_node('TeleportAudio').stream = null
 	statue.get_node('AttackAudio').stream = null
+	statue.get_node('SpottedJumpscareAudio').stream = null
 
 	if statue.get('state') != 1 or statue.get_node('VisualRoot').visible:
 		_fail('Intermittent statue did not begin in its hidden state.')
@@ -84,8 +90,10 @@ func _run() -> void:
 		return
 	statue.get_node('TeleportAudio').stop()
 	statue.get_node('AttackAudio').stop()
+	statue.get_node('SpottedJumpscareAudio').stop()
 	statue.get_node('TeleportAudio').stream = null
 	statue.get_node('AttackAudio').stream = null
+	statue.get_node('SpottedJumpscareAudio').stream = null
 	statue.hunt_started.disconnect(_record_hunt)
 	hunted_target = null
 	statue.queue_free()
@@ -105,32 +113,56 @@ func _run() -> void:
 
 	var watched_statue := statue_scene.instantiate() as CharacterBody3D
 	watched_statue.set('start_hidden', false)
-	watched_statue.set('observed_disappear_delay', 0.18)
+	watched_statue.set('observed_disappear_delay', 0.5)
+	watched_statue.spotted_jumpscare_started.connect(_record_spotted_jumpscare)
 	root.add_child(watched_statue)
 	watched_statue.global_position = Vector3(0.0, 0.02, -5.0)
 	watched_statue.set('current_target', observer)
 	watched_statue.get_node('TeleportAudio').stream = null
 	watched_statue.get_node('AttackAudio').stream = null
+	watched_statue.get_node('SpottedJumpscareAudio').stream = null
 
 	await physics_frame
 	await physics_frame
 	if not watched_statue.get('is_observed'):
 		_fail('Visible statue was not detected by the observing player.')
 		return
+	if not watched_statue.get('spotted_jumpscare_played'):
+		_fail('First observation did not trigger the statue jumpscare.')
+		return
+	if spotted_jumpscare_count != 1:
+		_fail('First observation emitted %d jumpscares instead of one.' % spotted_jumpscare_count)
+		return
 
 	observer.rotation.y = PI
-	await create_timer(0.24).timeout
+	await physics_frame
+	await physics_frame
+	observer.rotation.y = 0.0
+	await physics_frame
+	await physics_frame
+	if spotted_jumpscare_count != 1:
+		_fail('Looking away and back replayed the jumpscare during the same manifestation.')
+		return
+
+	observer.rotation.y = PI
+	watched_statue.set('spotted_disappear_timer', 0.08)
+	await create_timer(0.12).timeout
 	if watched_statue.get('state') != 1:
 		_fail('Statue did not disappear after its post-sighting countdown.')
 		return
 	if watched_statue.get_node('VisualRoot').visible or watched_statue.collision_layer != 0:
 		_fail('Disappeared statue remained visible or collidable.')
 		return
+	if watched_statue.get('spotted_jumpscare_played'):
+		_fail('Disappearing did not reset the jumpscare for the next manifestation.')
+		return
 
 	watched_statue.get_node('TeleportAudio').stop()
 	watched_statue.get_node('AttackAudio').stop()
+	watched_statue.get_node('SpottedJumpscareAudio').stop()
 	watched_statue.get_node('TeleportAudio').stream = null
 	watched_statue.get_node('AttackAudio').stream = null
+	watched_statue.get_node('SpottedJumpscareAudio').stream = null
 	watched_statue.queue_free()
 	observer.queue_free()
 	ground.queue_free()
@@ -142,6 +174,10 @@ func _run() -> void:
 func _record_hunt(target: Node3D, position: Vector3) -> void:
 	hunted_target = target
 	hunted_position = position
+
+
+func _record_spotted_jumpscare() -> void:
+	spotted_jumpscare_count += 1
 
 
 func _moving_player(position: Vector3) -> CharacterBody3D:

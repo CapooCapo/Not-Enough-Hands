@@ -2,9 +2,11 @@
 
 [ext_resource type="PackedScene" uid="uid://dunxivm4sidwi" path="res://assets/House.glb" id="1_ig7tw"]
 [ext_resource type="PackedScene" path="res://player/player.tscn" id="2_0xm2m"]
+[ext_resource type="PackedScene" path="res://door/defense_door.tscn" id="3_7mycd"]
 [ext_resource type="Script" uid="uid://q7p5bw5b7fxt" path="res://main.gd" id="3_main"]
 [ext_resource type="PackedScene" path="res://door/door.tscn" id="4_1bvp3"]
 [ext_resource type="PackedScene" path="res://ghosts/statue_ghost.tscn" id="5_statue"]
+[ext_resource type="Script" path="res://door/door_attack_director.gd" id="6_door_director"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_main"]
 sky_top_color = Color(0.22, 0.38, 0.58, 1)
@@ -46,6 +48,10 @@ adjustment_enabled = true
 [node name="Node3D" type="Node3D" unique_id=1499828836]
 script = ExtResource("3_main")
 
+[node name="DoorAttackDirector" type="Node" parent="."]
+script = ExtResource("6_door_director")
+automatic_waves = true
+
 [node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=480636631]
 environment = SubResource("Environment_main")
 
@@ -58,6 +64,9 @@ shadow_enabled = true
 
 [node name="House" parent="." unique_id=2001469688 instance=ExtResource("1_ig7tw")]
 transform = Transform3D(0.5, 0, 0, 0, 0.5, 0, 0, 0, 0.5, 13.014493, 0, 19.701927)
+
+[node name="DefenseDoor" parent="House" unique_id=1222159282 instance=ExtResource("3_7mycd")]
+transform = Transform3D(2.7211492, 0, 0, 0, 1.769036, 0, 0, 0, 1, 1.4024754, 0.20483518, -25.788212)
 
 [node name="Player" parent="." unique_id=308502712 instance=ExtResource("2_0xm2m")]
 transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 13.014493, 1.1, 26.639688)

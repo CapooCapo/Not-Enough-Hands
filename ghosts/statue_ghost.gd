@@ -7,6 +7,7 @@ signal attack_started(target: Node3D)
 signal attack_cancelled()
 signal hunt_started(target: Node3D, ambush_position: Vector3)
 signal disappeared()
+signal spotted_jumpscare_started()
 
 @export_category('Behavior')
 @export var active: bool = true
@@ -111,6 +112,7 @@ var steering_timer: float = 0.0
 var steering_sign: float = 1.0
 var last_position: Vector3
 var following_navigation_path: bool = false
+var spotted_jumpscare_played: bool = false
 var normal_collision_layer: int
 var normal_collision_mask: int
 var gravity: float = ProjectSettings.get_setting('physics/3d/default_gravity')
@@ -141,6 +143,7 @@ var eye_material: StandardMaterial3D
 @onready var nav_agent: NavigationAgent3D = $NavigationAgent3D
 @onready var teleport_audio: AudioStreamPlayer3D = $TeleportAudio
 @onready var attack_audio: AudioStreamPlayer3D = $AttackAudio
+@onready var spotted_jumpscare_audio: AudioStreamPlayer3D = $SpottedJumpscareAudio
 
 # Frozen silhouettes, in degrees. The statue snaps between these the instant it
 # is caught, so it is never in the same shape twice when you look back at it.
@@ -232,6 +235,7 @@ func _physics_process(delta: float) -> void:
 	if observed_now != is_observed:
 		is_observed = observed_now
 		if is_observed:
+			_play_spotted_jumpscare_once()
 			_on_caught_in_the_open()
 			if spotted_disappear_timer < 0.0:
 				spotted_disappear_timer = observed_disappear_delay
@@ -307,6 +311,8 @@ func _begin_hunt(target: CharacterBody3D, ambush_position: Vector3) -> void:
 	velocity = Vector3.ZERO
 	unseen_time = unseen_grace_time
 	spotted_disappear_timer = -1.0
+	spotted_jumpscare_played = false
+	spotted_jumpscare_audio.stop()
 	is_observed = false
 	state = StatueState.STALKING
 	_set_manifested(true)
@@ -325,6 +331,7 @@ func _disappear() -> void:
 	if state == StatueState.ATTACK_WINDUP:
 		attack_cancelled.emit()
 	attack_audio.stop()
+	spotted_jumpscare_audio.stop()
 	if state != StatueState.HIDDEN:
 		teleport_audio.play()
 
@@ -335,6 +342,7 @@ func _disappear() -> void:
 	stuck_timer = 0.0
 	steering_timer = 0.0
 	spotted_disappear_timer = -1.0
+	spotted_jumpscare_played = false
 	is_observed = false
 	current_target = null
 	hidden_timer = _random_delay(hidden_hunt_delay_min, hidden_hunt_delay_max)
@@ -348,6 +356,8 @@ func _enter_hidden(delay: float, play_sound: bool = true) -> void:
 	state = StatueState.HIDDEN
 	hidden_timer = maxf(delay, 0.0)
 	spotted_disappear_timer = -1.0
+	spotted_jumpscare_played = false
+	spotted_jumpscare_audio.stop()
 	current_target = null
 	velocity = Vector3.ZERO
 	if play_sound:
@@ -813,6 +823,14 @@ func _primitive_material(mesh_instance: MeshInstance3D) -> Material:
 
 ## Caught in the open: snap into a brand new shape, facing whoever spotted it.
 ## The player never sees the transition, only that it is different now.
+func _play_spotted_jumpscare_once() -> void:
+	if spotted_jumpscare_played:
+		return
+	spotted_jumpscare_played = true
+	spotted_jumpscare_audio.play()
+	spotted_jumpscare_started.emit()
+
+
 func _on_caught_in_the_open() -> void:
 	if unseen_time < 0.25:
 		return

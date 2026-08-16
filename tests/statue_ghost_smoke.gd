@@ -115,8 +115,10 @@ func _run() -> void:
 
 	statue.get_node('TeleportAudio').stop()
 	statue.get_node('AttackAudio').stop()
+	statue.get_node('SpottedJumpscareAudio').stop()
 	statue.get_node('TeleportAudio').stream = null
 	statue.get_node('AttackAudio').stream = null
+	statue.get_node('SpottedJumpscareAudio').stream = null
 	print('Statue ghost smoke test passed: freeze, blink movement, and attack.')
 	quit()
 

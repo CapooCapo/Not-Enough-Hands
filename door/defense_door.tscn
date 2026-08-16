@@ -1,0 +1,210 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://door/defense_door.gd" id="1_defense"]
+[ext_resource type="AudioStream" path="res://assets/audio/417537__danthaiwang__scratching-with-fingernails.wav" id="2_scratch"]
+
+[sub_resource type="StandardMaterial3D" id="Material_door"]
+albedo_color = Color(0.105, 0.043, 0.018, 1)
+roughness = 0.9
+
+[sub_resource type="StandardMaterial3D" id="Material_frame"]
+albedo_color = Color(0.055, 0.06, 0.065, 1)
+metallic = 0.72
+roughness = 0.44
+
+[sub_resource type="StandardMaterial3D" id="Material_brace"]
+albedo_color = Color(0.19, 0.085, 0.03, 1)
+roughness = 0.84
+
+[sub_resource type="StandardMaterial3D" id="Material_bolt"]
+albedo_color = Color(0.25, 0.23, 0.18, 1)
+metallic = 0.88
+roughness = 0.3
+
+[sub_resource type="StandardMaterial3D" id="Material_crack"]
+albedo_color = Color(0.006, 0.004, 0.003, 1)
+roughness = 1.0
+
+[sub_resource type="BoxMesh" id="Mesh_door"]
+material = SubResource("Material_door")
+size = Vector3(2.2, 2.35, 0.16)
+
+[sub_resource type="BoxMesh" id="Mesh_frame_side"]
+material = SubResource("Material_frame")
+size = Vector3(0.18, 2.7, 0.3)
+
+[sub_resource type="BoxMesh" id="Mesh_frame_top"]
+material = SubResource("Material_frame")
+size = Vector3(2.56, 0.18, 0.3)
+
+[sub_resource type="BoxMesh" id="Mesh_brace"]
+material = SubResource("Material_brace")
+size = Vector3(2.32, 0.18, 0.14)
+
+[sub_resource type="CylinderMesh" id="Mesh_bolt"]
+material = SubResource("Material_bolt")
+top_radius = 0.055
+bottom_radius = 0.055
+height = 0.035
+radial_segments = 12
+
+[sub_resource type="BoxMesh" id="Mesh_crack_long"]
+material = SubResource("Material_crack")
+size = Vector3(0.025, 0.56, 0.19)
+
+[sub_resource type="BoxMesh" id="Mesh_crack_short"]
+material = SubResource("Material_crack")
+size = Vector3(0.018, 0.32, 0.19)
+
+[sub_resource type="BoxShape3D" id="Shape_door"]
+size = Vector3(2.2, 2.35, 0.16)
+
+[sub_resource type="BoxShape3D" id="Shape_repair_post"]
+size = Vector3(0.18, 2.7, 0.3)
+
+[node name="DefenseDoor" type="StaticBody3D"]
+collision_layer = 3
+script = ExtResource("1_defense")
+
+[node name="DoorVisual" type="Node3D" parent="."]
+
+[node name="DoorLeaf" type="MeshInstance3D" parent="DoorVisual"]
+position = Vector3(0, 1.175, 0)
+mesh = SubResource("Mesh_door")
+
+[node name="FrameLeft" type="MeshInstance3D" parent="DoorVisual"]
+position = Vector3(-1.19, 1.35, 0)
+mesh = SubResource("Mesh_frame_side")
+
+[node name="FrameRight" type="MeshInstance3D" parent="DoorVisual"]
+position = Vector3(1.19, 1.35, 0)
+mesh = SubResource("Mesh_frame_side")
+
+[node name="FrameTop" type="MeshInstance3D" parent="DoorVisual"]
+position = Vector3(0, 2.61, 0)
+mesh = SubResource("Mesh_frame_top")
+
+[node name="BraceFrontTop" type="MeshInstance3D" parent="DoorVisual"]
+position = Vector3(0, 1.72, -0.13)
+rotation = Vector3(0, 0, 0.045)
+mesh = SubResource("Mesh_brace")
+
+[node name="BraceFrontBottom" type="MeshInstance3D" parent="DoorVisual"]
+position = Vector3(0, 0.68, -0.13)
+rotation = Vector3(0, 0, -0.035)
+mesh = SubResource("Mesh_brace")
+
+[node name="BraceBackTop" type="MeshInstance3D" parent="DoorVisual"]
+position = Vector3(0, 1.72, 0.13)
+rotation = Vector3(0, 0, -0.045)
+mesh = SubResource("Mesh_brace")
+
+[node name="BraceBackBottom" type="MeshInstance3D" parent="DoorVisual"]
+position = Vector3(0, 0.68, 0.13)
+rotation = Vector3(0, 0, 0.035)
+mesh = SubResource("Mesh_brace")
+
+[node name="BoltFrontLeftTop" type="MeshInstance3D" parent="DoorVisual"]
+position = Vector3(-0.96, 1.77, -0.22)
+rotation = Vector3(1.5708, 0, 0)
+mesh = SubResource("Mesh_bolt")
+
+[node name="BoltFrontRightTop" type="MeshInstance3D" parent="DoorVisual"]
+position = Vector3(0.96, 1.68, -0.22)
+rotation = Vector3(1.5708, 0, 0)
+mesh = SubResource("Mesh_bolt")
+
+[node name="BoltFrontLeftBottom" type="MeshInstance3D" parent="DoorVisual"]
+position = Vector3(-0.96, 0.65, -0.22)
+rotation = Vector3(1.5708, 0, 0)
+mesh = SubResource("Mesh_bolt")
+
+[node name="BoltFrontRightBottom" type="MeshInstance3D" parent="DoorVisual"]
+position = Vector3(0.96, 0.71, -0.22)
+rotation = Vector3(1.5708, 0, 0)
+mesh = SubResource("Mesh_bolt")
+
+[node name="EntranceLabelFront" type="Label3D" parent="DoorVisual"]
+position = Vector3(0, 2.29, -0.105)
+modulate = Color(0.83, 0.24, 0.15, 1)
+outline_modulate = Color(0.025, 0.012, 0.008, 1)
+text = "01"
+font_size = 64
+outline_size = 10
+
+[node name="EntranceLabelBack" type="Label3D" parent="DoorVisual"]
+position = Vector3(0, 2.29, 0.105)
+rotation = Vector3(0, 3.14159, 0)
+modulate = Color(0.83, 0.24, 0.15, 1)
+outline_modulate = Color(0.025, 0.012, 0.008, 1)
+text = "01"
+font_size = 64
+outline_size = 10
+
+[node name="DamageLight" type="Node3D" parent="DoorVisual"]
+visible = false
+
+[node name="CrackA" type="MeshInstance3D" parent="DoorVisual/DamageLight"]
+position = Vector3(-0.63, 1.22, 0)
+rotation = Vector3(0, 0, 0.42)
+mesh = SubResource("Mesh_crack_long")
+
+[node name="CrackB" type="MeshInstance3D" parent="DoorVisual/DamageLight"]
+position = Vector3(-0.5, 0.98, 0)
+rotation = Vector3(0, 0, -0.58)
+mesh = SubResource("Mesh_crack_short")
+
+[node name="DamageMedium" type="Node3D" parent="DoorVisual"]
+visible = false
+
+[node name="CrackC" type="MeshInstance3D" parent="DoorVisual/DamageMedium"]
+position = Vector3(0.57, 1.48, 0)
+rotation = Vector3(0, 0, -0.36)
+mesh = SubResource("Mesh_crack_long")
+
+[node name="CrackD" type="MeshInstance3D" parent="DoorVisual/DamageMedium"]
+position = Vector3(0.44, 1.22, 0)
+rotation = Vector3(0, 0, 0.72)
+mesh = SubResource("Mesh_crack_short")
+
+[node name="DamageHeavy" type="Node3D" parent="DoorVisual"]
+visible = false
+
+[node name="CrackE" type="MeshInstance3D" parent="DoorVisual/DamageHeavy"]
+position = Vector3(0.08, 0.53, 0)
+rotation = Vector3(0, 0, 0.28)
+mesh = SubResource("Mesh_crack_long")
+
+[node name="CrackF" type="MeshInstance3D" parent="DoorVisual/DamageHeavy"]
+position = Vector3(-0.04, 0.29, 0)
+rotation = Vector3(0, 0, -0.68)
+mesh = SubResource("Mesh_crack_short")
+
+[node name="DoorCollision" type="CollisionShape3D" parent="."]
+position = Vector3(0, 1.175, 0)
+shape = SubResource("Shape_door")
+
+[node name="RepairPostCollision" type="CollisionShape3D" parent="."]
+position = Vector3(1.19, 1.35, 0)
+shape = SubResource("Shape_repair_post")
+
+[node name="AttackAnchor" type="Marker3D" parent="."]
+position = Vector3(0, 0, -1.2)
+
+[node name="InsideSpawn" type="Marker3D" parent="."]
+position = Vector3(0, 0, 1.35)
+
+[node name="WarningAudio" type="AudioStreamPlayer3D" parent="."]
+position = Vector3(0, 1.25, 0)
+stream = ExtResource("2_scratch")
+volume_db = -8.0
+unit_size = 2.0
+max_distance = 11.0
+attenuation_model = 1
+
+[node name="StrongAttackAudio" type="AudioStreamPlayer3D" parent="."]
+position = Vector3(0, 1.25, 0)
+volume_db = 3.0
+unit_size = 2.8
+max_distance = 17.0
+attenuation_model = 1
