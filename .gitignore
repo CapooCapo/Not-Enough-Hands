@@ -38,6 +38,11 @@ desktop.ini
 /build/
 /builds/
 
+# Local source packs. Add individual assets explicitly once a scene uses them.
+/assets/map/
+/assets/audio/freesound_community-concrete-footsteps-6752.mp3
+/assets/audio/freesound_community-concrete-footsteps-6752.mp3.import
+
 # AI configs
 .ai/
 

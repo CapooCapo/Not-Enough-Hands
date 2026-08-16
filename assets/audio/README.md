@@ -17,3 +17,22 @@ provenance.
 - `creature_reveal.mp3` — “Creature Reveal” by Universfield (Pixabay Content
   License; stored for a future creature and not currently used by a scene):
   https://pixabay.com/sound-effects/horror-creature-reveal-143028/
+- `536770__doctorphil__footsteps-on-a-wooden-floor.wav` — “Footsteps on a
+  Wooden Floor” by doctorphil (CC0):
+  https://freesound.org/people/doctorphil/sounds/536770/
+- `ambient_house_tone.mp3` — “Roomtone Bedroom Yew” by leonelmail (CC0):
+  https://freesound.org/people/leonelmail/sounds/329569/
+- `ambient_window_wind.mp3` — “Window Wind” by unfa (CC0):
+  https://freesound.org/people/unfa/sounds/174501/
+- `ambient_distant_night.mp3` — “Countryside at the Night Crickets” by
+  Martin.Sadoux (CC0):
+  https://freesound.org/people/Martin.Sadoux/sounds/422582/
+- `house_creak_single.mp3` — “Wood Creak Single V3” by Rudmer_Rotteveel
+  (CC0):
+  https://freesound.org/people/Rudmer_Rotteveel/sounds/502511/
+- `house_creaks_slow.mp3` — “Slow Wooden Creaks x5” by peridactyloptrix
+  (CC0):
+  https://freesound.org/people/peridactyloptrix/sounds/218163/
+- `house_floor_creaks.mp3` — “Floor Creak Hardwood, Old House” by TRP
+  (CC0):
+  https://freesound.org/people/TRP/sounds/715636/

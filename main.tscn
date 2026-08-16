@@ -7,6 +7,7 @@
 [ext_resource type="PackedScene" path="res://door/door.tscn" id="4_1bvp3"]
 [ext_resource type="PackedScene" path="res://ghosts/statue_ghost.tscn" id="5_statue"]
 [ext_resource type="Script" path="res://door/door_attack_director.gd" id="6_door_director"]
+[ext_resource type="Script" path="res://audio/house_ambience.gd" id="7_house_ambience"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_main"]
 sky_top_color = Color(0.22, 0.38, 0.58, 1)
@@ -70,6 +71,18 @@ transform = Transform3D(2.7211492, 0, 0, 0, 1.769036, 0, 0, 0, 1, 1.4024754, 0.2
 
 [node name="Player" parent="." unique_id=308502712 instance=ExtResource("2_0xm2m")]
 transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 13.014493, 1.1, 26.639688)
+
+[node name="HouseAmbience" type="Node" parent="."]
+script = ExtResource("7_house_ambience")
+
+[node name="AmbientBed" type="AudioStreamPlayer" parent="HouseAmbience"]
+volume_db = -60.0
+
+[node name="HouseEvent" type="AudioStreamPlayer3D" parent="HouseAmbience"]
+volume_db = -13.0
+unit_size = 5.0
+max_distance = 28.0
+panning_strength = 1.35
 
 [node name="StatueGhost" parent="." unique_id=795322254 instance=ExtResource("5_statue")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 13.014493, 0.08, 16.5)

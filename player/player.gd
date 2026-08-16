@@ -26,6 +26,12 @@ signal killed_by_ghost(ghost: Node3D)
 @export var head_bob_horizontal: float = 0.018
 @export var head_bob_vertical: float = 0.028
 
+@export_category("Movement Audio")
+@export var walk_step_interval: float = 0.48
+@export var sprint_step_interval: float = 0.34
+@export var crouch_step_interval: float = 0.7
+@export var footstep_slice_duration: float = 0.38
+
 @export_category('Blink')
 @export var automatic_blink_enabled: bool = true
 @export var blink_interval: float = 7.0
@@ -56,11 +62,43 @@ var eyelid_closure: float = 0.0
 @onready var blink_bar: ProgressBar = $BlinkUI/BlinkContainer/VBoxContainer/BlinkBar
 @onready var horror_overlay_rect: ColorRect = $HorrorOverlay/VignetteAndGrain
 @onready var death_ui: CanvasLayer = $DeathUI
+@onready var footstep_players: Array[AudioStreamPlayer3D] = [$FootstepA, $FootstepB]
+
+# Transient starts extracted once from the source recording. Keeping these
+# authored offsets avoids scanning several megabytes of PCM every time a player
+# spawns (important once four network players are present).
+var _footstep_offsets: Array[float] = [
+	1.6143,
+	6.6620,
+	7.7615,
+	9.4607,
+	10.0604,
+	11.1849,
+	11.7097,
+	12.3844,
+	14.4834,
+	15.2081,
+	19.4062,
+	28.4271,
+	28.9019,
+	29.4766,
+	30.0264,
+	31.1509,
+	32.2504,
+	33.3249,
+]
+var _footstep_stop_times: Array[float] = [0.0, 0.0]
+var _footstep_time_remaining: float = 0.0
+var _footstep_player_index: int = 0
+var _last_footstep_offset_index: int = -1
+var _was_walking_on_floor: bool = false
+var _footstep_rng := RandomNumberGenerator.new()
 
 # Get the gravity from the project settings to be synced with RigidBody nodes.
 var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 
 func _ready() -> void:
+	_footstep_rng.randomize()
 	current_stamina = max_stamina
 	blink_time_remaining = blink_interval
 	var shape := collision_shape.shape as CapsuleShape3D
@@ -120,6 +158,7 @@ func _physics_process(delta: float) -> void:
 	_update_blink(delta)
 	if not is_alive:
 		velocity = Vector3.ZERO
+		_stop_footsteps()
 		return
 
 	var was_on_floor := is_on_floor()
@@ -185,6 +224,7 @@ func _physics_process(delta: float) -> void:
 		_try_step_up(horizontal_motion)
 
 	move_and_slide()
+	_update_footsteps(delta, is_sprinting)
 
 
 func _update_blink(delta: float) -> void:
@@ -245,9 +285,72 @@ func kill_by_ghost(ghost: Node3D) -> void:
 	forced_blink_remaining = 0.0
 	eyes_closed = false
 	velocity = Vector3.ZERO
+	_stop_footsteps()
 	death_ui.visible = true
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	killed_by_ghost.emit(ghost)
+
+
+func _update_footsteps(delta: float, is_sprinting: bool) -> void:
+	for index: int in _footstep_stop_times.size():
+		if _footstep_stop_times[index] <= 0.0:
+			continue
+		_footstep_stop_times[index] -= delta
+		if _footstep_stop_times[index] <= 0.0:
+			footstep_players[index].stop()
+
+	var real_velocity := get_real_velocity()
+	var horizontal_speed := Vector2(real_velocity.x, real_velocity.z).length()
+	var walking_on_floor := is_on_floor() and horizontal_speed > 0.25
+	if not walking_on_floor:
+		_was_walking_on_floor = false
+		_footstep_time_remaining = 0.0
+		return
+
+	var interval := walk_step_interval
+	if is_crouching:
+		interval = crouch_step_interval
+	elif is_sprinting:
+		interval = sprint_step_interval
+
+	if not _was_walking_on_floor:
+		_play_wood_footstep(is_sprinting)
+		_footstep_time_remaining = interval
+	else:
+		_footstep_time_remaining -= delta
+		if _footstep_time_remaining <= 0.0:
+			_play_wood_footstep(is_sprinting)
+			_footstep_time_remaining += interval
+	_was_walking_on_floor = true
+
+
+func _play_wood_footstep(is_sprinting: bool) -> void:
+	if footstep_players.is_empty() or _footstep_offsets.is_empty():
+		return
+	var offset_index := _footstep_rng.randi_range(0, _footstep_offsets.size() - 1)
+	if offset_index == _last_footstep_offset_index and _footstep_offsets.size() > 1:
+		offset_index = (offset_index + 1) % _footstep_offsets.size()
+	_last_footstep_offset_index = offset_index
+
+	var player_index := _footstep_player_index
+	_footstep_player_index = (_footstep_player_index + 1) % footstep_players.size()
+	var audio_player := footstep_players[player_index]
+	var movement_pitch := 0.93 if is_crouching else (1.035 if is_sprinting else 1.0)
+	audio_player.pitch_scale = movement_pitch * _footstep_rng.randf_range(0.965, 1.035)
+	audio_player.volume_db = (
+		_footstep_rng.randf_range(-12.5, -10.0)
+		if is_crouching
+		else _footstep_rng.randf_range(-7.5, -4.5) + (1.2 if is_sprinting else 0.0)
+	)
+	audio_player.play(_footstep_offsets[offset_index])
+	_footstep_stop_times[player_index] = footstep_slice_duration
+
+
+func _stop_footsteps() -> void:
+	for audio_player: AudioStreamPlayer3D in footstep_players:
+		audio_player.stop()
+	_footstep_stop_times.fill(0.0)
+	_was_walking_on_floor = false
 
 
 func _update_camera_motion(delta: float) -> void:
