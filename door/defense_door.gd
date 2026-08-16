@@ -7,6 +7,9 @@ signal durability_changed(door: Node, current: float, repair_cap: float)
 signal ghost_driven_away(door: Node)
 signal breached(door: Node)
 signal rebuilt(door: Node)
+signal exorcism_started(door: Node)
+signal exorcism_failed(door: Node, repair_cap: float)
+signal exorcism_completed(door: Node)
 
 enum AttackPhase {
 	IDLE,
@@ -26,6 +29,8 @@ enum AttackPhase {
 ## therefore lowers the repair ceiling by three and leaves seven repairable.
 @export_range(0.0, 1.0, 0.01) var repair_efficiency: float = 0.7
 @export var repair_per_interaction: float = 7.0
+@export var minigame_failure_penalty: float = 20.0
+@export var minimum_repair_cap_after_failure: float = 10.0
 
 @export_category("Ghost attack")
 @export var stalking_wait_min: float = 3.0
@@ -49,6 +54,8 @@ var attack_phase: AttackPhase = AttackPhase.IDLE
 var planned_attack: bool = false
 var phase_time_remaining: float = 0.0
 var damage_tick_remaining: float = 0.0
+var minigame_active: bool = false
+var repair_unlocked_after_breach: bool = false
 
 var _rng := RandomNumberGenerator.new()
 var _hit_tween: Tween
@@ -75,6 +82,8 @@ func _ready() -> void:
 
 
 func _physics_process(delta: float) -> void:
+	if minigame_active:
+		return
 	match attack_phase:
 		AttackPhase.STALKING:
 			phase_time_remaining -= delta
@@ -131,7 +140,7 @@ func drive_ghost_away() -> bool:
 
 
 func take_damage(amount: float, strong_hit: bool = false) -> float:
-	if amount <= 0.0 or current_durability <= 0.0:
+	if minigame_active or amount <= 0.0 or current_durability <= 0.0:
 		return 0.0
 
 	var applied_damage := minf(amount, current_durability)
@@ -146,6 +155,8 @@ func take_damage(amount: float, strong_hit: bool = false) -> float:
 
 	if current_durability <= 0.0:
 		current_durability = 0.0
+		minigame_active = false
+		repair_unlocked_after_breach = false
 		_stop_attack_audio()
 		_set_breached_visual(true)
 		_set_attack_phase(AttackPhase.BREACHED)
@@ -155,6 +166,8 @@ func take_damage(amount: float, strong_hit: bool = false) -> float:
 
 
 func repair(amount: float) -> float:
+	if attack_phase == AttackPhase.BREACHED and not repair_unlocked_after_breach:
+		return 0.0
 	if amount <= 0.0 or current_durability >= repair_cap:
 		return 0.0
 
@@ -162,6 +175,7 @@ func repair(amount: float) -> float:
 	var restored := minf(amount, repair_cap - current_durability)
 	current_durability += restored
 	if was_breached and current_durability > 0.0:
+		repair_unlocked_after_breach = false
 		_set_breached_visual(false)
 		_set_attack_phase(AttackPhase.IDLE)
 		rebuilt.emit(self)
@@ -170,27 +184,47 @@ func repair(amount: float) -> float:
 	return restored
 
 
-func interact(_player: Node3D = null) -> void:
-	# Repelling is intentionally not a free E press. A ward/tool can call
-	# drive_ghost_away(); direct interaction only performs physical repairs.
+func interact(player: Node3D = null) -> void:
 	if attack_phase in [
 		AttackPhase.STALKING,
 		AttackPhase.WEAK_ATTACK,
 		AttackPhase.STRONG_ATTACK,
 	]:
+		drive_ghost_away()
+		return
+	if attack_phase == AttackPhase.BREACHED and not repair_unlocked_after_breach:
+		if player and player.has_method("start_door_minigame"):
+			player.call("start_door_minigame", self)
 		return
 	repair(repair_per_interaction)
 
 
 func get_interaction_prompt(interact_key_name: String) -> String:
+	if attack_phase == AttackPhase.BREACHED:
+		if minigame_active:
+			return "[center][color=#b9d7e8]ĐANG ĐUỔI THỨ BÊN NGOÀI...[/color][/center]"
+		if not repair_unlocked_after_breach:
+			return "[center][b]%s[/b]  CHIẾU ĐÈN ĐUỔI MA — CỬA NGOÀI %02d[/center]" % [
+				interact_key_name,
+				entrance_id,
+			]
 	var door_name := "CỬA NGOÀI %02d" % entrance_id
 	match attack_phase:
 		AttackPhase.STALKING:
-			return "[center]%s — CÓ GÌ ĐÓ BÊN NGOÀI[/center]" % door_name
+			return "[center][b]%s[/b]  ĐUỔI THỨ BÊN NGOÀI — %s[/center]" % [
+				interact_key_name,
+				door_name,
+			]
 		AttackPhase.WEAK_ATTACK:
-			return "[center]%s — ĐANG BỊ CÀO[/center]" % door_name
+			return "[center][b]%s[/b]  ĐUỔI MA ĐANG CÀO — %s[/center]" % [
+				interact_key_name,
+				door_name,
+			]
 		AttackPhase.STRONG_ATTACK:
-			return "[center][color=#e05b4f]%s — SẮP VỠ![/color][/center]" % door_name
+			return "[center][color=#e05b4f][b]%s[/b]  ĐUỔI MA NGAY — %s SẮP VỠ![/color][/center]" % [
+				interact_key_name,
+				door_name,
+			]
 		AttackPhase.BREACHED:
 			return "[center][b]%s[/b]  DỰNG LẠI %s  0/%.0f[/center]" % [
 				interact_key_name,
@@ -219,10 +253,46 @@ func reset_door() -> void:
 	planned_attack = false
 	phase_time_remaining = 0.0
 	damage_tick_remaining = 0.0
+	minigame_active = false
+	repair_unlocked_after_breach = false
 	_set_breached_visual(false)
 	_set_attack_phase(AttackPhase.IDLE)
 	_update_damage_visuals()
 	durability_changed.emit(self, current_durability, repair_cap)
+
+
+func begin_exorcism() -> bool:
+	if attack_phase != AttackPhase.BREACHED \
+		or repair_unlocked_after_breach \
+		or minigame_active:
+		return false
+	minigame_active = true
+	exorcism_started.emit(self)
+	return true
+
+
+func apply_exorcism_failure() -> float:
+	if not minigame_active or attack_phase != AttackPhase.BREACHED:
+		return repair_cap
+	var floor_cap := clampf(minimum_repair_cap_after_failure, 0.0, max_durability)
+	repair_cap = maxf(repair_cap - minigame_failure_penalty, floor_cap)
+	repair_cap = maxf(repair_cap, current_durability)
+	durability_changed.emit(self, current_durability, repair_cap)
+	exorcism_failed.emit(self, repair_cap)
+	return repair_cap
+
+
+func complete_exorcism() -> bool:
+	if not minigame_active or attack_phase != AttackPhase.BREACHED:
+		return false
+	minigame_active = false
+	repair_unlocked_after_breach = true
+	exorcism_completed.emit(self)
+	return true
+
+
+func cancel_exorcism() -> void:
+	minigame_active = false
 
 
 func set_random_seed(value: int) -> void:

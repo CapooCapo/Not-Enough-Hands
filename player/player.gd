@@ -2,6 +2,8 @@ extends CharacterBody3D
 
 signal eyes_closed_changed(closed: bool)
 signal killed_by_ghost(ghost: Node3D)
+signal door_minigame_started(door: Node)
+signal door_minigame_finished()
 
 @export var walk_speed: float = 2.45
 @export var crouch_speed: float = 1.35
@@ -60,6 +62,9 @@ var eyelid_closure: float = 0.0
 @export var mouse_sensitivity: float = 0.002
 @export var max_interaction_range: float = 10.0
 
+@export_category("Development")
+@export var minigame_ghost_resume_grace: float = 1.5
+
 @onready var camera_pivot: Node3D = $CameraPivot
 @onready var interact_ray: RayCast3D = $CameraPivot/Camera3D/InteractRay
 @onready var collision_shape: CollisionShape3D = $CollisionShape3D
@@ -68,6 +73,10 @@ var eyelid_closure: float = 0.0
 @onready var horror_overlay_rect: ColorRect = $HorrorOverlay/VignetteAndGrain
 @onready var death_ui: CanvasLayer = $DeathUI
 @onready var footstep_players: Array[AudioStreamPlayer3D] = [$FootstepA, $FootstepB]
+@onready var door_minigame: CanvasLayer = get_node_or_null("DoorGhostMinigame") as CanvasLayer
+
+var _minigame_ghost_safety_locks: int = 0
+var _minigame_ghost_release_remaining: float = 0.0
 
 # Transient starts extracted once from the source recording. Keeping these
 # authored offsets avoids scanning several megabytes of PCM every time a player
@@ -116,6 +125,8 @@ func _ready() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if not is_alive:
 		return
+	if is_door_minigame_active():
+		return
 
 	if event is InputEventMouseMotion and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
 		# Rotate player horizontally
@@ -160,6 +171,13 @@ func _try_interact() -> void:
 		target.interact(self)
 
 func _physics_process(delta: float) -> void:
+	_update_minigame_ghost_safety(delta)
+	if is_door_minigame_active():
+		_open_eyes_for_minigame()
+		velocity = Vector3.ZERO
+		_stop_footsteps()
+		return
+
 	_update_blink(delta)
 	if not is_alive:
 		velocity = Vector3.ZERO
@@ -285,6 +303,8 @@ func set_statue_threat(amount: float) -> void:
 ## over it, and whichever ran second would win - so a crawler two rooms away
 ## could silently erase the dread of a statue standing behind you.
 func set_threat_from(source: StringName, amount: float) -> void:
+	if is_protected_from_ghost_attacks():
+		amount = 0.0
 	var clamped := clampf(amount, 0.0, 1.0)
 	if clamped <= 0.0:
 		threat_sources.erase(source)
@@ -301,7 +321,7 @@ func set_threat_from(source: StringName, amount: float) -> void:
 
 
 func kill_by_ghost(ghost: Node3D) -> void:
-	if not is_alive:
+	if not is_alive or is_protected_from_ghost_attacks():
 		return
 	is_alive = false
 	forced_blink_remaining = 0.0
@@ -311,6 +331,81 @@ func kill_by_ghost(ghost: Node3D) -> void:
 	death_ui.visible = true
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	killed_by_ghost.emit(ghost)
+
+
+func start_door_minigame(door: Node) -> bool:
+	if not is_alive \
+		or not door_minigame \
+		or is_door_minigame_active() \
+		or not is_instance_valid(door):
+		return false
+	if not door.has_method("begin_exorcism") or not bool(door.call("begin_exorcism")):
+		return false
+	if not door_minigame.has_method("start") or not bool(door_minigame.call("start", self, door)):
+		door.call("cancel_exorcism")
+		return false
+	door_minigame_started.emit(door)
+	return true
+
+
+func is_door_minigame_active() -> bool:
+	return door_minigame != null \
+		and door_minigame.has_method("is_running") \
+		and bool(door_minigame.call("is_running"))
+
+
+func acquire_minigame_ghost_safety() -> void:
+	_minigame_ghost_safety_locks += 1
+	_minigame_ghost_release_remaining = 0.0
+	if _minigame_ghost_safety_locks == 1:
+		get_tree().call_group("hostile_ghosts", "set_dev_attack_suspended", true)
+	_clear_all_ghost_threat()
+
+
+func release_minigame_ghost_safety() -> void:
+	_minigame_ghost_safety_locks = maxi(_minigame_ghost_safety_locks - 1, 0)
+	if _minigame_ghost_safety_locks == 0:
+		_minigame_ghost_release_remaining = maxf(minigame_ghost_resume_grace, 0.0)
+		if _minigame_ghost_release_remaining <= 0.0:
+			get_tree().call_group("hostile_ghosts", "set_dev_attack_suspended", false)
+			door_minigame_finished.emit()
+
+
+func is_protected_from_ghost_attacks() -> bool:
+	return _minigame_ghost_safety_locks > 0 or _minigame_ghost_release_remaining > 0.0
+
+
+func can_be_targeted_by_ghosts() -> bool:
+	return is_alive and not is_protected_from_ghost_attacks()
+
+
+func _update_minigame_ghost_safety(delta: float) -> void:
+	if _minigame_ghost_safety_locks > 0 or _minigame_ghost_release_remaining <= 0.0:
+		return
+	_minigame_ghost_release_remaining = maxf(_minigame_ghost_release_remaining - delta, 0.0)
+	if _minigame_ghost_release_remaining <= 0.0:
+		get_tree().call_group("hostile_ghosts", "set_dev_attack_suspended", false)
+		door_minigame_finished.emit()
+
+
+func _clear_all_ghost_threat() -> void:
+	threat_sources.clear()
+	statue_threat = 0.0
+	var overlay_material := horror_overlay_rect.material as ShaderMaterial
+	if overlay_material:
+		overlay_material.set_shader_parameter("threat_strength", 0.0)
+
+
+func _open_eyes_for_minigame() -> void:
+	var was_closed := eyes_closed
+	forced_blink_remaining = 0.0
+	eyes_closed = false
+	eyelid_closure = 0.0
+	var eyelid_material := blink_overlay.material as ShaderMaterial
+	if eyelid_material:
+		eyelid_material.set_shader_parameter("closure", 0.0)
+	if was_closed:
+		eyes_closed_changed.emit(false)
 
 
 func _update_footsteps(delta: float, is_sprinting: bool) -> void:

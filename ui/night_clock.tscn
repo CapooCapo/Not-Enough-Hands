@@ -1,0 +1,128 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://ui/night_clock.gd" id="1_clock"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_clock"]
+bg_color = Color(0.015, 0.022, 0.035, 0.88)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.39, 0.55, 0.68, 0.72)
+corner_radius_top_left = 5
+corner_radius_top_right = 5
+corner_radius_bottom_right = 5
+corner_radius_bottom_left = 5
+shadow_color = Color(0, 0, 0, 0.75)
+shadow_size = 8
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_victory"]
+bg_color = Color(0.055, 0.085, 0.105, 0.96)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.71, 0.83, 0.76, 0.8)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+shadow_color = Color(0, 0, 0, 0.85)
+shadow_size = 16
+
+[node name="NightClock" type="CanvasLayer"]
+layer = 140
+process_mode = 3
+script = ExtResource("1_clock")
+
+[node name="ClockPanel" type="PanelContainer" parent="."]
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -240.0
+offset_top = 24.0
+offset_right = -24.0
+offset_bottom = 102.0
+grow_horizontal = 0
+theme_override_styles/panel = SubResource("StyleBox_clock")
+
+[node name="Margin" type="MarginContainer" parent="ClockPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 16
+theme_override_constants/margin_top = 9
+theme_override_constants/margin_right = 16
+theme_override_constants/margin_bottom = 9
+
+[node name="VBox" type="VBoxContainer" parent="ClockPanel/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 0
+alignment = 1
+
+[node name="Night" type="Label" parent="ClockPanel/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.48, 0.62, 0.72, 1)
+theme_override_font_sizes/font_size = 13
+text = "ĐÊM 1"
+horizontal_alignment = 1
+
+[node name="Time" type="Label" parent="ClockPanel/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.87, 0.93, 0.95, 1)
+theme_override_colors/font_shadow_color = Color(0.12, 0.35, 0.48, 0.9)
+theme_override_constants/shadow_offset_x = 2
+theme_override_constants/shadow_offset_y = 2
+theme_override_font_sizes/font_size = 30
+text = "11:55 PM"
+horizontal_alignment = 1
+
+[node name="VictoryOverlay" type="ColorRect" parent="."]
+visible = false
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 1
+color = Color(0.015, 0.035, 0.045, 0.94)
+
+[node name="Center" type="CenterContainer" parent="VictoryOverlay"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Panel" type="PanelContainer" parent="VictoryOverlay/Center"]
+custom_minimum_size = Vector2(560, 260)
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBox_victory")
+
+[node name="Margin" type="MarginContainer" parent="VictoryOverlay/Center/Panel"]
+layout_mode = 2
+theme_override_constants/margin_left = 42
+theme_override_constants/margin_top = 32
+theme_override_constants/margin_right = 42
+theme_override_constants/margin_bottom = 32
+
+[node name="VBox" type="VBoxContainer" parent="VictoryOverlay/Center/Panel/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 18
+alignment = 1
+
+[node name="Time" type="Label" parent="VictoryOverlay/Center/Panel/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.78, 0.9, 0.84, 1)
+theme_override_colors/font_shadow_color = Color(0.2, 0.42, 0.36, 0.9)
+theme_override_constants/shadow_offset_x = 3
+theme_override_constants/shadow_offset_y = 3
+theme_override_font_sizes/font_size = 58
+text = "6:00 AM"
+horizontal_alignment = 1
+
+[node name="Message" type="Label" parent="VictoryOverlay/Center/Panel/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.88, 0.92, 0.9, 1)
+theme_override_font_sizes/font_size = 25
+text = "BẠN ĐÃ SỐNG SÓT ĐẾN BÌNH MINH"
+horizontal_alignment = 1

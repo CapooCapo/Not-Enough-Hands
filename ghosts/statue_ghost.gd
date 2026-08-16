@@ -103,6 +103,8 @@ var current_target: CharacterBody3D
 var unseen_time: float = 0.0
 var attack_timer: float = 0.0
 var cooldown_timer: float = 0.0
+var dev_attack_suspended: bool = false
+var attack_resume_grace_remaining: float = 0.0
 var target_refresh_timer: float = 0.0
 var hidden_timer: float = 0.0
 var spotted_disappear_timer: float = -1.0
@@ -197,6 +199,7 @@ const IDLE_POSES: Array[Dictionary] = [
 
 
 func _ready() -> void:
+	add_to_group('hostile_ghosts')
 	normal_collision_layer = collision_layer
 	normal_collision_mask = collision_mask
 	last_position = global_position
@@ -210,6 +213,7 @@ func _ready() -> void:
 
 
 func _physics_process(delta: float) -> void:
+	attack_resume_grace_remaining = maxf(attack_resume_grace_remaining - delta, 0.0)
 	if not active:
 		state = StatueState.DORMANT
 		velocity = Vector3.ZERO
@@ -266,6 +270,27 @@ func _physics_process(delta: float) -> void:
 	_update_stuck_state(delta)
 	_update_player_threat()
 	_update_presentation(delta)
+
+
+func set_dev_attack_suspended(suspended: bool) -> void:
+	if dev_attack_suspended == suspended:
+		return
+	dev_attack_suspended = suspended
+	if suspended:
+		attack_resume_grace_remaining = 0.0
+		if state == StatueState.ATTACK_WINDUP:
+			attack_cancelled.emit()
+			attack_audio.stop()
+			attack_timer = 0.0
+			state = StatueState.COOLDOWN
+			cooldown_timer = maxf(cooldown_timer, attack_cooldown)
+	else:
+		attack_resume_grace_remaining = maxf(attack_resume_grace_remaining, attack_cooldown)
+	_update_player_threat()
+
+
+func _attacks_blocked() -> bool:
+	return dev_attack_suspended or attack_resume_grace_remaining > 0.0
 
 
 # --- Hunt lifecycle ----------------------------------------------------------
@@ -569,6 +594,8 @@ func _navigation_direction(fallback_offset: Vector3) -> Vector3:
 
 
 func _begin_attack() -> void:
+	if _attacks_blocked():
+		return
 	state = StatueState.ATTACK_WINDUP
 	attack_timer = attack_windup
 	velocity.x = 0.0
@@ -578,6 +605,13 @@ func _begin_attack() -> void:
 
 
 func _update_attack_windup(delta: float) -> void:
+	if _attacks_blocked():
+		attack_cancelled.emit()
+		attack_audio.stop()
+		attack_timer = 0.0
+		state = StatueState.COOLDOWN
+		cooldown_timer = maxf(cooldown_timer, attack_cooldown)
+		return
 	attack_timer -= delta
 	var progress := 1.0 - clampf(attack_timer / maxf(attack_windup, 0.01), 0.0, 1.0)
 	_apply_attack_pose(progress)
@@ -587,7 +621,9 @@ func _update_attack_windup(delta: float) -> void:
 	if attack_timer > 0.0:
 		return
 
-	if is_instance_valid(current_target) and current_target.has_method('kill_by_ghost'):
+	if not _attacks_blocked() \
+		and is_instance_valid(current_target) \
+		and current_target.has_method('kill_by_ghost'):
 		current_target.kill_by_ghost(self)
 
 	state = StatueState.COOLDOWN
@@ -633,6 +669,9 @@ func _living_players() -> Array[CharacterBody3D]:
 		if not player:
 			continue
 		if 'is_alive' in player and not player.is_alive:
+			continue
+		if player.has_method('can_be_targeted_by_ghosts') \
+			and not bool(player.call('can_be_targeted_by_ghosts')):
 			continue
 		players.append(player)
 	return players
@@ -724,6 +763,9 @@ func _find_closest_living_player() -> CharacterBody3D:
 			continue
 		if 'is_alive' in player and not player.is_alive:
 			continue
+		if player.has_method('can_be_targeted_by_ghosts') \
+			and not bool(player.call('can_be_targeted_by_ghosts')):
+			continue
 		var distance := global_position.distance_squared_to(player.global_position)
 		if distance < closest_distance:
 			closest_distance = distance
@@ -799,7 +841,9 @@ func _update_player_threat() -> void:
 		if not player or not player.has_method('set_statue_threat'):
 			continue
 		var amount := 0.0
-		if state != StatueState.HIDDEN and state != StatueState.DORMANT:
+		if not _attacks_blocked() \
+			and state != StatueState.HIDDEN \
+			and state != StatueState.DORMANT:
 			var distance := global_position.distance_to(player.global_position)
 			amount = clampf(1.0 - distance / 12.0, 0.0, 1.0)
 			if is_observed:

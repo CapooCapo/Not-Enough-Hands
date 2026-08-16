@@ -48,6 +48,18 @@ func _run() -> void:
 	if door.attack_phase != DefenseDoor.AttackPhase.WEAK_ATTACK:
 		_fail("Real target event did not enter the weak attack phase.")
 		return
+	if not door.get_interaction_prompt("E").contains("[b]E[/b]"):
+		_fail("Weak door attack prompt did not offer an E repel interaction.")
+		return
+	door.interact()
+	if door.attack_phase != DefenseDoor.AttackPhase.IDLE:
+		_fail("Pressing E during a weak door attack did not drive the ghost away.")
+		return
+
+	if not door.begin_targeting(true, 0.1):
+		_fail("Door could not begin a second attack for the strong-phase test.")
+		return
+	door._physics_process(0.1)
 
 	for _second: int in 8:
 		door._physics_process(1.0)
@@ -64,11 +76,9 @@ func _run() -> void:
 	if strong_damage < 7.0 or strong_damage > 10.0:
 		_fail("Strong attack did not deal 7-10 HP per second.")
 		return
-	if not door.drive_ghost_away():
-		_fail("Active outside ghost could not be driven away.")
-		return
+	door.interact()
 	if door.attack_phase != DefenseDoor.AttackPhase.IDLE:
-		_fail("Door did not return to idle after the ghost was driven away.")
+		_fail("Pressing E during a strong door attack did not drive the ghost away.")
 		return
 
 	door.reset_door()
@@ -82,6 +92,22 @@ func _run() -> void:
 		return
 	if not is_equal_approx(door.repair_cap, 70.0):
 		_fail("A fully breached door must only rebuild to 70 durability.")
+		return
+	if not is_zero_approx(door.repair(7.0)):
+		_fail("A breached door was repairable before its exorcism minigame.")
+		return
+	if not door.begin_exorcism():
+		_fail("A breached door could not begin its exorcism minigame.")
+		return
+	if not is_zero_approx(door.take_damage(20.0, true)):
+		_fail("A door took normal damage while its minigame was active.")
+		return
+	var penalized_cap := door.apply_exorcism_failure()
+	if not is_equal_approx(penalized_cap, 50.0):
+		_fail("A failed minigame did not remove exactly 20 repairable HP.")
+		return
+	if not door.complete_exorcism():
+		_fail("A successful minigame did not unlock the breached door.")
 		return
 	door.repair(7.0)
 	await physics_frame

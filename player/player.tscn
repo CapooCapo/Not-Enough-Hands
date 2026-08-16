@@ -5,6 +5,7 @@
 [ext_resource type="Script" path="res://ui/interaction_prompt.gd" id="3_interaction_prompt"]
 [ext_resource type="Shader" path="res://ui/blink_overlay.gdshader" id="4_blink_overlay"]
 [ext_resource type="AudioStream" path="res://assets/audio/536770__doctorphil__footsteps-on-a-wooden-floor.wav" id="5_footsteps_wood"]
+[ext_resource type="PackedScene" path="res://minigames/door_ghost_minigame.tscn" id="6_door_minigame"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
 
@@ -166,6 +167,8 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 color = Color(1, 1, 1, 1)
+
+[node name="DoorGhostMinigame" parent="." instance=ExtResource("6_door_minigame")]
 
 [node name="DeathUI" type="CanvasLayer" parent="."]
 visible = false

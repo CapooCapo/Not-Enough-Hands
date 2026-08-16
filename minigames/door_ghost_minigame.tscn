@@ -1,0 +1,143 @@
+[gd_scene load_steps=18 format=3]
+
+[ext_resource type="Script" path="res://minigames/door_ghost_minigame.gd" id="1_script"]
+[ext_resource type="Shader" path="res://minigames/door_ghost_darkness.gdshader" id="2_shader"]
+[ext_resource type="Texture2D" path="res://assets/minigame/door_ghost_face_online.jpg" id="3_face"]
+[ext_resource type="AudioStream" path="res://assets/audio/minigame/door_minigame_drone.mp3" id="4_drone"]
+[ext_resource type="AudioStream" path="res://assets/audio/minigame/door_minigame_heartbeat.mp3" id="5_heartbeat"]
+[ext_resource type="AudioStream" path="res://assets/audio/minigame/door_minigame_whispers.mp3" id="6_whispers"]
+[ext_resource type="AudioStream" path="res://assets/audio/minigame/door_minigame_glitch.mp3" id="7_glitch"]
+[ext_resource type="AudioStream" path="res://assets/audio/crawler_bone_snap.wav" id="8_bone"]
+[ext_resource type="AudioStream" path="res://assets/audio/minigame/door_minigame_flashlight.mp3" id="9_flashlight"]
+[ext_resource type="AudioStream" path="res://assets/audio/minigame/door_minigame_success.mp3" id="10_success"]
+[ext_resource type="AudioStream" path="res://assets/audio/minigame/door_minigame_jumpscare.mp3" id="11_jumpscare"]
+[ext_resource type="AudioStream" path="res://assets/audio/minigame/door_minigame_music.ogg" id="12_music"]
+[ext_resource type="Shader" path="res://minigames/door_ghost_face_key.gdshader" id="13_face_key"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_darkness"]
+shader = ExtResource("2_shader")
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_face"]
+shader = ExtResource("13_face_key")
+shader_parameter/crop_min = Vector2(0.32, 0.12)
+shader_parameter/crop_max = Vector2(0.68, 0.92)
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_cursor"]
+bg_color = Color(0.78, 0.9, 1, 0.96)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+shadow_color = Color(0.3, 0.56, 0.78, 0.7)
+shadow_size = 5
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_progress_bg"]
+bg_color = Color(0.01, 0.012, 0.015, 0.9)
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_progress_fill"]
+bg_color = Color(0.55, 0.08, 0.065, 0.95)
+
+[node name="DoorGhostMinigame" type="CanvasLayer"]
+visible = false
+layer = 125
+process_mode = 3
+script = ExtResource("1_script")
+
+[node name="Root" type="Control" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="BlackBackground" type="ColorRect" parent="Root"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0, 0, 0, 1)
+
+[node name="Ghost" type="TextureRect" parent="Root"]
+material = SubResource("ShaderMaterial_face")
+offset_right = 210.0
+offset_bottom = 315.0
+mouse_filter = 2
+texture_filter = 1
+texture = ExtResource("3_face")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="DarknessMask" type="ColorRect" parent="Root"]
+material = SubResource("ShaderMaterial_darkness")
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="CursorDot" type="Panel" parent="Root"]
+offset_right = 8.0
+offset_bottom = 8.0
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBox_cursor")
+
+[node name="DebugProgress" type="ProgressBar" parent="Root"]
+visible = false
+layout_mode = 1
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -180.0
+offset_top = -42.0
+offset_right = 180.0
+offset_bottom = -28.0
+grow_horizontal = 2
+grow_vertical = 0
+mouse_filter = 2
+theme_override_styles/background = SubResource("StyleBox_progress_bg")
+theme_override_styles/fill = SubResource("StyleBox_progress_fill")
+show_percentage = false
+
+[node name="MusicAudio" type="AudioStreamPlayer" parent="."]
+stream = ExtResource("12_music")
+volume_db = -20.0
+
+[node name="DroneAudio" type="AudioStreamPlayer" parent="."]
+stream = ExtResource("4_drone")
+volume_db = -14.0
+
+[node name="HeartbeatAudio" type="AudioStreamPlayer" parent="."]
+stream = ExtResource("5_heartbeat")
+volume_db = -15.0
+
+[node name="WhisperAudio" type="AudioStreamPlayer" parent="."]
+stream = ExtResource("6_whispers")
+volume_db = -25.0
+
+[node name="RelocateAudio" type="AudioStreamPlayer" parent="."]
+stream = ExtResource("7_glitch")
+volume_db = -8.0
+
+[node name="BoneAudio" type="AudioStreamPlayer" parent="."]
+stream = ExtResource("8_bone")
+volume_db = -9.0
+
+[node name="FlashlightAudio" type="AudioStreamPlayer" parent="."]
+stream = ExtResource("9_flashlight")
+volume_db = -5.0
+
+[node name="SuccessAudio" type="AudioStreamPlayer" parent="."]
+stream = ExtResource("10_success")
+volume_db = -5.0
+
+[node name="JumpscareAudio" type="AudioStreamPlayer" parent="."]
+stream = ExtResource("11_jumpscare")
+volume_db = -3.0

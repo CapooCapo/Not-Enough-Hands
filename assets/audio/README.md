@@ -55,3 +55,8 @@ auditioned, so they are the most likely thing in the creature to want swapping.
 They are plain `AudioStreamPlayer3D` streams in `ghosts/crawler_ghost.tscn` -
 replacing a file keeps every behaviour intact. `creature_reveal.mp3` above is
 still unused and is a reasonable alternative for the pounce.
+
+The CC0 music loop and seven UI sounds under `assets/audio/minigame/` form the
+breached-door flashlight mix: music, drone, heartbeat, whispers, relocation
+glitch, flashlight switch, success whoosh, and failure jumpscare. Their source
+links and preview provenance are recorded in that folder's `README.md`.

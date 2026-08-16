@@ -52,6 +52,7 @@ signal pounce_started(target_point: Vector3)
 signal pounce_missed()
 signal killed_player(player: Node3D)
 signal retreated()
+signal containment_recovered(escaped_position: Vector3, recovered_position: Vector3)
 
 @export_category('Behavior')
 @export var active: bool = true
@@ -135,6 +136,17 @@ signal retreated()
 ## crawler losing its grip is in character.
 @export var stuck_release_time: float = 1.4
 @export_flags_3d_physics var surface_mask: int = 1
+
+@export_category('Containment')
+## Wall/ceiling locomotion intentionally ignores navigation. A level can enable
+## this volume to stop a pounce, search point, or open doorway from carrying the
+## crawler onto the outside face of the building.
+@export var containment_enabled: bool = false
+@export var containment_min: Vector3 = Vector3(-8.85, -3.2, -5.85)
+@export var containment_max: Vector3 = Vector3(8.85, 9.4, 5.85)
+## Recovery moves the sphere clear of the boundary before releasing its grip,
+## otherwise the same outward velocity can cross the limit again next frame.
+@export var containment_recovery_inset: float = 0.4
 
 @export_category('Hearing')
 ## Distance a full-speed sprint carries to. Everything quieter scales down from
@@ -280,6 +292,8 @@ var normal_collision_mask: int
 var pounce_timer: float = 0.0
 var pounce_cooldown_timer: float = 0.0
 var pounce_air_time: float = 0.0
+var dev_attack_suspended: bool = false
+var attack_resume_grace_remaining: float = 0.0
 var recovery_timer: float = 0.0
 var stuck_timer: float = 0.0
 var regrip_cooldown_timer: float = 0.0
@@ -288,6 +302,8 @@ var best_goal_distance: float = INF
 var no_progress_time: float = 0.0
 var failed_releases: int = 0
 var last_position: Vector3
+var last_contained_position: Vector3
+var has_contained_position: bool = false
 
 var crawl_phase: float = 0.0
 var agitation: float = 0.0
@@ -358,9 +374,12 @@ const LIMB_FRONT_SIGNS: Array[float] = [1.0, -1.0, 1.0, -1.0]
 
 func _ready() -> void:
 	add_to_group('crawler_ghosts')
+	add_to_group('hostile_ghosts')
 	normal_collision_layer = collision_layer
 	normal_collision_mask = collision_mask
 	last_position = global_position
+	last_contained_position = global_position
+	has_contained_position = _is_inside_containment(global_position)
 	last_noise_position = global_position
 	search_point = global_position
 	lair_position = global_position
@@ -405,6 +424,7 @@ func _resolve_route() -> void:
 
 
 func _physics_process(delta: float) -> void:
+	attack_resume_grace_remaining = maxf(attack_resume_grace_remaining - delta, 0.0)
 	if not active:
 		velocity = Vector3.ZERO
 		return
@@ -414,6 +434,10 @@ func _physics_process(delta: float) -> void:
 		_update_hidden(delta)
 		_update_player_threat()
 		return
+
+	if _is_inside_containment(global_position):
+		last_contained_position = global_position
+		has_contained_position = true
 
 	regrip_cooldown_timer = maxf(regrip_cooldown_timer - delta, 0.0)
 	_refresh_cling_exclusions()
@@ -442,11 +466,115 @@ func _physics_process(delta: float) -> void:
 
 	_apply_adhesion(delta)
 	move_and_slide()
-	_resolve_wall_transition()
+	if not _recover_inside_containment():
+		_resolve_wall_transition()
 	_update_stuck_state(delta)
 	_update_orientation(delta)
 	_update_player_threat()
 	_update_presentation(delta)
+
+
+func set_dev_attack_suspended(suspended: bool) -> void:
+	if dev_attack_suspended == suspended:
+		return
+	dev_attack_suspended = suspended
+	if suspended:
+		attack_resume_grace_remaining = 0.0
+		if state == CrawlerState.POUNCE_WINDUP or state == CrawlerState.POUNCING:
+			scream_audio.stop()
+			pounce_timer = 0.0
+			pounce_air_time = 0.0
+			_brake(1.0)
+			_set_state(CrawlerState.RECOVERING)
+	else:
+		attack_resume_grace_remaining = maxf(
+			attack_resume_grace_remaining,
+			pounce_cooldown
+		)
+		pounce_cooldown_timer = maxf(pounce_cooldown_timer, pounce_cooldown)
+	_update_player_threat()
+
+
+func _attacks_blocked() -> bool:
+	return dev_attack_suspended or attack_resume_grace_remaining > 0.0
+
+
+# --- Level containment --------------------------------------------------------
+
+
+func _is_inside_containment(point: Vector3) -> bool:
+	if not containment_enabled:
+		return true
+	return point.x >= containment_min.x and point.x <= containment_max.x \
+		and point.y >= containment_min.y and point.y <= containment_max.y \
+		and point.z >= containment_min.z and point.z <= containment_max.z
+
+
+func _clamp_to_containment(point: Vector3, inset: float = 0.0) -> Vector3:
+	if not containment_enabled:
+		return point
+	var size := containment_max - containment_min
+	var safe_inset := clampf(
+		inset,
+		0.0,
+		maxf(minf(size.x, minf(size.y, size.z)) * 0.49, 0.0)
+	)
+	var lower := containment_min + Vector3.ONE * safe_inset
+	var upper := containment_max - Vector3.ONE * safe_inset
+	return Vector3(
+		clampf(point.x, lower.x, upper.x),
+		clampf(point.y, lower.y, upper.y),
+		clampf(point.z, lower.z, upper.z)
+	)
+
+
+## Restores the previous valid frame rather than teleporting to an unrelated
+## patrol marker. The inset puts the body back on the interior side of the wall,
+## then the lost noise fix prevents it from immediately charging outside again.
+func _recover_inside_containment() -> bool:
+	if _is_inside_containment(global_position):
+		last_contained_position = global_position
+		has_contained_position = true
+		return false
+
+	var escaped_position := global_position
+	var recovery_position := last_contained_position if has_contained_position else lair_position
+	if not _is_inside_containment(recovery_position):
+		recovery_position = (containment_min + containment_max) * 0.5
+	recovery_position = _clamp_to_containment(recovery_position, containment_recovery_inset)
+
+	var interrupted_pounce := state == CrawlerState.POUNCE_WINDUP \
+		or state == CrawlerState.POUNCING
+	global_position = recovery_position
+	last_position = recovery_position
+	last_contained_position = recovery_position
+	has_contained_position = true
+	velocity = Vector3.ZERO
+	up_direction = Vector3.UP
+	surface_normal = Vector3.UP
+	has_surface = false
+	airborne_time = cling_lost_time
+	regrip_cooldown_timer = regrip_cooldown
+	stuck_timer = 0.0
+	no_progress_time = 0.0
+	best_goal_distance = INF
+	failed_releases = 0
+	pounce_timer = 0.0
+	pounce_air_time = 0.0
+	pounce_cooldown_timer = maxf(pounce_cooldown_timer, pounce_cooldown)
+	has_noise_fix = false
+	noise_confidence = 0.0
+	noise_source = null
+	last_noise_position = recovery_position
+	search_point = recovery_position
+	steering_goal = recovery_position
+	if state != CrawlerState.HIDDEN and state != CrawlerState.DORMANT:
+		_set_state(CrawlerState.PATROL if not patrol_points.is_empty() else CrawlerState.SEARCHING)
+	if interrupted_pounce:
+		pounce_missed.emit()
+	_play_bone_snap()
+	containment_recovered.emit(escaped_position, recovery_position)
+	return true
 
 
 # --- Hearing ------------------------------------------------------------------
@@ -457,6 +585,8 @@ func _physics_process(delta: float) -> void:
 ## having to physically walk a player around.
 func report_noise(position: Vector3, loudness: float, source: Node = null) -> void:
 	if not active or state == CrawlerState.DORMANT:
+		return
+	if not _is_inside_containment(position):
 		return
 	var clamped := clampf(loudness, 0.0, 1.0)
 	if clamped <= 0.0:
@@ -889,7 +1019,10 @@ func _update_omen(delta: float) -> void:
 ## the near end is pushed outside the view cone so it enters frame rather than
 ## popping into existence in the middle of it.
 func _find_omen_crossing() -> Dictionary:
-	var players := _living_players()
+	var players: Array[CharacterBody3D] = []
+	for candidate: CharacterBody3D in _living_players():
+		if _is_inside_containment(candidate.global_position):
+			players.append(candidate)
 	if players.is_empty():
 		return {}
 	var player: CharacterBody3D = players[randi() % players.size()]
@@ -910,6 +1043,8 @@ func _find_omen_crossing() -> Dictionary:
 		var from := _standable_point(centre + sideways * omen_crossing_half_width * side)
 		var to := _standable_point(centre - sideways * omen_crossing_half_width * side)
 		if from == Vector3.INF or to == Vector3.INF:
+			continue
+		if not _is_inside_containment(from) or not _is_inside_containment(to):
 			continue
 		if from.distance_to(to) < omen_crossing_half_width:
 			continue
@@ -944,7 +1079,10 @@ func _standable_point(near: Vector3) -> Vector3:
 
 
 func _overhead_announce_position() -> Vector3:
-	var players := _living_players()
+	var players: Array[CharacterBody3D] = []
+	for candidate: CharacterBody3D in _living_players():
+		if _is_inside_containment(candidate.global_position):
+			players.append(candidate)
 	if players.is_empty():
 		return lair_position
 	var player: CharacterBody3D = players[randi() % players.size()]
@@ -1129,7 +1267,9 @@ func _update_searching(delta: float) -> void:
 		search_point_timer = search_point_interval
 		var angle := randf() * TAU
 		var radius := randf_range(search_radius * 0.35, search_radius)
-		search_point = last_noise_position + Vector3(cos(angle), 0.0, sin(angle)) * radius
+		search_point = _clamp_to_containment(
+			last_noise_position + Vector3(cos(angle), 0.0, sin(angle)) * radius
+		)
 		if not chitter_audio.playing and randf() < 0.4:
 			chitter_audio.play()
 
@@ -1140,6 +1280,11 @@ func _update_searching(delta: float) -> void:
 
 
 func _update_pounce_windup(delta: float) -> void:
+	if _attacks_blocked():
+		scream_audio.stop()
+		pounce_timer = 0.0
+		_set_state(CrawlerState.RECOVERING)
+		return
 	_brake(delta)
 	pounce_timer -= delta
 	if pounce_timer > 0.0:
@@ -1205,6 +1350,8 @@ func _update_recovering(delta: float) -> void:
 
 
 func _begin_pounce(target: CharacterBody3D) -> void:
+	if _attacks_blocked():
+		return
 	noise_source = target
 	pounce_timer = pounce_windup
 	_brake(1.0)
@@ -1221,9 +1368,13 @@ func _begin_pounce(target: CharacterBody3D) -> void:
 ## whatever silent player happens to be standing near it, over and over, and
 ## never reach the sound it was chasing.
 func _pounce_candidate() -> CharacterBody3D:
-	if pounce_cooldown_timer > 0.0 or noise_confidence < pounce_min_confidence:
+	if _attacks_blocked() \
+		or pounce_cooldown_timer > 0.0 \
+		or noise_confidence < pounce_min_confidence:
 		return null
 	for player: CharacterBody3D in _living_players():
+		if not _is_inside_containment(player.global_position):
+			continue
 		var distance := global_position.distance_to(player.global_position)
 		if distance > pounce_range or distance < pounce_min_range:
 			continue
@@ -1245,6 +1396,8 @@ func _pounce_candidate() -> CharacterBody3D:
 ## recovering from a miss: that window has to stay survivable even if the player
 ## is still lying underneath it.
 func _maul_contact() -> bool:
+	if _attacks_blocked():
+		return false
 	for player: CharacterBody3D in _living_players():
 		if global_position.distance_to(player.global_position) > touch_detection_range:
 			continue
@@ -1257,6 +1410,8 @@ func _maul_contact() -> bool:
 
 
 func _pounce_contact() -> CharacterBody3D:
+	if _attacks_blocked():
+		return null
 	for player: CharacterBody3D in _living_players():
 		if global_position.distance_to(player.global_position) > pounce_kill_radius:
 			continue
@@ -1269,6 +1424,8 @@ func _pounce_contact() -> CharacterBody3D:
 
 
 func _kill(player: CharacterBody3D) -> void:
+	if _attacks_blocked():
+		return
 	if player.has_method('kill_by_ghost'):
 		player.kill_by_ghost(self)
 	killed_player.emit(player)
@@ -1479,6 +1636,8 @@ func _closest_living_player() -> CharacterBody3D:
 	var closest: CharacterBody3D
 	var closest_distance := INF
 	for player: CharacterBody3D in _living_players():
+		if not _is_inside_containment(player.global_position):
+			continue
 		var distance := global_position.distance_squared_to(player.global_position)
 		if distance < closest_distance:
 			closest_distance = distance
@@ -1494,6 +1653,9 @@ func _living_players() -> Array[CharacterBody3D]:
 			continue
 		if 'is_alive' in player and not player.is_alive:
 			continue
+		if player.has_method('can_be_targeted_by_ghosts') \
+			and not bool(player.call('can_be_targeted_by_ghosts')):
+			continue
 		players.append(player)
 	return players
 
@@ -1501,7 +1663,9 @@ func _living_players() -> Array[CharacterBody3D]:
 func _update_player_threat() -> void:
 	# Hidden means genuinely gone: the overlay has to go fully clear, or the
 	# player never gets the relief that makes the next omen land.
-	var threatening := state != CrawlerState.DORMANT and state != CrawlerState.HIDDEN
+	var threatening := not _attacks_blocked() \
+		and state != CrawlerState.DORMANT \
+		and state != CrawlerState.HIDDEN
 	for node: Node in get_tree().get_nodes_in_group('players'):
 		var player := node as CharacterBody3D
 		if not player:

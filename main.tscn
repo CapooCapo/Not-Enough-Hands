@@ -8,6 +8,7 @@
 [ext_resource type="Script" uid="uid://d3dtpcwe6oum" path="res://door/door_attack_director.gd" id="6_door_director"]
 [ext_resource type="Script" uid="uid://c5asiy3bo4o3p" path="res://audio/house_ambience.gd" id="7_house_ambience"]
 [ext_resource type="PackedScene" path="res://ghosts/crawler_ghost.tscn" id="8_crawler"]
+[ext_resource type="PackedScene" path="res://ui/night_clock.tscn" id="9_night_clock"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_main"]
 sky_top_color = Color(0.22, 0.38, 0.58, 1)
@@ -55,6 +56,8 @@ automatic_waves = true
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=480636631]
 environment = SubResource("Environment_main")
+
+[node name="NightClock" parent="." instance=ExtResource("9_night_clock")]
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=292491175]
 transform = Transform3D(0.81915206, 0.46984634, -0.32898995, 0, 0.57357645, 0.81915206, 0.57357645, -0.6710101, 0.46984634, 0, 0, 0)
@@ -116,6 +119,7 @@ night_aggression = 0.15
 [node name="CrawlerGhost" parent="." instance=ExtResource("8_crawler")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4, 6.4, 2)
 patrol_point_timeout = 22.0
+containment_enabled = true
 
 [node name="CrawlerRoute" type="Node3D" parent="."]
 

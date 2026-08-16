@@ -12,6 +12,7 @@ const CEILING_Y := 3.0
 const CrawlerState_HIDDEN := 1
 const CrawlerState_OMEN := 2
 const CrawlerState_PATROL := 3
+const CrawlerState_POUNCING := 7
 const CrawlerState_RETREATING := 9
 
 
@@ -36,6 +37,8 @@ func _run() -> void:
 		return
 	if not await _test_maul_at_contact(crawler_scene):
 		return
+	if not await _test_containment_recovers_escape(crawler_scene):
+		return
 	if not await _test_hunt_cycle(crawler_scene):
 		return
 	if not await _test_hidden_is_harmless(crawler_scene):
@@ -43,7 +46,7 @@ func _run() -> void:
 
 	print(
 		'Crawler ghost smoke test passed: noise hunt, ceiling cling, wall climb, '
-		+ 'silence, pounce, contact kill, hunt cycle, harmless while hidden.'
+		+ 'silence, pounce, contact kill, containment, hunt cycle, harmless while hidden.'
 	)
 	quit()
 
@@ -247,6 +250,47 @@ func _test_maul_at_contact(scene: PackedScene) -> bool:
 
 	await _despawn(crawler)
 	await _despawn(player)
+	return true
+
+
+## Wall crawling and pouncing deliberately ignore navigation, so the authored
+## level volume is the final guard against crossing a doorway and gripping the
+## outside wall forever.
+func _test_containment_recovers_escape(scene: PackedScene) -> bool:
+	var crawler := scene.instantiate() as CharacterBody3D
+	crawler.set('hunt_cycle_enabled', false)
+	crawler.set('start_hidden', false)
+	crawler.set('containment_enabled', true)
+	crawler.set('containment_min', Vector3(-2.0, -0.5, -2.0))
+	crawler.set('containment_max', Vector3(2.0, 3.5, 2.0))
+	root.add_child(crawler)
+	crawler.global_position = Vector3(0.0, 0.4, 0.0)
+	_silence(crawler)
+	await physics_frame
+	await physics_frame
+
+	var recovery_count := [0]
+	crawler.containment_recovered.connect(
+		func(_escaped: Vector3, _recovered: Vector3) -> void: recovery_count[0] += 1
+	)
+	crawler.set('state', CrawlerState_POUNCING)
+	crawler.global_position = Vector3(3.0, 0.4, 0.0)
+	crawler.velocity = Vector3(12.0, 0.0, 0.0)
+	await physics_frame
+
+	if absf(crawler.global_position.x) > 2.0 or absf(crawler.global_position.z) > 2.0:
+		return _fail('Crawler escaped its authored containment volume.', crawler)
+	if recovery_count[0] != 1:
+		return _fail('Crawler escape did not trigger exactly one containment recovery.', crawler)
+	if int(crawler.get('state')) == CrawlerState_POUNCING:
+		return _fail('Crawler remained in pounce state after boundary recovery.', crawler)
+
+	crawler.set('has_noise_fix', false)
+	crawler.call('report_noise', Vector3(3.0, 0.4, 0.0), 1.0)
+	if crawler.get('has_noise_fix'):
+		return _fail('Noise outside containment lured the crawler out of the house.', crawler)
+
+	await _despawn(crawler)
 	return true
 
 

@@ -15,6 +15,13 @@ The player starts on the front path facing entrance 01. Every floor is physicall
 connected: cellar stairs lead into the garage, the main-hall stairs reach the
 second-floor landing, and a second flight reaches the attic.
 
+## Survive until dawn
+
+The HUD clock starts at **11:55 PM**. Every five real seconds advances exactly
+one in-game minute, including the midnight rollover. Reaching **6:00 AM** stops
+the threats, pauses the world, and displays the dawn victory screen. The clock
+is hidden while the breached-door flashlight minigame owns the screen.
+
 ## House2 layout
 
 - Basement: boiler and storage room; cellar exit 06 opens into a sunken exterior
@@ -29,6 +36,29 @@ second-floor landing, and a second flight reaches the attic.
 Interior partitions use open modular frames so the navigation mesh, player, and
 statue can circulate through every room. The seven exterior entrances remain
 repairable defense doors used by the attack director.
+
+## Breached-door flashlight minigame
+
+While a door is still being stalked, scratched, or smashed, aiming at it and
+pressing E drives the attacker away immediately. The flashlight minigame is
+reserved for a door that has already reached zero durability.
+
+A defense door that reaches zero durability can no longer be repaired
+immediately. Approach the breach and press E to enter a 25-second flashlight
+minigame. The world is covered in darkness and the mouse moves a small light:
+hold it over the hidden face to build an invisible repel meter. Every fifteen
+points the face jumps to another part of the screen and removes three points;
+after a one-second search grace, missing it drains one point every 0.25 seconds.
+On first catching the face in the beam there is also an 18-38 percent
+progress-scaled chance that it dodges immediately. Its side-to-side head shake,
+distortion, twitch rate, audio pressure, and instant-dodge chance all intensify
+toward 100 percent.
+
+Reaching 100 unlocks physical door repairs. Timing out triggers a jumpscare,
+removes 20 points from the door's repair ceiling (down to a minimum of 10), and
+starts a fresh attempt. The active door cannot take normal damage during the
+minigame. A development safety switch also suspends statue and crawler attacks
+until 1.5 seconds after the minigame closes.
 
 ## Ghosts
 
@@ -49,6 +79,10 @@ standing still makes no sound at all, so its fix on you rots (`trail_decay`) and
 it commits to a stale position. It leaves a trail of sound of its own — nails on
 plaster as it moves, joints snapping every time it changes surface, breathing
 once it is within a few metres.
+
+The main-house instance also has an authored containment volume. Outside noises
+cannot lure it through an exterior opening, and any pounce or wall transition
+that crosses the building limit is cancelled back to the previous valid frame.
 
 ### The crawler's hunt cycle
 
@@ -85,7 +119,9 @@ horror overlay on whichever is currently worse.
 The smoke tests under `tests/` cover the four-level layout, all seven entrance
 IDs, generated collision, basement-to-attic navigation, physical stair traversal,
 statue stair chases and ambushes, crawler surface-crawling and noise hunting,
-doors, interaction, and house audio.
+doors, the breached-door minigame, temporary ghost safety, interaction, and
+house audio. `night_clock_smoke.gd` verifies the five-second minute tick,
+midnight rollover, and the 6:00 AM victory boundary.
 
 Run one with:
 
