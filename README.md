@@ -158,6 +158,10 @@ so it walks your route forwards and can never be sent in a circle by your
 history. Its knowledge is therefore local: rooms it has not physically reached
 are genuinely safe, and the trail it is following is one you already left.
 
+Outside a direct charge, every walking/tracking pace is multiplied by
+`non_chase_speed_multiplier` (1.3), so its search movement is 30% faster than
+the authored base speeds.
+
 **Losing it and being found again.** With no readable mark it stops, sniffs and
 turns on the spot (`cast_duration`). Then it lifts its head and takes the longest
 scent it has — the freshest mark anywhere within `cast_lead_range` (30 m, most of
@@ -209,9 +213,14 @@ completely untouchable.
 against a rail with you on the other side — it drops navigation for
 `direct_press_duration` and pushes straight at you instead, because pathfinding
 is exactly what dithers along a railing. Only losing sight of you for
-`lose_sight_time` ends a lock.
+`lose_sight_time` (5 s) ends a lock.
 
-**The trap.** It leaves the way it came in, after `hunt_duration`, through any
+**Bear traps.** While it is searching rather than charging, it periodically
+stops to place a physical trap. At most three can exist in the house. Stepping
+on one immobilizes that player for eight seconds; another player can interact
+with the sprung trap and finish freeing them in two seconds.
+
+**The sealed-house trap.** It leaves the way it came in, after `hunt_duration`, through any
 door that is still a hole — and after `reentry_cooldown_min`–`reentry_cooldown_max`
 seconds of quiet it lets itself back in through that same hole, so a breach left
 standing keeps costing you all night. Rebuild every breach while it is inside and it has no

@@ -40,6 +40,10 @@ func _run() -> void:
 		return
 	if not await _test_lantern_lock_and_seize():
 		return
+	if not await _test_chase_override_and_five_second_memory():
+		return
+	if not await _test_trap_limit_timeout_and_rescue():
+		return
 	if not await _test_minigame_safety_blocks_the_grab():
 		return
 	if not await _test_sealing_the_last_breach_traps_it():
@@ -49,8 +53,8 @@ func _run() -> void:
 
 	print(
 		'Hunter ghost smoke test passed: breach entry, sealed-out, trail following, '
-		+ 'unreachable-mark recovery, lantern lock and seize, attack safety, '
-		+ 'sealed-in, breach exit.'
+		+ 'unreachable-mark recovery, lantern lock and seize, chase override, '
+		+ 'five-second sight memory, traps, attack safety, sealed-in, breach exit.'
 	)
 	quit()
 
@@ -66,6 +70,18 @@ func _build_room() -> void:
 	body.add_child(shape_node)
 	root.add_child(body)
 	body.global_position = Vector3(0.0, FLOOR_Y - 0.1, 0.0)
+
+
+func _add_sight_blocker(at: Vector3) -> StaticBody3D:
+	var body := StaticBody3D.new()
+	var shape_node := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(5.0, 3.0, 0.3)
+	shape_node.shape = box
+	body.add_child(shape_node)
+	root.add_child(body)
+	body.global_position = at
+	return body
 
 
 ## The house centre is derived from the sweep route, so the route is what tells
@@ -97,6 +113,9 @@ func _spawn_hunter(at: Vector3, overrides: Dictionary = {}) -> CharacterBody3D:
 	var hunter := hunter_scene.instantiate() as CharacterBody3D
 	hunter.set('entry_delay_min', 0.4)
 	hunter.set('entry_delay_max', 0.4)
+	# Trap behavior has its own case below. Keep legacy behavior tests isolated so
+	# a trap dropped under their stationary fixture cannot change their premise.
+	hunter.set('trap_initial_delay', 999.0)
 	for key: String in overrides:
 		hunter.set(key, overrides[key])
 	root.add_child(hunter)
@@ -243,8 +262,9 @@ func _test_follows_the_trail() -> bool:
 
 	if hunter.call('get_trail_size') <= 0:
 		return _fail('No trail was recorded for a player walking around the house.', hunter)
-	if not hunter.call('has_trail_lead'):
-		return _fail('Huntsman could not read a fresh trail laid at its feet.', hunter)
+	if not hunter.call('has_trail_lead') \
+		and hunter.global_position.distance_to(player.global_position) > 3.5:
+		return _fail('Huntsman neither held the fresh trail nor already reached its owner.', hunter)
 
 	await create_timer(6.0).timeout
 	var travelled: float = hunter.global_position.x - start_x
@@ -343,6 +363,107 @@ func _test_lantern_lock_and_seize() -> bool:
 
 	await _despawn(hunter)
 	await _despawn(player)
+	await _despawn_all(markers)
+	return true
+
+
+## A sighting owns the state machine. Even a forced tracking transition is
+## overwritten on the next frame, and a wall must hide the player continuously
+## for the complete five-second grace before the target is released.
+func _test_chase_override_and_five_second_memory() -> bool:
+	var markers := _add_sweep_markers()
+	var hunter := await _spawn_hunter(
+		Vector3(0.0, 0.15, 0.0),
+		{
+			'entry_enabled': false,
+			'charge_speed': 0.0,
+			'seize_range': 0.0,
+			'lose_sight_time': 5.0,
+			'trap_initial_delay': 999.0,
+		}
+	)
+	var player := _spawn_player(Vector3(0.0, 0.9, -6.0))
+	await physics_frame
+	hunter.call('dev_force_spawn', null)
+	hunter.call('_lock_on', player)
+	hunter.call('_set_state', HunterState_TRACKING)
+	await physics_frame
+	if int(hunter.get('state')) != HunterState_LOCKED:
+		return _fail('A lower-priority tracking state overwrote a live chase.', hunter)
+
+	var blocker := _add_sight_blocker(Vector3(0.0, 1.5, -3.0))
+	await physics_frame
+	await create_timer(4.6).timeout
+	if int(hunter.get('state')) != HunterState_LOCKED or hunter.get('current_target') != player:
+		return _fail('Huntsman dropped an occluded target before five seconds elapsed.', hunter)
+	await create_timer(0.7).timeout
+	if int(hunter.get('state')) == HunterState_LOCKED or hunter.get('current_target') != null:
+		return _fail('Huntsman kept chasing after five uninterrupted seconds without sight.', hunter)
+
+	var boosted_speed := float(hunter.call('_non_chase_speed', 10.0))
+	if not is_equal_approx(boosted_speed, 13.0):
+		return _fail('Non-chase movement is not exactly 30 percent faster (%.2f).' % boosted_speed, hunter)
+
+	await _despawn(blocker)
+	await _despawn(hunter)
+	await _despawn(player)
+	await _despawn_all(markers)
+	return true
+
+
+## Hunter can own at most three live traps. A sprung trap releases by itself
+## after its configured eight-second default, or a different player can reduce
+## that wait to the two-second rescue channel.
+func _test_trap_limit_timeout_and_rescue() -> bool:
+	var markers := _add_sweep_markers()
+	var hunter := await _spawn_hunter(
+		Vector3(0.0, 0.15, 0.0),
+		{'entry_enabled': false, 'trap_initial_delay': 999.0}
+	)
+	hunter.call('dev_force_spawn', null)
+	for point: Vector3 in [
+		Vector3(-6.0, 0.0, 5.0),
+		Vector3(-2.0, 0.0, 5.0),
+		Vector3(2.0, 0.0, 5.0),
+	]:
+		if not bool(hunter.call('dev_place_trap', point)):
+			return _fail('Huntsman failed to place one of its first three traps.', hunter)
+	if bool(hunter.call('dev_place_trap', Vector3(6.0, 0.0, 5.0))) \
+		or int(hunter.call('get_active_trap_count')) != 3:
+		return _fail('Huntsman exceeded the three-trap house limit.', hunter)
+
+	var trap_scene := load('res://ghosts/hunter_trap.tscn') as PackedScene
+	var timed_trap := trap_scene.instantiate() as Node3D
+	root.add_child(timed_trap)
+	if not is_equal_approx(float(timed_trap.get('trap_duration')), 8.0) \
+		or not is_equal_approx(float(timed_trap.get('rescue_duration')), 2.0):
+		return _fail('Trap defaults are not eight seconds caught and two seconds rescued.', hunter)
+	timed_trap.set('trap_duration', 0.35)
+	var victim := _spawn_player(Vector3(8.0, 0.9, 0.0))
+	timed_trap.global_position = Vector3(8.0, 0.0, 0.0)
+	timed_trap.call('_on_body_entered', victim)
+	if not bool(victim.call('is_trapped_by_hunter')):
+		return _fail('Stepping on a Hunter trap did not immobilize the player.', hunter)
+	await create_timer(0.5).timeout
+	if bool(victim.call('is_trapped_by_hunter')):
+		return _fail('A trap did not release its player when its catch timer expired.', hunter)
+
+	var rescue_trap := trap_scene.instantiate() as Node3D
+	rescue_trap.set('trap_duration', 2.0)
+	rescue_trap.set('rescue_duration', 0.25)
+	root.add_child(rescue_trap)
+	rescue_trap.global_position = Vector3(12.0, 0.0, 0.0)
+	victim.global_position = Vector3(12.0, 0.9, 0.0)
+	var rescuer := _spawn_player(Vector3(13.0, 0.9, 0.0))
+	rescue_trap.call('_on_body_entered', victim)
+	rescue_trap.call('interact', rescuer)
+	await create_timer(0.4).timeout
+	if bool(victim.call('is_trapped_by_hunter')):
+		return _fail('A second player completed rescue but the victim stayed trapped.', hunter)
+
+	await _despawn(hunter)
+	await _despawn(victim)
+	await _despawn(rescuer)
 	await _despawn_all(markers)
 	return true
 

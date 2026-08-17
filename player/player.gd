@@ -4,6 +4,7 @@ signal eyes_closed_changed(closed: bool)
 signal killed_by_ghost(ghost: Node3D)
 signal door_minigame_started(door: Node)
 signal door_minigame_finished()
+signal hunter_trap_changed(trapped: bool)
 
 @export var walk_speed: float = 2.45
 @export var crouch_speed: float = 1.35
@@ -68,6 +69,7 @@ var eyelid_closure: float = 0.0
 
 var dev_invincible: bool = false
 var dev_fast_movement: bool = false
+var hunter_trap_source: Node3D
 
 @onready var camera_pivot: Node3D = $CameraPivot
 @onready var interact_ray: RayCast3D = $CameraPivot/Camera3D/InteractRay
@@ -214,6 +216,16 @@ func _physics_process(delta: float) -> void:
 		return
 
 	var was_on_floor := is_on_floor()
+	if is_trapped_by_hunter():
+		velocity.x = 0.0
+		velocity.z = 0.0
+		if not was_on_floor:
+			velocity.y -= gravity * delta
+		elif velocity.y < 0.0:
+			velocity.y = 0.0
+		move_and_slide()
+		_stop_footsteps()
+		return
 
 	# Add the gravity.
 	if not was_on_floor:
@@ -415,6 +427,36 @@ func is_protected_from_ghost_attacks() -> bool:
 
 func can_be_targeted_by_ghosts() -> bool:
 	return is_alive and not is_protected_from_ghost_attacks()
+
+
+func apply_hunter_trap(source: Node3D) -> bool:
+	if not is_alive or is_protected_from_ghost_attacks() or is_trapped_by_hunter():
+		return false
+	hunter_trap_source = source
+	velocity.x = 0.0
+	velocity.z = 0.0
+	_stop_footsteps()
+	hunter_trap_changed.emit(true)
+	return true
+
+
+func release_from_hunter_trap(source: Node3D = null) -> void:
+	if not is_instance_valid(hunter_trap_source):
+		hunter_trap_source = null
+		return
+	if is_instance_valid(source) and hunter_trap_source != source:
+		return
+	hunter_trap_source = null
+	hunter_trap_changed.emit(false)
+
+
+func is_trapped_by_hunter() -> bool:
+	if is_instance_valid(hunter_trap_source) and hunter_trap_source.is_inside_tree():
+		return true
+	if hunter_trap_source != null:
+		hunter_trap_source = null
+		hunter_trap_changed.emit(false)
+	return false
 
 
 func set_dev_invincible(enabled: bool) -> void:
