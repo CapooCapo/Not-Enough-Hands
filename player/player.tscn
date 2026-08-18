@@ -252,7 +252,42 @@ autowrap_mode = 0
 [node name="StatusUI" type="CanvasLayer" parent="."]
 layer = 104
 
+[node name="StaminaPanel" type="PanelContainer" parent="StatusUI"]
+anchors_preset = 6
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = -82.0
+offset_right = 280.0
+offset_bottom = -24.0
+grow_vertical = 0
+theme_override_styles/panel = SubResource("StyleBox_stamina_panel")
 
+[node name="Margin" type="MarginContainer" parent="StatusUI/StaminaPanel"]
+layout_mode = 2
+
+[node name="VBox" type="VBoxContainer" parent="StatusUI/StaminaPanel/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 5
+
+[node name="Label" type="Label" parent="StatusUI/StaminaPanel/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.61, 0.75, 0.73, 0.9)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 3
+theme_override_font_sizes/font_size = 12
+text = "THỂ LỰC   ·   SHIFT CHẠY"
+
+[node name="StaminaBar" type="ProgressBar" parent="StatusUI/StaminaPanel/Margin/VBox"]
+custom_minimum_size = Vector2(228, 9)
+layout_mode = 2
+mouse_filter = 2
+theme_override_styles/background = SubResource("StyleBox_stamina_bg")
+theme_override_styles/fill = SubResource("StyleBox_stamina_fill")
+value = 100.0
+show_percentage = false
+script = ExtResource("9_stamina_bar")
+player_path = NodePath("../../../../..")
 
 [node name="BlinkUI" type="CanvasLayer" parent="."]
 layer = 105
