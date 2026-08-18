@@ -1,8 +1,10 @@
 class_name PowerManager
 extends Node
 
+
 signal blackout
 signal power_restored
+
 
 @export_category("Power Configuration")
 @export_range(1.0, 100000.0, 1.0)
@@ -11,8 +13,10 @@ var max_power: float = 1000.0
 @export_range(0.0, 100000.0, 1.0)
 var current_power: float = 1000.0
 
+
 @export_category("Debug")
 @export var enable_power_drain: bool = true
+
 
 var devices: Array[Node] = []
 var is_blackout: bool = false
@@ -24,6 +28,9 @@ func _enter_tree() -> void:
 
 func _ready() -> void:
 	current_power = clamp(current_power, 0.0, max_power)
+
+	if current_power <= 0.0:
+		is_blackout = true
 
 	print("PowerManager ready")
 	print("Max power: ", max_power)
@@ -38,8 +45,6 @@ func _process(delta: float) -> void:
 		return
 
 	var total_load := get_total_load()
-
-	print("Load: ", total_load, " | Power: ", current_power)
 
 	if total_load <= 0.0:
 		return
@@ -57,8 +62,6 @@ func register_device(device: Node) -> void:
 
 	if device not in devices:
 		devices.append(device)
-		print("Registered device: ", device.name)
-		print("Total devices: ", devices.size())
 
 
 func unregister_device(device: Node) -> void:
@@ -104,11 +107,5 @@ func _enter_blackout() -> void:
 	if is_blackout:
 		return
 
-	print("=== ENTERING BLACKOUT ===")
-
 	is_blackout = true
-
-	print("Emitting blackout signal...")
 	blackout.emit()
-
-	print("=== BLACKOUT DONE ===")
