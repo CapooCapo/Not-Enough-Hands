@@ -1,6 +1,7 @@
-[gd_scene format=3]
+[gd_scene load_steps=5 format=3]
 
 [ext_resource type="Script" path="res://door/door.gd" id="1_vul7k"]
+[ext_resource type="Script" path="res://components/interactable_3d.gd" id="2_inter"]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_door"]
 albedo_color = Color(0.12, 0.055, 0.025, 1)
@@ -69,3 +70,7 @@ mesh = SubResource("SphereMesh_handle")
 [node name="CollisionShape3D" type="CollisionShape3D" parent="Hinge"]
 position = Vector3(1.15, 1.15, 0)
 shape = SubResource("BoxShape3D_door")
+
+[node name="Interactable3D" type="Node3D" parent="Hinge"]
+script = ExtResource("2_inter")
+interaction_prompt = "Mở cửa"

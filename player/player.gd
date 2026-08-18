@@ -1,10 +1,7 @@
 extends CharacterBody3D
 
-signal eyes_closed_changed(closed: bool)
-signal killed_by_ghost(ghost: Node3D)
 signal door_minigame_started(door: Node)
 signal door_minigame_finished()
-signal hunter_trap_changed(trapped: bool)
 
 @export var walk_speed: float = 2.45
 @export var crouch_speed: float = 1.35
@@ -18,11 +15,6 @@ signal hunter_trap_changed(trapped: bool)
 @export var crouch_transition_speed: float = 10.0
 @export var max_step_height: float = 0.6
 @export var step_floor_margin: float = 0.08
-## Minimum forward reach used when probing for a landing on top of a step.
-## A single frame's real motion (often just a few cm at walk speed) isn't
-## enough to clear the riser's front edge, so the down-cast lands back on
-## the riser's near-vertical face instead of the flat tread and the whole
-## step-up silently fails every frame.
 @export var step_probe_distance: float = 0.3
 
 @export_category("Camera Feel")
@@ -30,103 +22,101 @@ signal hunter_trap_changed(trapped: bool)
 @export var head_bob_horizontal: float = 0.012
 @export var head_bob_vertical: float = 0.018
 
-@export_category("Movement Audio")
-@export var walk_step_interval: float = 0.48
-@export var sprint_step_interval: float = 0.34
-@export var crouch_step_interval: float = 0.7
-@export var footstep_slice_duration: float = 0.38
-
-@export_category('Blink')
-@export var automatic_blink_enabled: bool = true
-@export var blink_interval: float = 7.0
-@export var forced_blink_duration: float = 0.22
-@export var eyelid_transition_speed: float = 16.0
-
 var is_crouching: bool = false
 @export var max_stamina: float = 100.0
+
+var yaw_clamp_active: bool = false
+var yaw_clamp_min: float = 0.0
+var yaw_clamp_max: float = 0.0
+var accumulated_yaw: float = 0.0
+var pitch_clamp_min: float = -PI/2
+var pitch_clamp_max: float = PI/2
 @export var sprint_stamina_drain: float = 20.0
 @export var stamina_regen_idle: float = 20.0
 @export var stamina_regen_moving: float = 5.0
 
 var current_stamina: float = max_stamina
+
 var head_bob_time: float = 0.0
-var eyes_closed: bool = false
 var is_alive: bool = true
-var blink_time_remaining: float = blink_interval
-var forced_blink_remaining: float = 0.0
-## Highest threat currently reported by any ghost - drives the horror overlay
-## and the camera sway. Kept under its original name because the shader
-## parameter and the camera code already read it.
-var statue_threat: float = 0.0
-var threat_sources: Dictionary = {}
-var eyelid_closure: float = 0.0
+
+@export var max_health: float = 100.0
+var current_health: float = max_health
+signal health_changed(current: float, max: float)
+
 @export var mouse_sensitivity: float = 0.002
-@export var max_interaction_range: float = 10.0
 
 @export_category("Development")
-@export var minigame_ghost_resume_grace: float = 1.5
 @export var dev_speed_multiplier: float = 3.0
 
-var dev_invincible: bool = false
 var dev_fast_movement: bool = false
-var hunter_trap_source: Node3D
 
 @onready var camera_pivot: Node3D = $CameraPivot
-@onready var interact_ray: RayCast3D = $CameraPivot/Camera3D/InteractRay
+@onready var first_person_holder: Node3D = $CameraPivot/Camera3D/FirstPersonItemHolder
 @onready var collision_shape: CollisionShape3D = $CollisionShape3D
-@onready var blink_overlay: ColorRect = $BlinkOverlay/Eyelids
-@onready var blink_bar: ProgressBar = $BlinkUI/BlinkContainer/VBoxContainer/BlinkBar
-@onready var horror_overlay_rect: ColorRect = $HorrorOverlay/VignetteAndGrain
-@onready var death_ui: CanvasLayer = $DeathUI
-@onready var footstep_players: Array[AudioStreamPlayer3D] = [$FootstepA, $FootstepB]
+
 @onready var door_minigame: CanvasLayer = get_node_or_null("DoorGhostMinigame") as CanvasLayer
 
-var _minigame_ghost_safety_locks: int = 0
-var _minigame_ghost_release_remaining: float = 0.0
+@onready var bladder: Node = $BladderComponent
+@onready var carry_slots: Node = $CarrySlotsComponent
+@onready var blink_comp: BlinkComponent = $BlinkComponent
+@onready var threat_comp: ThreatComponent = $ThreatComponent
+@onready var footstep_comp: FootstepComponent = $FootstepComponent
+@onready var interact_comp: InteractionController = $InteractionController
 
-# Transient starts extracted once from the source recording. Keeping these
-# authored offsets avoids scanning several megabytes of PCM every time a player
-# spawns (important once four network players are present).
-var _footstep_offsets: Array[float] = [
-	1.6143,
-	6.6620,
-	7.7615,
-	9.4607,
-	10.0604,
-	11.1849,
-	11.7097,
-	12.3844,
-	14.4834,
-	15.2081,
-	19.4062,
-	28.4271,
-	28.9019,
-	29.4766,
-	30.0264,
-	31.1509,
-	32.2504,
-	33.3249,
-]
-var _footstep_stop_times: Array[float] = [0.0, 0.0]
-var _footstep_time_remaining: float = 0.0
-var _footstep_player_index: int = 0
-var _last_footstep_offset_index: int = -1
-var _was_walking_on_floor: bool = false
-var _footstep_rng := RandomNumberGenerator.new()
+var current_held_node: Node3D = null
+var is_held_item_hidden: bool = false
 
-# Get the gravity from the project settings to be synced with RigidBody nodes.
 var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 
 func _ready() -> void:
-	_footstep_rng.randomize()
 	current_stamina = max_stamina
-	blink_time_remaining = blink_interval
 	var shape := collision_shape.shape as CapsuleShape3D
 	shape.radius = player_radius
 	shape.height = standing_height
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
-	if interact_ray:
-		interact_ray.target_position = Vector3(0, 0, -max_interaction_range)
+		
+	if carry_slots:
+		carry_slots.selected_slot_changed.connect(_on_selected_slot_changed)
+		carry_slots.slots_changed.connect(_update_held_item)
+		call_deferred("_update_held_item")
+
+	if threat_comp:
+		threat_comp.killed_by_ghost.connect(func(_g): is_alive = false)
+		threat_comp.minigame_safety_ended.connect(func(): door_minigame_finished.emit())
+
+func _on_selected_slot_changed(_idx: int) -> void:
+	_update_held_item()
+
+func _update_held_item() -> void:
+	if current_held_node:
+		current_held_node.queue_free()
+		current_held_node = null
+		
+	if not carry_slots: return
+	var item = carry_slots.call("get_selected_item")
+	if not item: return
+	
+	if item.held_scene:
+		current_held_node = item.held_scene.instantiate()
+		first_person_holder.add_child(current_held_node)
+	else:
+		var mesh_inst = MeshInstance3D.new()
+		var box = BoxMesh.new()
+		box.size = Vector3(0.1, 0.1, 0.2)
+		var mat = StandardMaterial3D.new()
+		mat.albedo_color = Color(1.0, 0.5, 0.0)
+		box.material = mat
+		mesh_inst.mesh = box
+		current_held_node = mesh_inst
+		first_person_holder.add_child(current_held_node)
+		
+	current_held_node.visible = not is_held_item_hidden
+
+func set_held_item_visibility(vis: bool) -> void:
+	is_held_item_hidden = not vis
+	if current_held_node:
+		current_held_node.visible = vis
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not is_alive:
@@ -139,84 +129,57 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 
 	if event is InputEventMouseMotion and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
-		# Rotate player horizontally
-		rotate_y(-event.relative.x * mouse_sensitivity)
+		var yaw_delta = -event.relative.x * mouse_sensitivity
+		if yaw_clamp_active:
+			var new_yaw = clamp(accumulated_yaw + yaw_delta, yaw_clamp_min, yaw_clamp_max)
+			yaw_delta = new_yaw - accumulated_yaw
+			accumulated_yaw = new_yaw
+		rotate_y(yaw_delta)
 		
-		# Rotate camera vertically
 		camera_pivot.rotate_x(-event.relative.y * mouse_sensitivity)
+		camera_pivot.rotation.x = clamp(camera_pivot.rotation.x, pitch_clamp_min, pitch_clamp_max)
 		
-		# Clamp vertical rotation (-90 to 90 degrees)
-		camera_pivot.rotation.x = clamp(camera_pivot.rotation.x, -PI/2, PI/2)
-		
-	if event.is_action_pressed("interact"):
-		_try_interact()
-
+	if is_physics_processing():
+		if event.is_action_pressed("interact"):
+			if interact_comp:
+				interact_comp.handle_interact_input()
+				
+		if carry_slots:
+			if event.is_action_pressed("select_slot_1"):
+				carry_slots.call("select_slot", 0)
+			elif event.is_action_pressed("select_slot_2"):
+				carry_slots.call("select_slot", 1)
+			elif event.is_action_pressed("quick_slot_next"):
+				carry_slots.call("next_slot")
+			elif event.is_action_pressed("quick_slot_previous"):
+				carry_slots.call("previous_slot")
+			elif event.is_action_pressed("drop_item"):
+				if not is_held_item_hidden:
+					carry_slots.call("drop_selected")
 
 func toggle_mouse_capture() -> void:
 	Input.set_mouse_mode(get_toggled_mouse_mode(Input.get_mouse_mode()))
 
-
 func get_toggled_mouse_mode(current_mode: Input.MouseMode) -> Input.MouseMode:
-	return (
-		Input.MOUSE_MODE_VISIBLE
-		if current_mode == Input.MOUSE_MODE_CAPTURED
-		else Input.MOUSE_MODE_CAPTURED
-	)
-
+	return Input.MOUSE_MODE_VISIBLE if current_mode == Input.MOUSE_MODE_CAPTURED else Input.MOUSE_MODE_CAPTURED
 
 func _is_alt_toggle_event(event: InputEvent) -> bool:
-	return (
-		event is InputEventKey
-		and event.pressed
-		and not event.echo
-		and (event.keycode == KEY_ALT or event.physical_keycode == KEY_ALT)
-	)
-
-
-func get_interaction_target() -> Node:
-	if not interact_ray or not interact_ray.is_colliding():
-		return null
-
-	var target := interact_ray.get_collider() as Node
-	while target and target != get_tree().root:
-		if target.has_method("interact"):
-			return target
-		target = target.get_parent()
-
-	return null
-
-
-func can_interact_with(target: Node) -> bool:
-	if not target or not interact_ray.is_colliding():
-		return false
-
-	var allowed_range: float = target.interaction_range if "interaction_range" in target else 2.5
-	var hit_distance := interact_ray.global_position.distance_to(interact_ray.get_collision_point())
-	return hit_distance <= minf(allowed_range, max_interaction_range)
-
-
-func _try_interact() -> void:
-	interact_ray.force_raycast_update()
-	var target := get_interaction_target()
-	if target and can_interact_with(target):
-		target.interact(self)
+	return event is InputEventKey and event.pressed and not event.echo and (event.keycode == KEY_ALT or event.physical_keycode == KEY_ALT)
 
 func _physics_process(delta: float) -> void:
-	_update_minigame_ghost_safety(delta)
 	if is_door_minigame_active():
-		_open_eyes_for_minigame()
+		if blink_comp: blink_comp._open_eyes()
 		velocity = Vector3.ZERO
-		_stop_footsteps()
+		if footstep_comp: footstep_comp.stop_footsteps()
 		return
 
-	_update_blink(delta)
 	if not is_alive:
 		velocity = Vector3.ZERO
-		_stop_footsteps()
+		if footstep_comp: footstep_comp.stop_footsteps()
 		return
 
 	var was_on_floor := is_on_floor()
-	if is_trapped_by_hunter():
+	if threat_comp and threat_comp.is_trapped_by_hunter():
 		velocity.x = 0.0
 		velocity.z = 0.0
 		if not was_on_floor:
@@ -224,14 +187,12 @@ func _physics_process(delta: float) -> void:
 		elif velocity.y < 0.0:
 			velocity.y = 0.0
 		move_and_slide()
-		_stop_footsteps()
+		if footstep_comp: footstep_comp.stop_footsteps()
 		return
 
-	# Add the gravity.
 	if not was_on_floor:
 		velocity.y -= gravity * delta
 
-	# Handle Jump
 	if Input.is_action_just_pressed("jump") and is_on_floor():
 		if is_crouching:
 			if _can_stand():
@@ -240,7 +201,6 @@ func _physics_process(delta: float) -> void:
 		else:
 			velocity.y = jump_velocity
 
-	# Handle Crouch
 	if Input.is_action_pressed("crouch"):
 		if not is_crouching:
 			_crouch()
@@ -249,8 +209,6 @@ func _physics_process(delta: float) -> void:
 			if _can_stand():
 				_stand_up()
 
-	# Get the input direction and handle the movement/deceleration.
-	# Input.get_vector automatically normalizes diagonal input
 	var input_dir := Input.get_vector("move_left", "move_right", "move_forward", "move_backward")
 	var direction := (transform.basis * Vector3(input_dir.x, 0, input_dir.y)).normalized()
 	
@@ -292,275 +250,10 @@ func _physics_process(delta: float) -> void:
 		_try_step_up(horizontal_motion)
 
 	move_and_slide()
-	_update_footsteps(delta, is_sprinting)
-
-
-func _update_blink(delta: float) -> void:
-	var was_closed := eyes_closed
-	var manual_close := Input.is_action_pressed('blink') and is_alive
-
-	if manual_close:
-		eyes_closed = true
-		blink_time_remaining = blink_interval
-	elif forced_blink_remaining > 0.0:
-		eyes_closed = true
-		forced_blink_remaining = maxf(forced_blink_remaining - delta, 0.0)
-	else:
-		eyes_closed = false
-		if automatic_blink_enabled and is_alive:
-			blink_time_remaining -= delta
-			if blink_time_remaining <= 0.0:
-				forced_blink_remaining = forced_blink_duration
-				blink_time_remaining = blink_interval
-				eyes_closed = true
-
-	var target_closure := 1.0 if eyes_closed else 0.0
-	eyelid_closure = move_toward(
-		eyelid_closure,
-		target_closure,
-		eyelid_transition_speed * delta
-	)
-	var eyelid_material := blink_overlay.material as ShaderMaterial
-	if eyelid_material:
-		eyelid_material.set_shader_parameter('closure', eyelid_closure)
-
-	if blink_bar:
-		blink_bar.value = clampf(blink_time_remaining / maxf(blink_interval, 0.01), 0.0, 1.0) * 100.0
-
-	if was_closed != eyes_closed:
-		eyes_closed_changed.emit(eyes_closed)
-
-
-func force_blink(duration: float = -1.0) -> void:
-	forced_blink_remaining = forced_blink_duration if duration < 0.0 else duration
-	blink_time_remaining = blink_interval
-	if not eyes_closed and is_alive:
-		eyes_closed = true
-		eyes_closed_changed.emit(true)
-
-
-func set_statue_threat(amount: float) -> void:
-	set_threat_from('statue', amount)
-
-
-## Threat is tracked per source and the overlay shows the worst of them. Two
-## ghosts both writing a single shared value every physics frame would fight
-## over it, and whichever ran second would win - so a crawler two rooms away
-## could silently erase the dread of a statue standing behind you.
-func set_threat_from(source: StringName, amount: float) -> void:
-	if is_protected_from_ghost_attacks():
-		amount = 0.0
-	var clamped := clampf(amount, 0.0, 1.0)
-	if clamped <= 0.0:
-		threat_sources.erase(source)
-	else:
-		threat_sources[source] = clamped
-
-	statue_threat = 0.0
-	for value: float in threat_sources.values():
-		statue_threat = maxf(statue_threat, value)
-
-	var overlay_material := horror_overlay_rect.material as ShaderMaterial
-	if overlay_material:
-		overlay_material.set_shader_parameter('threat_strength', statue_threat)
-
-
-func kill_by_ghost(ghost: Node3D) -> void:
-	if not is_alive or is_protected_from_ghost_attacks():
-		return
-	is_alive = false
-	forced_blink_remaining = 0.0
-	eyes_closed = false
-	velocity = Vector3.ZERO
-	_stop_footsteps()
-	if death_ui.has_method("show_jumpscare"):
-		death_ui.call("show_jumpscare", ghost)
-	else:
-		death_ui.visible = true
-		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
-	killed_by_ghost.emit(ghost)
-
-
-func start_door_minigame(door: Node) -> bool:
-	if not is_alive \
-		or not door_minigame \
-		or is_door_minigame_active() \
-		or not is_instance_valid(door):
-		return false
-	if not door.has_method("begin_exorcism") or not bool(door.call("begin_exorcism")):
-		return false
-	if not door_minigame.has_method("start") or not bool(door_minigame.call("start", self, door)):
-		door.call("cancel_exorcism")
-		return false
-	door_minigame_started.emit(door)
-	return true
-
-
-func is_door_minigame_active() -> bool:
-	return door_minigame != null \
-		and door_minigame.has_method("is_running") \
-		and bool(door_minigame.call("is_running"))
-
-
-func acquire_minigame_ghost_safety() -> void:
-	_minigame_ghost_safety_locks += 1
-	_minigame_ghost_release_remaining = 0.0
-	if _minigame_ghost_safety_locks == 1:
-		get_tree().call_group("hostile_ghosts", "set_dev_attack_suspended", true)
-	_clear_all_ghost_threat()
-
-
-func release_minigame_ghost_safety() -> void:
-	_minigame_ghost_safety_locks = maxi(_minigame_ghost_safety_locks - 1, 0)
-	if _minigame_ghost_safety_locks == 0:
-		_minigame_ghost_release_remaining = maxf(minigame_ghost_resume_grace, 0.0)
-		if _minigame_ghost_release_remaining <= 0.0:
-			get_tree().call_group("hostile_ghosts", "set_dev_attack_suspended", false)
-			door_minigame_finished.emit()
-
-
-func is_protected_from_ghost_attacks() -> bool:
-	return dev_invincible \
-		or _minigame_ghost_safety_locks > 0 \
-		or _minigame_ghost_release_remaining > 0.0
-
-
-func can_be_targeted_by_ghosts() -> bool:
-	return is_alive and not is_protected_from_ghost_attacks()
-
-
-func apply_hunter_trap(source: Node3D) -> bool:
-	if not is_alive or is_protected_from_ghost_attacks() or is_trapped_by_hunter():
-		return false
-	hunter_trap_source = source
-	velocity.x = 0.0
-	velocity.z = 0.0
-	_stop_footsteps()
-	hunter_trap_changed.emit(true)
-	return true
-
-
-func release_from_hunter_trap(source: Node3D = null) -> void:
-	if not is_instance_valid(hunter_trap_source):
-		hunter_trap_source = null
-		return
-	if is_instance_valid(source) and hunter_trap_source != source:
-		return
-	hunter_trap_source = null
-	hunter_trap_changed.emit(false)
-
-
-func is_trapped_by_hunter() -> bool:
-	if is_instance_valid(hunter_trap_source) and hunter_trap_source.is_inside_tree():
-		return true
-	if hunter_trap_source != null:
-		hunter_trap_source = null
-		hunter_trap_changed.emit(false)
-	return false
-
-
-func set_dev_invincible(enabled: bool) -> void:
-	dev_invincible = enabled
-	if enabled:
-		_clear_all_ghost_threat()
-
-
-func set_dev_fast_movement(enabled: bool) -> void:
-	dev_fast_movement = enabled
-	if enabled:
-		current_stamina = max_stamina
-
-
-func _update_minigame_ghost_safety(delta: float) -> void:
-	if _minigame_ghost_safety_locks > 0 or _minigame_ghost_release_remaining <= 0.0:
-		return
-	_minigame_ghost_release_remaining = maxf(_minigame_ghost_release_remaining - delta, 0.0)
-	if _minigame_ghost_release_remaining <= 0.0:
-		get_tree().call_group("hostile_ghosts", "set_dev_attack_suspended", false)
-		door_minigame_finished.emit()
-
-
-func _clear_all_ghost_threat() -> void:
-	threat_sources.clear()
-	statue_threat = 0.0
-	var overlay_material := horror_overlay_rect.material as ShaderMaterial
-	if overlay_material:
-		overlay_material.set_shader_parameter("threat_strength", 0.0)
-
-
-func _open_eyes_for_minigame() -> void:
-	var was_closed := eyes_closed
-	forced_blink_remaining = 0.0
-	eyes_closed = false
-	eyelid_closure = 0.0
-	var eyelid_material := blink_overlay.material as ShaderMaterial
-	if eyelid_material:
-		eyelid_material.set_shader_parameter("closure", 0.0)
-	if was_closed:
-		eyes_closed_changed.emit(false)
-
-
-func _update_footsteps(delta: float, is_sprinting: bool) -> void:
-	for index: int in _footstep_stop_times.size():
-		if _footstep_stop_times[index] <= 0.0:
-			continue
-		_footstep_stop_times[index] -= delta
-		if _footstep_stop_times[index] <= 0.0:
-			footstep_players[index].stop()
-
-	var real_velocity := get_real_velocity()
-	var horizontal_speed := Vector2(real_velocity.x, real_velocity.z).length()
-	var walking_on_floor := is_on_floor() and horizontal_speed > 0.25
-	if not walking_on_floor:
-		_was_walking_on_floor = false
-		_footstep_time_remaining = 0.0
-		return
-
-	var interval := walk_step_interval
-	if is_crouching:
-		interval = crouch_step_interval
-	elif is_sprinting:
-		interval = sprint_step_interval
-
-	if not _was_walking_on_floor:
-		_play_wood_footstep(is_sprinting)
-		_footstep_time_remaining = interval
-	else:
-		_footstep_time_remaining -= delta
-		if _footstep_time_remaining <= 0.0:
-			_play_wood_footstep(is_sprinting)
-			_footstep_time_remaining += interval
-	_was_walking_on_floor = true
-
-
-func _play_wood_footstep(is_sprinting: bool) -> void:
-	if footstep_players.is_empty() or _footstep_offsets.is_empty():
-		return
-	var offset_index := _footstep_rng.randi_range(0, _footstep_offsets.size() - 1)
-	if offset_index == _last_footstep_offset_index and _footstep_offsets.size() > 1:
-		offset_index = (offset_index + 1) % _footstep_offsets.size()
-	_last_footstep_offset_index = offset_index
-
-	var player_index := _footstep_player_index
-	_footstep_player_index = (_footstep_player_index + 1) % footstep_players.size()
-	var audio_player := footstep_players[player_index]
-	var movement_pitch := 0.93 if is_crouching else (1.035 if is_sprinting else 1.0)
-	audio_player.pitch_scale = movement_pitch * _footstep_rng.randf_range(0.965, 1.035)
-	audio_player.volume_db = (
-		_footstep_rng.randf_range(-12.5, -10.0)
-		if is_crouching
-		else _footstep_rng.randf_range(-7.5, -4.5) + (1.2 if is_sprinting else 0.0)
-	)
-	audio_player.play(_footstep_offsets[offset_index])
-	_footstep_stop_times[player_index] = footstep_slice_duration
-
-
-func _stop_footsteps() -> void:
-	for audio_player: AudioStreamPlayer3D in footstep_players:
-		audio_player.stop()
-	_footstep_stop_times.fill(0.0)
-	_was_walking_on_floor = false
-
+	
+	if footstep_comp:
+		var h_speed = Vector2(get_real_velocity().x, get_real_velocity().z).length()
+		footstep_comp.update_footsteps(delta, h_speed, is_on_floor(), is_sprinting, is_crouching)
 
 func _update_camera_motion(delta: float) -> void:
 	var target_height := crouch_camera_height if is_crouching else standing_camera_height
@@ -574,40 +267,24 @@ func _update_camera_motion(delta: float) -> void:
 		bob_offset.y = sin(head_bob_time) * head_bob_vertical
 
 	var target_position := Vector3(bob_offset.x, target_height + bob_offset.y, 0.0)
-	var threat_wave := sin(Time.get_ticks_msec() * 0.019) * statue_threat
+	var threat_wave := sin(Time.get_ticks_msec() * 0.019) * (threat_comp.statue_threat if threat_comp else 0.0)
 	target_position.x += threat_wave * 0.008
 	var blend := minf(crouch_transition_speed * delta, 1.0)
 	camera_pivot.position = camera_pivot.position.lerp(target_position, blend)
 	camera_pivot.rotation.z = lerpf(camera_pivot.rotation.z, threat_wave * 0.006, blend)
 
-
 func _try_step_up(horizontal_motion: Vector3) -> void:
 	if horizontal_motion.is_zero_approx():
 		return
-	# A slope already supplies continuous vertical motion. Treating that plane
-	# as a blocked horizontal step repeatedly teleports the capsule upward and
-	# is exactly what made the old stair camera judder.
 	if is_on_floor() and get_floor_normal().dot(up_direction) < 0.98:
 		return
 
-	# Only step when the normal movement is blocked by a near-vertical riser.
-	# At the first frame of a ramp the previous floor normal is still flat, so
-	# inspect the forward hit too and let move_and_slide() handle walkable slopes.
 	var forward_collision := KinematicCollision3D.new()
-	if not test_move(
-		global_transform,
-		horizontal_motion,
-		forward_collision,
-		safe_margin,
-		false
-	):
+	if not test_move(global_transform, horizontal_motion, forward_collision, safe_margin, false):
 		return
 	if forward_collision.get_normal().dot(up_direction) >= cos(floor_max_angle):
 		return
 
-	# Raise as far as the available headroom permits, up to max_step_height.
-	# Requiring the full maximum clearance makes a perfectly climbable 20 cm
-	# stair fail beneath a low ceiling if only (for example) 26 cm is free.
 	var available_step_height := max_step_height
 	var up_collision := KinematicCollision3D.new()
 	var requested_step_up := Vector3.UP * max_step_height
@@ -617,9 +294,6 @@ func _try_step_up(horizontal_motion: Vector3) -> void:
 		return
 	var step_up := Vector3.UP * available_step_height
 
-	# The landing search needs to clear the riser's front edge, which a
-	# single frame's real motion is often too small to do - probe forward
-	# by at least step_probe_distance in the same direction instead.
 	var probe_motion := horizontal_motion
 	if probe_motion.length() < step_probe_distance:
 		probe_motion = probe_motion.normalized() * step_probe_distance
@@ -629,7 +303,6 @@ func _try_step_up(horizontal_motion: Vector3) -> void:
 	if test_move(raised_transform, probe_motion):
 		return
 
-	# Find a walkable landing below the raised, forward position.
 	var forward_transform := raised_transform
 	forward_transform.origin += probe_motion
 	var down_collision := KinematicCollision3D.new()
@@ -643,7 +316,6 @@ func _try_step_up(horizontal_motion: Vector3) -> void:
 	var step_height := landing_y - global_position.y
 	if step_height > 0.02 and step_height <= available_step_height + step_floor_margin:
 		global_position.y += step_height
-
 
 func _crouch() -> void:
 	is_crouching = true
@@ -670,5 +342,25 @@ func _can_stand() -> bool:
 	query.exclude = [get_rid()]
 	query.collision_mask = collision_mask
 	
-	var result = space_state.intersect_shape(query)
-	return result.is_empty()
+	return space_state.intersect_shape(query).is_empty()
+
+func start_door_minigame(door: Node) -> bool:
+	if not is_alive or not door_minigame or is_door_minigame_active() or not is_instance_valid(door):
+		return false
+	if not door.has_method("begin_exorcism") or not bool(door.call("begin_exorcism")):
+		return false
+	if not door_minigame.has_method("start") or not bool(door_minigame.call("start", self, door)):
+		door.call("cancel_exorcism")
+		return false
+	door_minigame_started.emit(door)
+	return true
+
+func is_door_minigame_active() -> bool:
+	return door_minigame != null and door_minigame.has_method("is_running") and bool(door_minigame.call("is_running"))
+
+func take_damage(amount: float) -> void:
+	if amount <= 0: return
+	current_health = clamp(current_health - amount, 0.0, max_health)
+	health_changed.emit(current_health, max_health)
+	if current_health <= 0:
+		print("Player has died!")

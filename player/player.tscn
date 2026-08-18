@@ -9,6 +9,14 @@
 [ext_resource type="Script" path="res://ui/death_screen.gd" id="7_death_screen"]
 [ext_resource type="Script" path="res://ui/death_visage.gd" id="8_death_visage"]
 [ext_resource type="Script" path="res://ui/stamina_bar.gd" id="9_stamina_bar"]
+[ext_resource type="Script" path="res://components/bladder_component.gd" id="10_blad"]
+[ext_resource type="Script" path="res://components/bladder_feedback_component.gd" id="11_feed"]
+[ext_resource type="Script" path="res://components/inventory_component.gd" id="12_inv"]
+[ext_resource type="Script" path="res://components/carry_slots_component.gd" id="13_carry"]
+[ext_resource type="Script" path="res://components/blink_component.gd" id="14_blink"]
+[ext_resource type="Script" path="res://components/threat_component.gd" id="15_threat"]
+[ext_resource type="Script" path="res://components/footstep_component.gd" id="16_foot"]
+[ext_resource type="Script" path="res://components/interaction_controller.gd" id="17_int"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
 
@@ -177,9 +185,12 @@ spot_range = 14.0
 spot_angle = 30.0
 spot_angle_attenuation = 2.2
 
-[node name="InteractRay" type="RayCast3D" parent="CameraPivot/Camera3D" unique_id=1694598043]
+[node name="InteractRay" type="RayCast3D" parent="CameraPivot/Camera3D"]
 target_position = Vector3(0, 0, -2.5)
-collision_mask = 2
+collision_mask = 3
+
+[node name="FirstPersonItemHolder" type="Node3D" parent="CameraPivot/Camera3D"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.3, -0.3, -0.5)
 
 [node name="FootstepA" type="AudioStreamPlayer3D" parent="."]
 stream = ExtResource("5_footsteps_wood")
@@ -241,42 +252,7 @@ autowrap_mode = 0
 [node name="StatusUI" type="CanvasLayer" parent="."]
 layer = 104
 
-[node name="StaminaPanel" type="PanelContainer" parent="StatusUI"]
-anchors_preset = 6
-anchor_top = 1.0
-anchor_bottom = 1.0
-offset_left = 24.0
-offset_top = -82.0
-offset_right = 280.0
-offset_bottom = -24.0
-grow_vertical = 0
-theme_override_styles/panel = SubResource("StyleBox_stamina_panel")
 
-[node name="Margin" type="MarginContainer" parent="StatusUI/StaminaPanel"]
-layout_mode = 2
-
-[node name="VBox" type="VBoxContainer" parent="StatusUI/StaminaPanel/Margin"]
-layout_mode = 2
-theme_override_constants/separation = 5
-
-[node name="Label" type="Label" parent="StatusUI/StaminaPanel/Margin/VBox"]
-layout_mode = 2
-theme_override_colors/font_color = Color(0.61, 0.75, 0.73, 0.9)
-theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
-theme_override_constants/outline_size = 3
-theme_override_font_sizes/font_size = 12
-text = "THỂ LỰC   ·   SHIFT CHẠY"
-
-[node name="StaminaBar" type="ProgressBar" parent="StatusUI/StaminaPanel/Margin/VBox"]
-custom_minimum_size = Vector2(228, 9)
-layout_mode = 2
-mouse_filter = 2
-theme_override_styles/background = SubResource("StyleBox_stamina_bg")
-theme_override_styles/fill = SubResource("StyleBox_stamina_fill")
-value = 100.0
-show_percentage = false
-script = ExtResource("9_stamina_bar")
-player_path = NodePath("../../../../..")
 
 [node name="BlinkUI" type="CanvasLayer" parent="."]
 layer = 105
@@ -476,3 +452,34 @@ horizontal_alignment = 1
 
 [node name="ScareAudio" type="AudioStreamPlayer" parent="DeathUI"]
 volume_db = -1.5
+
+[node name="BladderComponent" type="Node" parent="."]
+script = ExtResource("10_blad")
+
+[node name="BladderFeedbackComponent" type="Node" parent="."]
+script = ExtResource("11_feed")
+
+[node name="InventoryComponent" type="Node" parent="."]
+script = ExtResource("12_inv")
+
+[node name="CarrySlotsComponent" type="Node" parent="."]
+script = ExtResource("13_carry")
+
+[node name="BlinkComponent" type="Node" parent="." node_paths=PackedStringArray("blink_overlay", "blink_bar")]
+script = ExtResource("14_blink")
+blink_overlay = NodePath("../BlinkOverlay/Eyelids")
+blink_bar = NodePath("../BlinkUI/BlinkContainer/VBoxContainer/BlinkBar")
+
+[node name="ThreatComponent" type="Node" parent="." node_paths=PackedStringArray("horror_overlay_rect", "death_ui")]
+script = ExtResource("15_threat")
+horror_overlay_rect = NodePath("../HorrorOverlay/VignetteAndGrain")
+death_ui = NodePath("../DeathUI")
+
+[node name="FootstepComponent" type="Node" parent="." node_paths=PackedStringArray("footstep_players")]
+script = ExtResource("16_foot")
+footstep_players = [NodePath("../FootstepA"), NodePath("../FootstepB")]
+
+[node name="InteractionController" type="Node" parent="." node_paths=PackedStringArray("interact_ray", "player_node")]
+script = ExtResource("17_int")
+interact_ray = NodePath("../CameraPivot/Camera3D/InteractRay")
+player_node = NodePath("..")
