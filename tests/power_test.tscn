@@ -1,0 +1,23 @@
+[gd_scene format=3 uid="uid://7s4hsrri3bie"]
+
+[ext_resource type="Script" uid="uid://dd63xhx0gpv2w" path="res://tests/power_test.gd" id="1_h6l8h"]
+[ext_resource type="Script" uid="uid://b524bfbh2wj0n" path="res://power/power_manager.gd" id="2_2oqtp"]
+[ext_resource type="Script" uid="uid://bqgk7reojutcx" path="res://power/electrical_device.gd" id="3_iwjq6"]
+
+[node name="Power" type="Node" unique_id=156352114]
+script = ExtResource("1_h6l8h")
+
+[node name="PowerManager" type="Node" parent="." unique_id=86932366]
+script = ExtResource("2_2oqtp")
+
+[node name="FakeAirConditioner" type="Node" parent="." unique_id=1052963001]
+script = ExtResource("3_iwjq6")
+power_consumption = 500.0
+
+[node name="FakeComputer" type="Node" parent="." unique_id=950958902]
+script = ExtResource("3_iwjq6")
+power_consumption = 300.0
+is_on = false
+
+[node name="FakeTV" type="Node" parent="." unique_id=1525678974]
+script = ExtResource("3_iwjq6")
