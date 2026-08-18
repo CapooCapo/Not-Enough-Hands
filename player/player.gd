@@ -358,6 +358,31 @@ func start_door_minigame(door: Node) -> bool:
 func is_door_minigame_active() -> bool:
 	return door_minigame != null and door_minigame.has_method("is_running") and bool(door_minigame.call("is_running"))
 
+func kill_by_ghost(ghost: Node3D) -> void:
+	if threat_comp:
+		threat_comp.kill_by_ghost(ghost)
+
+func can_be_targeted_by_ghosts() -> bool:
+	return threat_comp.can_be_targeted_by_ghosts() if threat_comp else true
+
+func set_threat_from(source: StringName, amount: float) -> void:
+	if threat_comp:
+		threat_comp.set_threat_from(source, amount)
+
+func set_statue_threat(amount: float) -> void:
+	if threat_comp:
+		threat_comp.set_statue_threat(amount)
+
+func apply_hunter_trap(source: Node3D) -> bool:
+	return threat_comp.apply_hunter_trap(source) if threat_comp else false
+
+func release_from_hunter_trap(source: Node3D = null) -> void:
+	if threat_comp:
+		threat_comp.release_from_hunter_trap(source)
+
+func is_trapped_by_hunter() -> bool:
+	return threat_comp.is_trapped_by_hunter() if threat_comp else false
+
 func take_damage(amount: float) -> void:
 	if amount <= 0: return
 	current_health = clamp(current_health - amount, 0.0, max_health)
