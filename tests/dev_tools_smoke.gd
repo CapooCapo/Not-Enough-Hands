@@ -50,6 +50,49 @@ func _run() -> void:
 		_fail("Fast movement did not enable or refill development stamina.")
 		return
 
+	# Noclip has to switch off the capsule as well as gravity, or the player
+	# flies while still being shoved around by whatever they are inside of.
+	var before_flight := player.global_position
+	dev_tools.set_noclip_enabled(true)
+	if not bool(player.get("dev_noclip")) or not player.get_node("CollisionShape3D").disabled:
+		_fail("Noclip did not disable the player capsule.")
+		return
+	player.global_position = before_flight + Vector3(0, 40.0, 0)
+	await physics_frame
+	if player.global_position.y < before_flight.y + 39.0:
+		_fail("Noclip did not stop gravity pulling the player back down.")
+		return
+	dev_tools.set_noclip_enabled(false)
+	if bool(player.get("dev_noclip")) or player.get_node("CollisionShape3D").disabled:
+		_fail("Turning noclip off did not restore the player capsule.")
+		return
+	player.global_position = before_flight
+
+	# The entrance x-ray has to reach all seven doors and clean up after itself.
+	dev_tools.set_entrance_xray_enabled(true)
+	var tagged: Array[int] = []
+	for door: Node in get_nodes_in_group("defense_doors"):
+		var marker := door.get_node_or_null(DevTools.XRAY_MARKER_NAME)
+		if not marker:
+			_fail("Entrance %02d got no x-ray marker." % int(door.get("entrance_id")))
+			return
+		var label := marker.get_node("Tag") as Label3D
+		if not label.no_depth_test or label.text != "%02d" % int(door.get("entrance_id")):
+			_fail("Entrance %02d's x-ray tag is wrong or not drawn through walls."
+				% int(door.get("entrance_id")))
+			return
+		tagged.append(int(door.get("entrance_id")))
+	tagged.sort()
+	if tagged != [1, 2, 3, 4, 5, 6, 7]:
+		_fail("Entrance x-ray covered %s, not all seven doors." % [tagged])
+		return
+	dev_tools.set_entrance_xray_enabled(false)
+	await process_frame
+	for door: Node in get_nodes_in_group("defense_doors"):
+		if door.get_node_or_null(DevTools.XRAY_MARKER_NAME):
+			_fail("Entrance x-ray left a marker behind when switched off.")
+			return
+
 	if not dev_tools.spawn_statue() or not statue.get_node("VisualRoot").visible:
 		_fail("Dev Tools did not force the statue to manifest.")
 		return
@@ -104,7 +147,7 @@ func _run() -> void:
 		audio.stop()
 	game.queue_free()
 	await process_frame
-	print("Dev Tools smoke test passed: invincibility, x3 speed, all three ghosts, and selected-door attack.")
+	print("Dev Tools smoke test passed: invincibility, x3 speed, noclip flight, seven-door x-ray, all three ghosts, and selected-door attack.")
 	quit()
 
 

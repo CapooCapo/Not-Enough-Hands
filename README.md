@@ -14,9 +14,22 @@ furniture source packs under `assets/map`.
 The bottom-left **THỂ LỰC** bar is connected to the player's sprint reserve: it
 drains while Shift-running and refills while walking or standing still.
 
-Press **F1** to open the development panel. It can toggle invincibility and x3
-movement speed, force the existing Statue, Crawler or Huntsman to manifest, and
-select entrance 01-07 for an immediate real door attack. Opening the panel
+Press **F1** to open the development panel. It can toggle invincibility, x3
+movement speed, noclip flight and the seven-entrance x-ray, force the existing
+Statue, Crawler or Huntsman to manifest, and select entrance 01-07 for an
+immediate real door attack.
+
+**Bay xuyên tường (noclip)** disables the player capsule and switches to free
+flight: WASD follows where the camera is pointing, Space and Ctrl are straight
+up and down, Shift is three times faster. Nothing collides while it is on, so
+turning it off inside a wall leaves the player inside that wall.
+
+**Soi 7 cửa xuyên tường** hangs a marker on every defense door that draws
+through the house, tagged with its entrance number, so all seven can be found
+and counted from anywhere without walking the ring. It reads the
+`defense_doors` group, so it works on both maps.
+
+Opening the panel
 releases the mouse automatically; F1 closes it and restores the previous mouse
 mode. Forcing the Huntsman in puts it inside a house with no breach, which seals
 it in — see below.
@@ -235,6 +248,125 @@ markers is also what tells it which side of any doorway is indoors.
 
 All three ghosts report threat through `Player.set_threat_from`, which keeps the
 horror overlay on whichever is currently worse.
+
+## Second map — Biệt thự Vành Đai (`house3/`)
+
+House2 is 18 × 12 m and its seven entrances are close enough that one player can
+cover several of them. `NEH_map_spec_v2.md` asks for a house about four times
+that size, where the geometry itself forces the team apart. That map lives in
+`house3/` **beside** House2, not in place of it: `main.tscn` and every House2
+test are untouched, and the villa reaches the player, the three ghosts, the
+defense doors, the power system and the audio through exactly the same node
+groups.
+
+Run it with `house3/villa_main.tscn` (F6). House2 still runs from `main.tscn`.
+
+| | House2 | Villa |
+|---|---|---|
+| Footprint | 18 × 12 m | 80 × 60 m, 40 × 30 cells of 2 m |
+| Storeys | 4 at 3.0 m | 4 at 3.5 m (cellar, ground, first, attic) |
+| Rooms | 12 | 33 plus a light shaft |
+| Circulation | central hall | ring corridor + cross, 9 junctions per floor |
+| Authoring | hand-placed in GDScript | generated from `neh_map_spec_v2.json` |
+
+### How it is built
+
+`house3/neh_map_spec_v2.json` holds the spec's §5–§9 tables verbatim and is the
+only source of geometry. Per spec §10.2 nothing parses the ASCII plans in §3 —
+they are for human readers, and their Vietnamese labels overwrite the cells they
+sit on.
+
+`villa_spec.gd` reads that file and rasterises one storey at a time following
+§10.2: fill the footprint with wall, carve the rooms, carve the corridors, tag
+the junctions, open the door cells, repaint the light shaft solid on the floor
+above it, and cut the entrances into the outer wall. `villa_house.gd` then turns
+that cell grid into geometry — greedy-rectangle floor slabs, wall runs merged
+along each straight face, doorways, ramps, railings and lights — and publishes
+room, junction, entrance, spawn and ghost-route markers.
+
+Two departures from the document, both deliberate:
+
+- **The attic ladder (`V04`) is built as a steep companionway, not a ladder.** A
+  `CharacterBody3D` cannot climb a vertical ladder in this project yet, so a map
+  that shipped one would have an unreachable attic and an unreachable `E07`. It
+  keeps its `hands_required: 2` and `cost: 5.0` metadata, so the two-handed rule
+  from §11 can be enforced in gameplay code later without touching the geometry.
+- **`E07` is laid flat.** The attic skylight has no wall to sit in, so its
+  defense door is tipped onto its back and set into the attic ceiling as a
+  boarded roof hatch. Standing it upright would have left a door slab in the
+  middle of the attic floor and the skylight itself open to the sky.
+- **`E05` gets a service culvert.** The spec puts the "outdoor" cellar door on
+  the basement's west wall at column 19 — which is under the west wing, not
+  outdoors. The coal chute therefore runs west as a covered culvert and surfaces
+  in the garden. This preserves what §11 actually wants from `E05`: it stays the
+  door that is 30–42 s from everything else.
+
+One inconsistency in the spec is worth knowing about. §10.6 rule 5 forbids a room
+with exactly one door, but the §5 door tables give exactly one to Thư viện,
+Kho thực phẩm, Phòng trẻ em, Phòng tắm lớn and Phòng máy. The diagrams agree with
+the tables, so the tables win and those rooms are listed in `single_door_rooms`
+in the JSON. Any *new* one-door room still fails validation.
+
+### Furniture
+
+Rooms are not dressed by hand. `FURNITURE_PLANS` in `villa_house.gd` gives each
+room *kind* four lists — `unique` pieces it has exactly one of, `large` carcass
+furniture, `small` accents, and an optional `table`/`seat` centre group. The
+builder walks the room's perimeter, collects every cell that has a wall on one
+side and is not reserved, and stands pieces against those walls facing into the
+room, one per four cells of floor. Bigger rooms also get a few pieces dropped on
+a three-cell lattice in the middle, so a 24 m attic does not read as a furnished
+corridor around an empty hall. Placement is seeded per room id, so a room looks
+the same every launch and players can learn where the cover is.
+
+Doorways, breach points and staircases — plus a one-cell margin around each —
+are reserved before anything is placed. And because a room's geometric centre is
+usually occupied by that room's own table, every room marker also publishes a
+`clear_point` meta: the nearest tile something can actually stand on. Ghost
+patrol routes, sweep points and the statue's start position all use it.
+
+### Verifying the villa
+
+```
+godot --headless --script tests/villa_layout_smoke.gd
+godot --headless --script tests/villa_seal_smoke.gd
+godot --headless --script tests/villa_boot_smoke.gd
+```
+
+`villa_layout_smoke.gd` runs spec §10.6 against the tables before any geometry
+exists: flood-fill reachability from `SP_PLAYER_1` across all four storeys
+including the vertical links, the light shaft being solid on `F_01`, every
+entrance touching the room it claims, the junction graph being connected and
+still containing a cycle (lose the cycle and the ring design is broken), and no
+undeclared single-door room. It then builds the house in blockout detail and
+checks the markers and groups it publishes.
+
+`villa_seal_smoke.gd` fires rays out of all 1998 walkable cells — down, up, and
+sideways at both waist and head height — and fails on any that escape through
+something the spec did not ask for. The only openings it permits are the light
+shaft, the stairwell holes and the attic skylight, and it derives all three from
+the spec rather than from a hardcoded list.
+
+`villa_boot_smoke.gd` boots `villa_main.tscn` at full detail and asks the baked
+navmesh for real paths — hall to cellar, hall to attic, library to kitchen — plus
+the seven defense doors at their correct storey heights, and that every one of
+the 50-odd ghost route markers is reachable from the player spawn. That last
+check is the guard against furnishing a room shut.
+
+Between them these three caught every bug in this map worth recording: a
+storey's worth of walls stacked at y=0, closed interior doors baking into the
+navmesh as permanent walls, the basement stair running out of floor at its foot,
+untiled floor strips in odd-height rooms, an unlined light shaft, unrailed
+stairwell openings, and a wardrobe parked on the approach to the cellar stair.
+
+`tests/villa_screenshot.gd` is not a test — it parks a camera at a dozen points
+in the house and writes PNGs to `user://villa_shots`. Two bugs got past every
+assertion above and were only visible in those images: the kit staircase was
+being scaled on the wrong axes, which made it twice its own length and half a
+storey too tall, and the balustrades were placing one 1 m panel per 2 m cell,
+leaving a metre of open air between every section. Both are now driven by
+constants measured off the kit (`KIT_STAIR_RUN`, `KIT_STAIR_RISE`,
+`KIT_RAIL_WIDTH`) instead of guessed factors.
 
 ## Verification
 

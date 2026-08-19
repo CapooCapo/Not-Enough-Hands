@@ -1,0 +1,103 @@
+[gd_scene format=3]
+
+[ext_resource type="PackedScene" path="res://house3/villa_house.tscn" id="1_villa"]
+[ext_resource type="PackedScene" path="res://player/player.tscn" id="2_player"]
+[ext_resource type="Script" path="res://house3/villa_main.gd" id="3_villa_main"]
+[ext_resource type="PackedScene" path="res://ghosts/statue_ghost.tscn" id="5_statue"]
+[ext_resource type="Script" path="res://door/door_attack_director.gd" id="6_door_director"]
+[ext_resource type="Script" path="res://audio/house_ambience.gd" id="7_house_ambience"]
+[ext_resource type="PackedScene" path="res://ghosts/crawler_ghost.tscn" id="8_crawler"]
+[ext_resource type="PackedScene" path="res://ui/night_clock.tscn" id="9_night_clock"]
+[ext_resource type="PackedScene" path="res://ui/dev_tools.tscn" id="10_dev_tools"]
+[ext_resource type="PackedScene" path="res://ghosts/hunter_ghost.tscn" id="11_hunter"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_villa"]
+sky_top_color = Color(0.22, 0.38, 0.58, 1)
+sky_horizon_color = Color(0.72, 0.82, 0.9, 1)
+ground_bottom_color = Color(0.09, 0.11, 0.14, 1)
+ground_horizon_color = Color(0.45, 0.5, 0.54, 1)
+sun_angle_max = 12.0
+sun_curve = 0.08
+
+[sub_resource type="Sky" id="Sky_villa"]
+sky_material = SubResource("ProceduralSkyMaterial_villa")
+process_mode = 1
+radiance_size = 2
+
+[sub_resource type="Environment" id="Environment_villa"]
+background_mode = 2
+sky = SubResource("Sky_villa")
+ambient_light_source = 3
+ambient_light_color = Color(0.7, 0.76, 0.84, 1)
+ambient_light_energy = 0.75
+reflected_light_source = 2
+tonemap_mode = 2
+fog_enabled = true
+fog_light_color = Color(0.45, 0.52, 0.58, 1)
+fog_density = 0.0
+fog_aerial_perspective = 0.8
+fog_height = 2.0
+volumetric_fog_enabled = true
+volumetric_fog_density = 0.0
+volumetric_fog_albedo = Color(0.38, 0.46, 0.5, 1)
+volumetric_fog_emission = Color(0.008, 0.012, 0.016, 1)
+volumetric_fog_emission_energy = 0.0
+volumetric_fog_length = 42.0
+volumetric_fog_detail_spread = 1.8
+volumetric_fog_ambient_inject = 0.35
+volumetric_fog_sky_affect = 0.15
+adjustment_enabled = true
+
+[node name="VillaMain" type="Node3D"]
+script = ExtResource("3_villa_main")
+
+[node name="DoorAttackDirector" type="Node" parent="."]
+script = ExtResource("6_door_director")
+automatic_waves = true
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_villa")
+
+[node name="NightClock" parent="." instance=ExtResource("9_night_clock")]
+
+[node name="DevTools" parent="." instance=ExtResource("10_dev_tools")]
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.81915206, 0.46984634, -0.32898995, 0, 0.57357645, 0.81915206, 0.57357645, -0.6710101, 0.46984634, 0, 0, 0)
+light_color = Color(1, 0.96, 0.88, 1)
+light_energy = 1.1
+light_angular_distance = 1.5
+shadow_enabled = true
+
+[node name="VillaHouse" parent="." instance=ExtResource("1_villa")]
+
+[node name="Player" parent="." instance=ExtResource("2_player")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 33, 1, 7)
+walk_speed = 2.6
+crouch_speed = 1.45
+sprint_speed_multiplier = 1.35
+forced_blink_duration = 0.25
+
+[node name="HouseAmbience" type="Node" parent="."]
+script = ExtResource("7_house_ambience")
+
+[node name="AmbientBed" type="AudioStreamPlayer" parent="HouseAmbience"]
+volume_db = -60.0
+
+[node name="HouseEvent" type="AudioStreamPlayer3D" parent="HouseAmbience"]
+volume_db = -13.0
+unit_size = 5.0
+max_distance = 34.0
+panning_strength = 1.35
+
+[node name="StatueGhost" parent="." instance=ExtResource("5_statue")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 51, 0.08, 37)
+night_aggression = 0.15
+
+[node name="CrawlerGhost" parent="." instance=ExtResource("8_crawler")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 29, 7.4, 29)
+containment_enabled = true
+patrol_point_timeout = 26.0
+
+[node name="HunterGhost" parent="." instance=ExtResource("11_hunter")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 40, 0, -12)

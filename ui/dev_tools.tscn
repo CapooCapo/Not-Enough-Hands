@@ -25,7 +25,7 @@ script = ExtResource("1_script")
 offset_left = 20.0
 offset_top = 20.0
 offset_right = 420.0
-offset_bottom = 584.0
+offset_bottom = 660.0
 theme_override_styles/panel = SubResource("StyleBox_panel")
 
 [node name="Margin" type="MarginContainer" parent="Panel"]
@@ -60,6 +60,14 @@ text = "Bất tử"
 [node name="FastMovement" type="CheckButton" parent="Panel/Margin/Content"]
 layout_mode = 2
 text = "Chạy nhanh x3"
+
+[node name="Noclip" type="CheckButton" parent="Panel/Margin/Content"]
+layout_mode = 2
+text = "Bay xuyên tường"
+
+[node name="EntranceXray" type="CheckButton" parent="Panel/Margin/Content"]
+layout_mode = 2
+text = "Soi 7 cửa xuyên tường"
 
 [node name="SeparatorB" type="HSeparator" parent="Panel/Margin/Content"]
 layout_mode = 2

@@ -1,0 +1,158 @@
+extends SceneTree
+
+## Boots the villa map exactly as a player would get it: full kit detail,
+## defense doors placed from the spec anchors, and a baked navmesh that has to
+## carry an agent from the front hall down to the cellar door and up to the
+## attic skylight - the two ends of spec section 4's travel-time table.
+##
+##   godot --headless --script tests/villa_boot_smoke.gd
+
+const MAX_BUILD_SECONDS := 60.0
+
+
+func _initialize() -> void:
+	_run.call_deferred()
+
+
+func _run() -> void:
+	var started := Time.get_ticks_msec()
+	var main_scene := (load("res://house3/villa_main.tscn") as PackedScene).instantiate()
+	root.add_child(main_scene)
+	for _frame: int in 6:
+		await process_frame
+	await physics_frame
+	var elapsed := (Time.get_ticks_msec() - started) / 1000.0
+	if elapsed > MAX_BUILD_SECONDS:
+		_fail("Villa took %.1f s to build and bake; budget is %.0f s." % [elapsed, MAX_BUILD_SECONDS])
+		return
+
+	var house := main_scene.get_node_or_null("VillaHouse") as Node3D
+	if not house or not house.has_node("Generated"):
+		_fail("villa_main.tscn did not build the villa.")
+		return
+
+	var entrance_ids: Array[int] = []
+	# Entrance 07 is the attic skylight, so it sits in the ceiling above the
+	# attic floor rather than on it.
+	var elevations := {1: 0.0, 2: 0.0, 3: 0.0, 4: 0.0, 5: -3.5, 6: 3.5, 7: 10.5}
+	for node: Node in get_nodes_in_group("defense_doors"):
+		var entrance_id := int(node.get("entrance_id"))
+		entrance_ids.append(entrance_id)
+		if not elevations.has(entrance_id):
+			_fail("Unexpected entrance id %d." % entrance_id)
+			return
+		if absf((node as Node3D).global_position.y - elevations[entrance_id]) > 0.01:
+			_fail("Entrance %02d sits at y=%.2f, expected %.2f."
+				% [entrance_id, (node as Node3D).global_position.y, elevations[entrance_id]])
+			return
+	entrance_ids.sort()
+	if entrance_ids != [1, 2, 3, 4, 5, 6, 7]:
+		_fail("Villa entrances are incomplete or duplicated: %s." % [entrance_ids])
+		return
+
+	var region := main_scene.get_node_or_null("VillaNavigationRegion") as NavigationRegion3D
+	if not region or region.navigation_mesh.get_polygon_count() == 0:
+		_fail("The villa baked an empty navmesh.")
+		return
+
+	var player := main_scene.get_node_or_null("Player") as Node3D
+	var spawn := (get_nodes_in_group("villa_spawn_points")[0] as Node3D).global_position
+	if not player or player.global_position.distance_to(spawn) > 2.0:
+		_fail("The player was not placed on SP_PLAYER_1.")
+		return
+
+	if not await _navigation_map_ready(spawn):
+		_fail("The navigation map never came up around the player spawn.")
+		return
+
+	if not _reaches("R_FOYER", "R_COAL"):
+		return
+	if not _reaches("R_FOYER", "R_ATTIC"):
+		return
+	if not _reaches("R_LIBRARY", "R_KITCHEN"):
+		return
+	if not _routes_are_usable(spawn):
+		return
+
+	print(
+		"Villa boot smoke test passed in %.1f s: 7 defense doors, %d navmesh polygons, "
+		% [elapsed, region.navigation_mesh.get_polygon_count()]
+		+ "hall to cellar, hall to attic and library to kitchen all routable."
+	)
+	quit()
+
+
+## Baking a navmesh is synchronous, but the server only folds the new region
+## into the map on one of its own sync steps. How many physics frames that
+## takes is not fixed, so wait for the map to answer instead of counting
+## frames and hoping - that guess made this test fail about one run in three.
+func _navigation_map_ready(spawn: Vector3) -> bool:
+	var map := root.get_world_3d().navigation_map
+	for _attempt: int in 120:
+		if NavigationServer3D.map_get_closest_point(map, spawn).distance_to(spawn) < 2.0:
+			return true
+		await physics_frame
+	return false
+
+
+## Every ghost route marker has to be somewhere a ghost can actually get to.
+## This is the guard against furnishing a room shut: a wardrobe dropped across
+## a doorway shows up here as an unreachable patrol point long before it shows
+## up as a ghost standing still in a corner all night.
+func _routes_are_usable(spawn: Vector3) -> bool:
+	var map := root.get_world_3d().navigation_map
+	var start := NavigationServer3D.map_get_closest_point(map, spawn)
+	for group: String in ["crawler_patrol_points", "hunter_sweep_points", "crawler_lair"]:
+		for node: Node in get_nodes_in_group(group):
+			var point := (node as Node3D).global_position
+			var closest := NavigationServer3D.map_get_closest_point(map, point)
+			if closest.distance_to(point) > 1.5:
+				_fail("Route marker %s has no navmesh within 1.5 m." % node.name)
+				return false
+			var path := NavigationServer3D.map_get_path(map, start, closest, true)
+			if path.size() < 2 or path[-1].distance_to(closest) > 2.0:
+				_fail("Route marker %s is unreachable from the player spawn." % node.name)
+				return false
+	return true
+
+
+## Asks the navigation server for a real path between two room markers. The map
+## is only worth anything if the ghosts can actually cross it.
+func _reaches(from_room: String, to_room: String) -> bool:
+	var from_marker := _room(from_room)
+	var to_marker := _room(to_room)
+	if not from_marker or not to_marker:
+		_fail("Missing room marker for %s or %s." % [from_room, to_room])
+		return false
+
+	var map := root.get_world_3d().navigation_map
+	# Probe the furniture-free tile each room publishes, not its geometric
+	# centre: that is usually occupied by the room's own table.
+	var from_point: Vector3 = from_marker.get_meta("clear_point", from_marker.global_position)
+	var to_point: Vector3 = to_marker.get_meta("clear_point", to_marker.global_position)
+	var start := NavigationServer3D.map_get_closest_point(map, from_point)
+	var goal := NavigationServer3D.map_get_closest_point(map, to_point)
+	if start.distance_to(from_point) > 4.0:
+		_fail("%s has no navmesh under it." % from_room)
+		return false
+	if goal.distance_to(to_point) > 4.0:
+		_fail("%s has no navmesh under it." % to_room)
+		return false
+
+	var path := NavigationServer3D.map_get_path(map, start, goal, true)
+	if path.size() < 2 or path[-1].distance_to(goal) > 2.0:
+		_fail("No navigation path from %s to %s." % [from_room, to_room])
+		return false
+	return true
+
+
+func _room(room_id: String) -> Node3D:
+	for node: Node in get_nodes_in_group("villa_rooms"):
+		if String(node.get_meta("room_id", "")) == room_id:
+			return node as Node3D
+	return null
+
+
+func _fail(message: String) -> void:
+	push_error(message)
+	quit(1)

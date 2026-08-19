@@ -69,6 +69,7 @@ var eyelid_closure: float = 0.0
 
 var dev_invincible: bool = false
 var dev_fast_movement: bool = false
+var dev_noclip: bool = false
 var hunter_trap_source: Node3D
 
 @onready var camera_pivot: Node3D = $CameraPivot
@@ -213,6 +214,10 @@ func _physics_process(delta: float) -> void:
 	if not is_alive:
 		velocity = Vector3.ZERO
 		_stop_footsteps()
+		return
+
+	if dev_noclip:
+		_fly(delta)
 		return
 
 	var was_on_floor := is_on_floor()
@@ -469,6 +474,43 @@ func set_dev_fast_movement(enabled: bool) -> void:
 	dev_fast_movement = enabled
 	if enabled:
 		current_stamina = max_stamina
+
+
+## Free flight with collision switched off, for inspecting a map from inside
+## it. The capsule's shape is disabled rather than its layers, so nothing can
+## push the player around while they are clipping through walls.
+func set_dev_noclip(enabled: bool) -> void:
+	dev_noclip = enabled
+	collision_shape.disabled = enabled
+	if enabled:
+		velocity = Vector3.ZERO
+		_stop_footsteps()
+
+
+## Camera-relative flight: WASD follows where you are looking, Space and Ctrl
+## are straight up and down. Position is written directly, so no collision,
+## gravity or step-up logic gets a say.
+func _fly(delta: float) -> void:
+	var input_dir := Input.get_vector("move_left", "move_right", "move_forward", "move_backward")
+	var camera_basis := camera_pivot.global_basis
+	var motion := (
+		camera_basis * Vector3(input_dir.x, 0.0, input_dir.y)
+		+ Vector3.UP * (
+			(1.0 if Input.is_action_pressed("jump") else 0.0)
+			- (1.0 if Input.is_action_pressed("crouch") else 0.0)
+		)
+	)
+	var speed := walk_speed * 3.0
+	if Input.is_action_pressed("run"):
+		speed *= 3.0
+	if dev_fast_movement:
+		speed *= maxf(dev_speed_multiplier, 1.0)
+
+	velocity = motion.normalized() * speed if motion.length_squared() > 0.0 else Vector3.ZERO
+	global_position += velocity * delta
+	current_stamina = max_stamina
+	_update_camera_motion(delta)
+	_stop_footsteps()
 
 
 func _update_minigame_ghost_safety(delta: float) -> void:
