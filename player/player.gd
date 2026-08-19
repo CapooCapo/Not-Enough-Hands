@@ -70,6 +70,9 @@ var eyelid_closure: float = 0.0
 var dev_invincible: bool = false
 var dev_fast_movement: bool = false
 var dev_noclip: bool = false
+var dev_clear_vision: bool = false
+var _blink_before_clear_vision: bool = true
+var _dev_vision_light: OmniLight3D
 var hunter_trap_source: Node3D
 
 @onready var camera_pivot: Node3D = $CameraPivot
@@ -337,6 +340,10 @@ func _update_blink(delta: float) -> void:
 
 
 func force_blink(duration: float = -1.0) -> void:
+	# Ghosts force blinks to blind the player. That is exactly the kind of
+	# thing clear vision exists to switch off.
+	if dev_clear_vision:
+		return
 	forced_blink_remaining = forced_blink_duration if duration < 0.0 else duration
 	blink_time_remaining = blink_interval
 	if not eyes_closed and is_alive:
@@ -485,6 +492,43 @@ func set_dev_noclip(enabled: bool) -> void:
 	if enabled:
 		velocity = Vector3.ZERO
 		_stop_footsteps()
+
+
+## Strips every effect that makes the house hard to read: the vignette and
+## grain, the threat distortion, the involuntary blinking, and the darkness
+## itself. The environment side of it (fog, ambient) belongs to the scene, so
+## DevTools handles that; this covers everything the player owns.
+func set_dev_clear_vision(enabled: bool) -> void:
+	dev_clear_vision = enabled
+	horror_overlay_rect.visible = not enabled
+
+	if enabled:
+		_blink_before_clear_vision = automatic_blink_enabled
+		automatic_blink_enabled = false
+		forced_blink_remaining = 0.0
+		blink_time_remaining = blink_interval
+		eyes_closed = false
+		eyelid_closure = 0.0
+		var eyelid_material := blink_overlay.material as ShaderMaterial
+		if eyelid_material:
+			eyelid_material.set_shader_parameter("closure", 0.0)
+		var overlay_material := horror_overlay_rect.material as ShaderMaterial
+		if overlay_material:
+			overlay_material.set_shader_parameter("threat_strength", 0.0)
+	else:
+		automatic_blink_enabled = _blink_before_clear_vision
+
+	if not _dev_vision_light:
+		_dev_vision_light = OmniLight3D.new()
+		_dev_vision_light.name = "DevVisionLight"
+		# Wide and soft rather than bright and tight: the point is to read the
+		# room you are standing in, not to cast a second flashlight beam.
+		_dev_vision_light.light_energy = 1.1
+		_dev_vision_light.omni_range = 18.0
+		_dev_vision_light.omni_attenuation = 1.2
+		_dev_vision_light.light_color = Color(0.92, 0.95, 1.0)
+		camera_pivot.add_child(_dev_vision_light)
+	_dev_vision_light.visible = enabled
 
 
 ## Camera-relative flight: WASD follows where you are looking, Space and Ctrl

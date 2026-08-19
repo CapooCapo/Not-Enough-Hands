@@ -15,19 +15,25 @@ The bottom-left **THỂ LỰC** bar is connected to the player's sprint reserve:
 drains while Shift-running and refills while walking or standing still.
 
 Press **F1** to open the development panel. It can toggle invincibility, x3
-movement speed, noclip flight and the seven-entrance x-ray, force the existing
-Statue, Crawler or Huntsman to manifest, and select entrance 01-07 for an
-immediate real door attack.
+movement speed, noclip flight, clear vision and the seven-entrance x-ray, force
+the existing Statue, Crawler or Huntsman to manifest, and select entrance 01-07
+for an immediate real door attack.
 
 **Bay xuyên tường (noclip)** disables the player capsule and switches to free
 flight: WASD follows where the camera is pointing, Space and Ctrl are straight
 up and down, Shift is three times faster. Nothing collides while it is on, so
 turning it off inside a wall leaves the player inside that wall.
 
-**Soi 7 cửa xuyên tường** hangs a marker on every defense door that draws
-through the house, tagged with its entrance number, so all seven can be found
-and counted from anywhere without walking the ring. It reads the
-`defense_doors` group, so it works on both maps.
+**Soi 7 cửa xuyên tường** outlines every defense door through the house and tags
+it with its entrance number and current range, so all seven can be found and
+counted from anywhere without walking the ring. It reads the `defense_doors`
+group, so it works on both maps.
+
+**Sáng tối đa** takes the night off: no fog or volumetric fog, no vignette,
+grain or threat distortion, no involuntary blinking (a ghost calling
+`force_blink` is ignored), ambient light raised and a soft lamp on the camera.
+The original `Environment` is kept and put straight back when the toggle is
+cleared, so it never leaks into a real run.
 
 Opening the panel
 releases the mouse automatically; F1 closes it and restores the previous mouse
@@ -359,8 +365,9 @@ navmesh as permanent walls, the basement stair running out of floor at its foot,
 untiled floor strips in odd-height rooms, an unlined light shaft, unrailed
 stairwell openings, and a wardrobe parked on the approach to the cellar stair.
 
-`tests/villa_screenshot.gd` is not a test — it parks a camera at a dozen points
-in the house and writes PNGs to `user://villa_shots`. Two bugs got past every
+`tests/villa_screenshot.gd` and `tests/villa_devshot.gd` are not tests — they
+park a camera in the house (the second one with the dev toggles flipped) and
+write PNGs to `user://villa_shots`. Two bugs got past every
 assertion above and were only visible in those images: the kit staircase was
 being scaled on the wrong axes, which made it twice its own length and half a
 storey too tall, and the balustrades were placing one 1 m panel per 2 m cell,

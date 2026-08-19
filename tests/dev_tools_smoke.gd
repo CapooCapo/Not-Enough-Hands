@@ -68,6 +68,26 @@ func _run() -> void:
 		return
 	player.global_position = before_flight
 
+	# Clear vision has to switch off the overlays AND the forced blinking, or a
+	# ghost can still blind a player who asked not to be blinded.
+	var environment_before: Environment = (game.get_node("WorldEnvironment") as WorldEnvironment).environment
+	dev_tools.set_bright_vision_enabled(true)
+	player.call("force_blink", 1.0)
+	if not bool(player.get("dev_clear_vision")) \
+		or player.get_node("HorrorOverlay/VignetteAndGrain").visible \
+		or bool(player.get("automatic_blink_enabled")) \
+		or float(player.get("forced_blink_remaining")) > 0.0:
+		_fail("Clear vision left an adverse effect switched on.")
+		return
+	var bright_environment: Environment = (game.get_node("WorldEnvironment") as WorldEnvironment).environment
+	if bright_environment.fog_enabled or bright_environment.volumetric_fog_enabled:
+		_fail("Clear vision did not clear the fog.")
+		return
+	dev_tools.set_bright_vision_enabled(false)
+	if (game.get_node("WorldEnvironment") as WorldEnvironment).environment != environment_before:
+		_fail("Turning clear vision off did not restore the original environment.")
+		return
+
 	# The entrance x-ray has to reach all seven doors and clean up after itself.
 	dev_tools.set_entrance_xray_enabled(true)
 	var tagged: Array[int] = []
@@ -147,7 +167,7 @@ func _run() -> void:
 		audio.stop()
 	game.queue_free()
 	await process_frame
-	print("Dev Tools smoke test passed: invincibility, x3 speed, noclip flight, seven-door x-ray, all three ghosts, and selected-door attack.")
+	print("Dev Tools smoke test passed: invincibility, x3 speed, noclip flight, clear vision, seven-door x-ray, all three ghosts, and selected-door attack.")
 	quit()
 
 
