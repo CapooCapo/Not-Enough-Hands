@@ -496,8 +496,8 @@ func _build_room_props(basement: Node3D, ground: Node3D, upper: Node3D, attic: N
 	# Keep the bathroom's door-to-tub aisle open. The toilet used to sit around
 	# the middle of that approach; tuck its cistern against the south wall and
 	# turn the bowl into the room like a normal fixture.
-	_add_asset(FURNITURE_TOILET, upper_props, "Toilet", Vector3(5.1, FLOOR_HEIGHT, 0.65), PI)
-	_place_toilet_interactable(upper_props, Vector3(5.1, FLOOR_HEIGHT, 0.65), PI)
+	_add_asset(FURNITURE_TOILET, upper_props, "Toilet", Vector3(5.1, FLOOR_HEIGHT, 0.65))
+	_place_toilet_interactable(upper_props, Vector3(5.1, FLOOR_HEIGHT, 0.65), 0.0)
 	_add_asset(FURNITURE_SINK, upper_props, "BathroomSink", Vector3(5.2, FLOOR_HEIGHT, 5.5))
 	_add_asset(FURNITURE_MIRROR, upper_props, "BathroomMirror", Vector3(5.2, FLOOR_HEIGHT + 1.5, 5.88))
 	_add_asset(FURNITURE_WASHER, upper_props, "BathroomWasher", Vector3(8.1, FLOOR_HEIGHT, 1.2), PI)

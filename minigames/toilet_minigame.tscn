@@ -48,6 +48,71 @@ theme_override_font_sizes/font_size = 32
 text = "BALANCE"
 horizontal_alignment = 1
 
+[node name="InstructionLabel" type="Label" parent="HUDLayer/MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "MOVE MOUSE TO AIM  •  A/D: FALLBACK LEFT/RIGHT"
+horizontal_alignment = 1
+
+[node name="BalanceTrack" type="Control" parent="HUDLayer/MarginContainer/VBoxContainer"]
+custom_minimum_size = Vector2(360, 24)
+layout_mode = 2
+size_flags_horizontal = 4
+
+[node name="Background" type="ColorRect" parent="HUDLayer/MarginContainer/VBoxContainer/BalanceTrack"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.18, 0.035, 0.035, 0.9)
+
+[node name="WarningZone" type="ColorRect" parent="HUDLayer/MarginContainer/VBoxContainer/BalanceTrack"]
+layout_mode = 1
+anchor_left = 0.3
+anchor_right = 0.7
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.72, 0.55, 0.08, 0.95)
+
+[node name="SafeZone" type="ColorRect" parent="HUDLayer/MarginContainer/VBoxContainer/BalanceTrack"]
+layout_mode = 1
+anchor_left = 0.43
+anchor_right = 0.57
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.12, 0.68, 0.28, 1)
+
+[node name="Indicator" type="ColorRect" parent="HUDLayer/MarginContainer/VBoxContainer/BalanceTrack"]
+layout_mode = 1
+anchor_left = 0.5
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -3.0
+offset_right = 3.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.85, 0.95, 1, 1)
+
+[node name="ComboLabel" type="Label" parent="HUDLayer/MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "LOCKING  0%"
+horizontal_alignment = 1
+
+[node name="DangerNoiseBar" type="ProgressBar" parent="HUDLayer/MarginContainer/VBoxContainer"]
+custom_minimum_size = Vector2(260, 8)
+layout_mode = 2
+size_flags_horizontal = 4
+max_value = 1.0
+step = 0.01
+show_percentage = false
+
 [node name="StatusArea" type="HBoxContainer" parent="HUDLayer/MarginContainer/VBoxContainer"]
 layout_mode = 2
 theme_override_constants/separation = 40
