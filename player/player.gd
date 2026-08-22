@@ -63,6 +63,19 @@ var eyelid_closure: float = 0.0
 @export var mouse_sensitivity: float = 0.002
 @export var max_interaction_range: float = 10.0
 
+## Temporary look-around constraint a minigame can impose (currently only
+## ToiletMinigame) - false/full-range outside any minigame, so normal
+## mouse-look is unaffected. yaw is clamped via an accumulator (rotate_y()
+## itself has no absolute angle to read back) while pitch is clamped
+## directly on camera_pivot.rotation.x like the un-constrained case already
+## does, just with configurable bounds instead of the hardcoded +-PI/2.
+var yaw_clamp_active: bool = false
+var yaw_clamp_min: float = 0.0
+var yaw_clamp_max: float = 0.0
+var accumulated_yaw: float = 0.0
+var pitch_clamp_min: float = -PI / 2.0
+var pitch_clamp_max: float = PI / 2.0
+
 @export_category("Development")
 @export var minigame_ghost_resume_grace: float = 1.5
 @export var dev_speed_multiplier: float = 3.0
@@ -147,18 +160,27 @@ func _unhandled_input(event: InputEvent) -> void:
 		toggle_mouse_capture()
 		get_viewport().set_input_as_handled()
 		return
-	if _is_any_minigame_active():
+	if is_door_minigame_active():
 		return
 
 	if event is InputEventMouseMotion and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
-		# Rotate player horizontally
-		rotate_y(-event.relative.x * mouse_sensitivity)
+		# Rotate player horizontally - clamped to a limited look-around
+		# window while yaw_clamp_active (e.g. ToiletMinigame), full range
+		# otherwise.
+		var yaw_delta: float = -event.relative.x * mouse_sensitivity
+		if yaw_clamp_active:
+			var new_yaw: float = clamp(accumulated_yaw + yaw_delta, yaw_clamp_min, yaw_clamp_max)
+			yaw_delta = new_yaw - accumulated_yaw
+			accumulated_yaw = new_yaw
+		rotate_y(yaw_delta)
 
-		# Rotate camera vertically
+		# Rotate camera vertically, clamped to pitch_clamp_min/max (+-90
+		# degrees normally, narrower while a minigame constrains it).
 		camera_pivot.rotate_x(-event.relative.y * mouse_sensitivity)
+		camera_pivot.rotation.x = clamp(camera_pivot.rotation.x, pitch_clamp_min, pitch_clamp_max)
 
-		# Clamp vertical rotation (-90 to 90 degrees)
-		camera_pivot.rotation.x = clamp(camera_pivot.rotation.x, -PI/2, PI/2)
+	if _is_any_minigame_active():
+		return
 
 	if event.is_action_pressed("interact"):
 		_try_interact()

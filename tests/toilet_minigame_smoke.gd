@@ -80,6 +80,36 @@ func _run() -> void:
 		quit(1)
 		return
 
+	# --- Camera clamp state: armed correctly while PLAYING. ---
+	# Godot's headless mode has no real DisplayServer, so
+	# Input.set_mouse_mode() is a no-op and get_mouse_mode() always reports
+	# MOUSE_MODE_VISIBLE - the mouse-look branch this feeds
+	# (`if ... and Input.get_mouse_mode() == MOUSE_MODE_CAPTURED`) is
+	# therefore unreachable in a headless test, exactly like the rest of
+	# player.gd's pre-existing mouse-look code (no test in this project has
+	# ever simulated real mouse-drag rotation for the same reason - see the
+	# task's own manual_tests for that). What's verified here instead is the
+	# part that *is* automatable: the clamp fields are armed with the right
+	# bounds on entry and fully disarmed on exit (checked further below,
+	# after cancel).
+	await create_timer(0.35).timeout # let the entry tween settle
+	if not player.yaw_clamp_active:
+		push_error("yaw_clamp_active was not enabled while the toilet minigame is playing.")
+		quit(1)
+		return
+	if not is_equal_approx(player.yaw_clamp_max - player.yaw_clamp_min, deg_to_rad(180.0)):
+		push_error("Yaw clamp range is not +-90 degrees around the entry orientation.")
+		quit(1)
+		return
+	if not is_equal_approx(player.pitch_clamp_max - player.pitch_clamp_min, deg_to_rad(180.0)):
+		push_error("Pitch clamp range is not +-90 degrees around the entry orientation.")
+		quit(1)
+		return
+	if not is_equal_approx(player.accumulated_yaw, 0.0):
+		push_error("accumulated_yaw should start at 0 relative to the freshly-established toilet-facing orientation.")
+		quit(1)
+		return
+
 	# --- Nozzle oscillates automatically (re-enable briefly to check). ---
 	minigame.oscillation_amplitude = 0.08
 	minigame.asset_anchor.position.x = 0.0
@@ -126,6 +156,12 @@ func _run() -> void:
 		return
 
 	# --- Cancel before completion: bladder unchanged, state restored. ---
+	# Set fresh right before cancelling: real time has passed above (the
+	# camera-tween-settle wait), during which dwelling centered in the safe
+	# zone was for-real draining bladder via the actual _process() loop -
+	# correct gameplay behavior, just not what this specific assertion
+	# means to isolate.
+	player.bladder.current_value = 30.0
 	minigame._unhandled_input(_make_cancel_event())
 	if minigame.current_state != ToiletMinigame.MinigameState.CANCELLED:
 		push_error("ui_cancel did not move the minigame into CANCELLED.")
@@ -142,6 +178,14 @@ func _run() -> void:
 		return
 	if player.is_toilet_minigame_active() or player.is_door_minigame_active():
 		push_error("Player minigame-lock flag did not clear after cancel.")
+		quit(1)
+		return
+	if player.yaw_clamp_active:
+		push_error("yaw_clamp_active was not cleared after cancel.")
+		quit(1)
+		return
+	if not is_equal_approx(player.pitch_clamp_min, -PI / 2.0) or not is_equal_approx(player.pitch_clamp_max, PI / 2.0):
+		push_error("Pitch clamp was not restored to the normal +-90 degree range after cancel.")
 		quit(1)
 		return
 	if not player.is_physics_processing():
@@ -183,6 +227,14 @@ func _run() -> void:
 		return
 	if not player.is_physics_processing():
 		push_error("Player movement was not restored after success.")
+		quit(1)
+		return
+	if player.yaw_clamp_active:
+		push_error("yaw_clamp_active was not cleared after success.")
+		quit(1)
+		return
+	if not is_equal_approx(player.pitch_clamp_min, -PI / 2.0) or not is_equal_approx(player.pitch_clamp_max, PI / 2.0):
+		push_error("Pitch clamp was not restored to the normal +-90 degree range after success.")
 		quit(1)
 		return
 	if player.is_toilet_minigame_active():
