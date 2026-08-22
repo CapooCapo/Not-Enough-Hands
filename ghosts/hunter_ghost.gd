@@ -31,6 +31,8 @@ extends CharacterBody3D
 ##             three hundred kilos and cannot turn.
 ##   SEIZING   the grab. Half a second of windup, and that half second is the
 ##             only window there is.
+##   PLACING_TRAP  while it is not charging, it can spend a moment laying one
+##             of at most three traps in the house.
 ##   LEAVING   the hunt ran out of time: it walks back out through a breach.
 ##
 ## Two rules make it the worst thing in the building:
@@ -56,6 +58,7 @@ enum HunterState {
 	SEIZING,
 	RECOVERING,
 	LEAVING,
+	PLACING_TRAP,
 }
 
 signal state_changed(new_state: HunterState)
@@ -71,17 +74,20 @@ signal target_lost(last_seen: Vector3)
 signal seize_started(player: Node3D)
 signal seize_missed()
 signal killed_player(player: Node3D)
+signal trap_placed(trap: Node3D)
 
 @export_category('Behavior')
 @export var active: bool = true
-## Walking search pace. Under a walking player on purpose: while it has not seen
-## you, you can always out-walk it. That is the only mercy in the design.
+## Authored walking search pace, before the non-chase multiplier is applied.
 @export var walk_speed: float = 1.85
-## Pace once it has a live trail under it. Still below a sprint.
+## Authored pace once it has a live trail under it, before the 30% multiplier.
 @export var track_speed: float = 2.6
 ## The charge. The player sprints at 2.5 * 1.3 = 3.25 m/s, so a straight
 ## corridor is simply lost - the escape is geometry, not speed.
 @export var charge_speed: float = 3.5
+## Every locomotion state except the direct chase uses this multiplier. The
+## charge keeps its authored speed so spotting a player remains a distinct beat.
+@export var non_chase_speed_multiplier: float = 1.3
 ## Deliberately low. Everything about the escape depends on it needing several
 ## metres to get moving and being unable to take a corner cleanly.
 @export var acceleration: float = 11.0
@@ -175,8 +181,18 @@ signal killed_player(player: Node3D)
 @export var certain_range: float = 4.0
 ## How long it keeps charging after losing sight. Long enough that ducking
 ## behind one sofa is not an escape.
-@export var lose_sight_time: float = 6.0
+@export var lose_sight_time: float = 5.0
 @export_flags_3d_physics var sight_blocking_mask: int = 1
+
+@export_category('Traps')
+@export var hunter_trap_scene: PackedScene = preload('res://ghosts/hunter_trap.tscn')
+@export_range(0, 12, 1) var max_active_traps: int = 3
+## It only lays traps while searching. Seeing a player cancels the placement and
+## immediately restores the chase override.
+@export var trap_initial_delay: float = 4.0
+@export var trap_place_cooldown: float = 18.0
+@export var trap_place_duration: float = 1.15
+@export var trap_min_spacing: float = 2.5
 
 @export_category('Casting')
 ## Standing still, sniffing, turning on the spot after the trail runs out.
@@ -294,6 +310,7 @@ var _failed_goals: int = 0
 var _dead_spots: Array[Dictionary] = []
 var _spot_progress: Dictionary = {}
 var _sight_timer: float = 0.0
+var _target_visible_now: bool = false
 var _entry_timer: float = 0.0
 var _pending_entry_door: Node3D
 var _reentry_cooldown: float = 0.0
@@ -313,6 +330,9 @@ var _noise_lead_time: float = -1.0
 ## the floor send it down a staircase, only for it to climb straight back up.
 var _last_seen_lead: Vector3
 var _has_last_seen_lead: bool = false
+var _active_traps: Array[Node3D] = []
+var _trap_cooldown_remaining: float = 0.0
+var _state_before_trap: HunterState = HunterState.TRACKING
 var _breached_doors: Array[Node] = []
 var _travel_target: Vector3
 var _travel_stage: int = 0
@@ -423,6 +443,9 @@ func _physics_process(delta: float) -> void:
 	# stand in the doorway watching it arrive and it can lock on to you there.
 	if manifested:
 		_update_lantern_detection(delta)
+	_update_chase_sight_memory(delta)
+	_enforce_chase_override()
+	_update_trap_skill(delta)
 
 	match state:
 		HunterState.ENTERING:
@@ -441,6 +464,8 @@ func _physics_process(delta: float) -> void:
 			_update_recovering(delta)
 		HunterState.LEAVING:
 			_update_leaving(delta)
+		HunterState.PLACING_TRAP:
+			_update_placing_trap(delta)
 
 	if not is_on_floor():
 		velocity.y -= _gravity * delta
@@ -609,6 +634,11 @@ func _listen_for_running() -> void:
 func _update_lantern_detection(delta: float) -> void:
 	if state == HunterState.SEIZING or _attacks_blocked():
 		return
+	# A chase owns the AI until its target has genuinely broken line of sight for
+	# the full grace period. A second lantern contact must not switch prey or let
+	# a search/placement state steal control for a frame.
+	if is_instance_valid(current_target):
+		return
 
 	for player: CharacterBody3D in _living_players():
 		var key := player.get_instance_id()
@@ -686,6 +716,42 @@ func _lock_on(player: CharacterBody3D) -> void:
 	locked_on.emit(player)
 
 
+## Once a player has been seen, chase is the highest-priority behavior. This is
+## deliberately enforced every physics frame so scent tracking, hunt expiry,
+## trap placement and unsticking can never silently overwrite it.
+func _enforce_chase_override() -> void:
+	if not is_instance_valid(current_target):
+		return
+	if not _is_targetable(current_target):
+		_drop_target()
+		return
+	if state != HunterState.LOCKED \
+		and state != HunterState.SEIZING \
+		and state != HunterState.RECOVERING:
+		_set_state(HunterState.LOCKED)
+
+
+## Sight memory advances even during the grab windup and recovery, so the five
+## seconds mean five real uninterrupted seconds rather than five seconds spent
+## specifically inside LOCKED.
+func _update_chase_sight_memory(delta: float) -> void:
+	_target_visible_now = false
+	if not is_instance_valid(current_target):
+		return
+	if not _is_targetable(current_target):
+		_drop_target()
+		return
+	_target_visible_now = global_position.distance_to(current_target.global_position) <= lantern_range \
+		and _has_line_of_sight(current_target)
+	if _target_visible_now:
+		_sight_timer = lose_sight_time
+		last_seen_position = current_target.global_position
+		return
+	_sight_timer -= delta
+	if _sight_timer <= 0.0:
+		_drop_target()
+
+
 # --- States -------------------------------------------------------------------
 
 
@@ -744,7 +810,7 @@ func _update_entering(delta: float) -> void:
 		_set_state(HunterState.CASTING)
 		_state_timer = maxf(entry_scan_duration, 0.5)
 		return
-	_steer_toward(delta, _travel_target, walk_speed, false)
+	_steer_toward(delta, _travel_target, _non_chase_speed(walk_speed), false)
 
 
 ## The core of the creature: read the floor, walk to the mark, read again.
@@ -761,7 +827,7 @@ func _update_tracking(delta: float) -> void:
 			and absf(to_last_seen.y) <= trail_arrive_height:
 			_has_last_seen_lead = false
 		else:
-			_steer_toward(delta, _last_seen_lead, track_speed + _speed_bonus())
+			_steer_toward(delta, _last_seen_lead, _non_chase_speed(track_speed))
 			return
 
 	var sample_index := _pick_trail_sample()
@@ -797,7 +863,7 @@ func _update_tracking(delta: float) -> void:
 			_abandon_goal()
 			return
 
-		_steer_toward(delta, _trail_target, track_speed + _speed_bonus())
+		_steer_toward(delta, _trail_target, _non_chase_speed(track_speed))
 		return
 
 	if _has_trail_target:
@@ -816,7 +882,7 @@ func _update_tracking(delta: float) -> void:
 			_noise_lead_time = -1.0
 			_set_state(HunterState.CASTING)
 			return
-		_steer_toward(delta, _noise_lead, track_speed + _speed_bonus())
+		_steer_toward(delta, _noise_lead, _non_chase_speed(track_speed))
 		return
 
 	_set_state(HunterState.CASTING)
@@ -886,7 +952,7 @@ func _update_sweeping(delta: float) -> void:
 		_sweep_timer = sweep_point_timeout
 		_set_state(HunterState.CASTING)
 		return
-	_steer_toward(delta, target, walk_speed + _speed_bonus())
+	_steer_toward(delta, target, _non_chase_speed(walk_speed))
 
 
 ## It has you. Everything else stops mattering: it charges, and it does not
@@ -895,18 +961,6 @@ func _update_locked(delta: float) -> void:
 	if not is_instance_valid(current_target) or not _is_targetable(current_target):
 		_drop_target()
 		return
-
-	var visible_now := _has_line_of_sight(current_target) \
-		and (_is_in_lantern(current_target) \
-			or global_position.distance_to(current_target.global_position) <= certain_range)
-	if visible_now:
-		_sight_timer = lose_sight_time
-		last_seen_position = current_target.global_position
-	else:
-		_sight_timer -= delta
-		if _sight_timer <= 0.0:
-			_drop_target()
-			return
 
 	_seize_cooldown_timer = maxf(_seize_cooldown_timer - delta, 0.0)
 	var offset := current_target.global_position - global_position
@@ -923,9 +977,10 @@ func _update_locked(delta: float) -> void:
 	# Pressing: navigation is what dithers along a rail, so for a couple of
 	# seconds after failing to close it goes straight at them instead.
 	_direct_press_timer = maxf(_direct_press_timer - delta, 0.0)
+	var chase_position := current_target.global_position if _target_visible_now else last_seen_position
 	_steer_toward(
 		delta,
-		current_target.global_position,
+		chase_position,
 		charge_speed + _speed_bonus(),
 		_direct_press_timer <= 0.0
 	)
@@ -996,7 +1051,7 @@ func _update_leaving(delta: float) -> void:
 		if global_position.distance_to(inside_point) <= 1.0 or _state_timer <= 0.0:
 			_travel_stage = 1
 		else:
-			_steer_toward(delta, inside_point, walk_speed + _speed_bonus())
+			_steer_toward(delta, inside_point, _non_chase_speed(walk_speed))
 			return
 
 	var outside_point := _door_side_point(exit_door, false)
@@ -1005,7 +1060,7 @@ func _update_leaving(delta: float) -> void:
 	if flat_offset.length() <= 0.8 or _state_timer <= -entry_timeout:
 		_leave_house()
 		return
-	_steer_toward(delta, outside_point, walk_speed + _speed_bonus(), false)
+	_steer_toward(delta, outside_point, _non_chase_speed(walk_speed), false)
 
 
 func _update_hunt_timer(delta: float) -> void:
@@ -1014,7 +1069,7 @@ func _update_hunt_timer(delta: float) -> void:
 	hunt_time_remaining -= delta
 	if hunt_time_remaining > 0.0:
 		return
-	if state == HunterState.LOCKED or state == HunterState.SEIZING:
+	if is_instance_valid(current_target):
 		# It is not walking out of the house with a player in the lantern.
 		hunt_time_remaining = hunt_extension_per_lock
 		return
@@ -1052,6 +1107,122 @@ func _kill(player: CharacterBody3D) -> void:
 		player.kill_by_ghost(self)
 	killed_player.emit(player)
 	_set_state(HunterState.RECOVERING)
+
+
+# --- Trap skill ---------------------------------------------------------------
+
+
+func _update_trap_skill(delta: float) -> void:
+	_prune_active_traps()
+	_trap_cooldown_remaining = maxf(_trap_cooldown_remaining - delta, 0.0)
+	if state == HunterState.PLACING_TRAP:
+		return
+	if not inside_house \
+		or not manifested \
+		or is_instance_valid(current_target) \
+		or _active_traps.size() >= max_active_traps \
+		or _trap_cooldown_remaining > 0.0:
+		return
+	if state != HunterState.TRACKING \
+		and state != HunterState.CASTING \
+		and state != HunterState.SWEEPING:
+		return
+
+	var floor_position := _trap_floor_position()
+	if floor_position == Vector3.INF or not _is_trap_position_clear(floor_position):
+		# Recheck soon without hammering a bad stair/doorway every frame.
+		_trap_cooldown_remaining = 1.0
+		return
+	_state_before_trap = state
+	_trap_cooldown_remaining = maxf(trap_place_cooldown, 0.0)
+	_set_state(HunterState.PLACING_TRAP)
+	_state_timer = maxf(trap_place_duration, 0.0)
+
+
+func _update_placing_trap(delta: float) -> void:
+	_brake(delta)
+	_state_timer -= delta
+	if _state_timer > 0.0:
+		return
+
+	var floor_position := _trap_floor_position()
+	if floor_position != Vector3.INF and _is_trap_position_clear(floor_position):
+		_spawn_trap(floor_position)
+	var resume_state := _state_before_trap
+	if resume_state != HunterState.TRACKING \
+		and resume_state != HunterState.CASTING \
+		and resume_state != HunterState.SWEEPING:
+		resume_state = HunterState.TRACKING
+	_set_state(resume_state)
+
+
+func _trap_floor_position() -> Vector3:
+	var query := PhysicsRayQueryParameters3D.create(
+		global_position + Vector3.UP * 0.8,
+		global_position + Vector3.DOWN * 1.4,
+		sight_blocking_mask,
+		[get_rid()]
+	)
+	query.hit_from_inside = true
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	if hit.is_empty():
+		return Vector3.INF
+	var normal: Vector3 = hit.get('normal', Vector3.UP)
+	if normal.dot(Vector3.UP) < 0.75:
+		return Vector3.INF
+	return hit['position']
+
+
+func _is_trap_position_clear(position: Vector3) -> bool:
+	for trap: Node3D in _active_traps:
+		if is_instance_valid(trap) \
+			and trap.global_position.distance_to(position) < trap_min_spacing:
+			return false
+	return true
+
+
+func _spawn_trap(position: Vector3) -> bool:
+	_prune_active_traps()
+	if not hunter_trap_scene or _active_traps.size() >= max_active_traps:
+		return false
+	var trap := hunter_trap_scene.instantiate() as Node3D
+	if not trap or not is_instance_valid(get_parent()):
+		if trap:
+			trap.queue_free()
+		return false
+	get_parent().add_child(trap)
+	trap.global_position = position + Vector3.UP * 0.025
+	if trap.has_method('set_hunter'):
+		trap.call('set_hunter', self)
+	_active_traps.append(trap)
+	trap_placed.emit(trap)
+	return true
+
+
+func _prune_active_traps() -> void:
+	for index: int in range(_active_traps.size() - 1, -1, -1):
+		if not is_instance_valid(_active_traps[index]) \
+			or _active_traps[index].is_queued_for_deletion():
+			_active_traps.remove_at(index)
+
+
+func get_active_trap_count() -> int:
+	_prune_active_traps()
+	return _active_traps.size()
+
+
+## Deterministic hook used by smoke tests and development tools.
+func dev_place_trap(position: Vector3) -> bool:
+	if not inside_house or not _is_trap_position_clear(position):
+		return false
+	return _spawn_trap(position)
+
+
+func _exit_tree() -> void:
+	for trap: Node3D in _active_traps:
+		if is_instance_valid(trap):
+			trap.queue_free()
+	_active_traps.clear()
 
 
 # --- Doors --------------------------------------------------------------------
@@ -1370,9 +1541,11 @@ func _abandon_goal() -> void:
 				_direct_press_timer = direct_press_duration
 				_failed_goals = 0
 			else:
-				if is_instance_valid(current_target):
-					_write_off_ground(current_target.global_position)
-				_drop_target()
+				# Navigation recovery is not allowed to bypass lose_sight_time.
+				# Keep pressing toward the live target until _update_locked owns the
+				# only legal transition back to tracking.
+				_direct_press_timer = direct_press_duration
+				_failed_goals = 0
 		HunterState.LEAVING:
 			if _travel_stage == 0:
 				_travel_stage = 1
@@ -1449,6 +1622,10 @@ func _is_visible_to_any_player() -> bool:
 
 func _speed_bonus() -> float:
 	return trapped_speed_bonus if trapped else 0.0
+
+
+func _non_chase_speed(base_speed: float) -> float:
+	return (base_speed + _speed_bonus()) * maxf(non_chase_speed_multiplier, 0.0)
 
 
 ## Hops it onto a stair riser blocking its horizontal motion, the same probe
@@ -1584,8 +1761,10 @@ func _reset_hunt_memory() -> void:
 	_failed_goals = 0
 	_unstick_timer = 0.0
 	_sight_timer = 0.0
+	_target_visible_now = false
 	_seize_cooldown_timer = 0.0
 	_sweep_timer = sweep_point_timeout
+	_trap_cooldown_remaining = maxf(trap_initial_delay, 0.0)
 	_travel_stage = 0
 	_sweep_index = _nearest_sweep_index()
 

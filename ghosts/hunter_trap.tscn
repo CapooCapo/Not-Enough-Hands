@@ -1,0 +1,99 @@
+[gd_scene load_steps=9 format=3]
+
+[ext_resource type="Script" path="res://ghosts/hunter_trap.gd" id="1_trap"]
+
+[sub_resource type="StandardMaterial3D" id="Material_iron"]
+albedo_color = Color(0.075, 0.065, 0.055, 1)
+metallic = 0.82
+roughness = 0.36
+
+[sub_resource type="StandardMaterial3D" id="Material_rust"]
+albedo_color = Color(0.24, 0.075, 0.028, 1)
+metallic = 0.45
+roughness = 0.72
+
+[sub_resource type="CylinderMesh" id="Mesh_plate"]
+material = SubResource("Material_iron")
+top_radius = 0.38
+bottom_radius = 0.42
+height = 0.045
+radial_segments = 16
+
+[sub_resource type="BoxMesh" id="Mesh_jaw"]
+material = SubResource("Material_rust")
+size = Vector3(0.46, 0.09, 0.12)
+
+[sub_resource type="CylinderMesh" id="Mesh_tooth"]
+material = SubResource("Material_iron")
+top_radius = 0.0
+bottom_radius = 0.045
+height = 0.18
+radial_segments = 6
+
+[sub_resource type="BoxShape3D" id="Shape_trigger"]
+size = Vector3(0.9, 0.32, 0.9)
+
+[sub_resource type="BoxShape3D" id="Shape_interaction"]
+size = Vector3(0.95, 0.08, 0.95)
+
+[node name="HunterTrap" type="Node3D"]
+script = ExtResource("1_trap")
+
+[node name="Visual" type="Node3D" parent="."]
+
+[node name="Plate" type="MeshInstance3D" parent="Visual"]
+position = Vector3(0, 0.0225, 0)
+mesh = SubResource("Mesh_plate")
+
+[node name="LeftJaw" type="Node3D" parent="Visual"]
+position = Vector3(-0.22, 0.09, 0)
+
+[node name="Bar" type="MeshInstance3D" parent="Visual/LeftJaw"]
+mesh = SubResource("Mesh_jaw")
+
+[node name="ToothA" type="MeshInstance3D" parent="Visual/LeftJaw"]
+position = Vector3(-0.15, 0.1, 0)
+mesh = SubResource("Mesh_tooth")
+
+[node name="ToothB" type="MeshInstance3D" parent="Visual/LeftJaw"]
+position = Vector3(0, 0.1, 0)
+mesh = SubResource("Mesh_tooth")
+
+[node name="ToothC" type="MeshInstance3D" parent="Visual/LeftJaw"]
+position = Vector3(0.15, 0.1, 0)
+mesh = SubResource("Mesh_tooth")
+
+[node name="RightJaw" type="Node3D" parent="Visual"]
+position = Vector3(0.22, 0.09, 0)
+
+[node name="Bar" type="MeshInstance3D" parent="Visual/RightJaw"]
+mesh = SubResource("Mesh_jaw")
+
+[node name="ToothA" type="MeshInstance3D" parent="Visual/RightJaw"]
+position = Vector3(-0.15, 0.1, 0)
+mesh = SubResource("Mesh_tooth")
+
+[node name="ToothB" type="MeshInstance3D" parent="Visual/RightJaw"]
+position = Vector3(0, 0.1, 0)
+mesh = SubResource("Mesh_tooth")
+
+[node name="ToothC" type="MeshInstance3D" parent="Visual/RightJaw"]
+position = Vector3(0.15, 0.1, 0)
+mesh = SubResource("Mesh_tooth")
+
+[node name="Trigger" type="Area3D" parent="."]
+position = Vector3(0, 0.16, 0)
+collision_layer = 0
+collision_mask = 1
+monitorable = false
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Trigger"]
+shape = SubResource("Shape_trigger")
+
+[node name="InteractionBody" type="StaticBody3D" parent="."]
+position = Vector3(0, 0.04, 0)
+collision_layer = 2
+collision_mask = 0
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="InteractionBody"]
+shape = SubResource("Shape_interaction")

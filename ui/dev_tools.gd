@@ -8,13 +8,25 @@ signal panel_toggled(open: bool)
 @export var crawler_path: NodePath = NodePath("../CrawlerGhost")
 @export var hunter_path: NodePath = NodePath("../HunterGhost")
 @export var door_director_path: NodePath = NodePath("../DoorAttackDirector")
+@export var world_environment_path: NodePath = NodePath("../WorldEnvironment")
+
+## Colour of the through-wall entrance markers. Bright enough to read against
+## the horror grade, transparent enough not to hide the door behind it.
+const XRAY_TINT := Color(0.15, 1.0, 0.72, 0.85)
+const XRAY_MARKER_NAME := "DevEntranceXray"
 
 var panel_open: bool = false
+var entrance_xray: bool = false
+var bright_vision: bool = false
+var _environment_before_bright: Environment
 var _mouse_mode_before_open: Input.MouseMode = Input.MOUSE_MODE_CAPTURED
 
 @onready var panel: PanelContainer = $Panel
 @onready var invincible_toggle: CheckButton = $Panel/Margin/Content/Invincible
 @onready var fast_toggle: CheckButton = $Panel/Margin/Content/FastMovement
+@onready var noclip_toggle: CheckButton = $Panel/Margin/Content/Noclip
+@onready var xray_toggle: CheckButton = $Panel/Margin/Content/EntranceXray
+@onready var bright_toggle: CheckButton = $Panel/Margin/Content/BrightVision
 @onready var entrance_picker: OptionButton = $Panel/Margin/Content/DoorRow/Entrance
 @onready var status_label: Label = $Panel/Margin/Content/Status
 
@@ -24,6 +36,9 @@ func _ready() -> void:
 		entrance_picker.add_item("Cửa %02d" % entrance_id, entrance_id)
 	invincible_toggle.toggled.connect(set_invincibility_enabled)
 	fast_toggle.toggled.connect(set_fast_movement_enabled)
+	noclip_toggle.toggled.connect(set_noclip_enabled)
+	xray_toggle.toggled.connect(set_entrance_xray_enabled)
+	bright_toggle.toggled.connect(set_bright_vision_enabled)
 	$Panel/Margin/Content/SpawnStatue.pressed.connect(spawn_statue)
 	$Panel/Margin/Content/SpawnCrawler.pressed.connect(spawn_crawler)
 	$Panel/Margin/Content/SpawnHunter.pressed.connect(spawn_hunter)
@@ -67,6 +82,151 @@ func set_fast_movement_enabled(enabled: bool) -> void:
 	if player and player.has_method("set_dev_fast_movement"):
 		player.call("set_dev_fast_movement", enabled)
 		status_label.text = "Chạy nhanh x3: %s" % ("BẬT" if enabled else "TẮT")
+
+
+func set_noclip_enabled(enabled: bool) -> void:
+	var player := _player()
+	if player and player.has_method("set_dev_noclip"):
+		player.call("set_dev_noclip", enabled)
+		status_label.text = (
+			"Bay xuyên tường: BẬT. WASD theo hướng nhìn, Space lên, Ctrl xuống, Shift nhanh."
+			if enabled
+			else "Bay xuyên tường: TẮT."
+		)
+
+
+## Turns the night off. The player owns the overlays and the blinking; the
+## darkness itself lives in the scene's Environment, so both halves are flipped
+## together and the original Environment is kept for putting back.
+func set_bright_vision_enabled(enabled: bool) -> void:
+	bright_vision = enabled
+	var player := _player()
+	if player and player.has_method("set_dev_clear_vision"):
+		player.call("set_dev_clear_vision", enabled)
+
+	var world := get_node_or_null(world_environment_path) as WorldEnvironment
+	if world and world.environment:
+		if enabled:
+			if not _environment_before_bright:
+				_environment_before_bright = world.environment
+			var bright := _environment_before_bright.duplicate() as Environment
+			bright.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+			# Enough to read every surface, not enough to blow the kit's near-white
+			# plaster out to a flat sheet - which a full-strength white ambient did.
+			bright.ambient_light_color = Color(0.78, 0.83, 0.92)
+			bright.ambient_light_energy = 0.3
+			bright.fog_enabled = false
+			bright.volumetric_fog_enabled = false
+			bright.adjustment_enabled = false
+			bright.tonemap_exposure = 1.0
+			world.environment = bright
+		elif _environment_before_bright:
+			world.environment = _environment_before_bright
+			_environment_before_bright = null
+
+	status_label.text = (
+		"Sáng tối đa: BẬT. Không sương mù, không vignette, không bị ép nháy mắt."
+		if enabled
+		else "Sáng tối đa: TẮT."
+	)
+
+
+## Hangs a see-through-walls marker on every defense door, so all seven
+## entrances can be found and counted from anywhere in the house. The marker
+## is a child of the door, so it inherits the door's placement and scale and
+## needs no separate bookkeeping when doors move.
+func set_entrance_xray_enabled(enabled: bool) -> void:
+	entrance_xray = enabled
+	var doors := get_tree().get_nodes_in_group("defense_doors")
+	for door_node: Node in doors:
+		var door := door_node as Node3D
+		var existing := door.get_node_or_null(XRAY_MARKER_NAME)
+		if not enabled:
+			if existing:
+				existing.queue_free()
+			continue
+		if not existing:
+			door.add_child(_build_xray_marker(int(door.get("entrance_id"))))
+	status_label.text = (
+		"Soi %d cửa xuyên tường: BẬT." % doors.size()
+		if enabled
+		else "Soi cửa xuyên tường: TẮT."
+	)
+
+
+func _build_xray_marker(entrance_id: int) -> Node3D:
+	var marker := Node3D.new()
+	marker.name = XRAY_MARKER_NAME
+
+	var material := StandardMaterial3D.new()
+	material.albedo_color = XRAY_TINT
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	# The whole point is to be visible through the house, so skip the depth
+	# test and draw last.
+	material.no_depth_test = true
+	material.render_priority = 100
+
+	# An outline, not a slab. A filled box this size sits across a third of the
+	# screen once you are inside the room with it, and hides the door it is
+	# supposed to be pointing at.
+	var width := 2.4
+	var height := 2.7
+	var bar := 0.12
+	var frame := Node3D.new()
+	frame.name = "Volume"
+	for edge: Array in [
+		[Vector3(0.0, height, 0.0), Vector3(width + bar, bar, bar)],
+		[Vector3(0.0, 0.0, 0.0), Vector3(width + bar, bar, bar)],
+		[Vector3(-width * 0.5, height * 0.5, 0.0), Vector3(bar, height, bar)],
+		[Vector3(width * 0.5, height * 0.5, 0.0), Vector3(bar, height, bar)],
+	]:
+		var mesh := BoxMesh.new()
+		mesh.size = edge[1]
+		mesh.material = material
+		var edge_node := MeshInstance3D.new()
+		edge_node.mesh = mesh
+		edge_node.position = edge[0]
+		frame.add_child(edge_node)
+	marker.add_child(frame)
+
+	var label := Label3D.new()
+	label.name = "Tag"
+	label.text = "%02d" % entrance_id
+	# fixed_size keeps a tag the same size however far away the door is, which
+	# is what makes it findable - but it also means font_size is measured in
+	# fractions of the screen, not metres. 160 filled a third of the viewport.
+	label.font_size = 48
+	label.pixel_size = 0.002
+	label.modulate = Color(0.35, 1.0, 0.78)
+	label.outline_modulate = Color(0, 0, 0, 0.9)
+	label.outline_size = 8
+	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	label.no_depth_test = true
+	label.render_priority = 101
+	label.fixed_size = true
+	label.position = Vector3(0.0, 2.9, 0.0)
+	marker.add_child(label)
+	return marker
+
+
+## Keeps the range on each tag current, so the panel answers "which door is
+## nearest" without walking the ring.
+func _process(_delta: float) -> void:
+	if not entrance_xray:
+		return
+	var player := _player() as Node3D
+	if not player:
+		return
+	for door_node: Node in get_tree().get_nodes_in_group("defense_doors"):
+		var door := door_node as Node3D
+		var label := door.get_node_or_null("%s/Tag" % XRAY_MARKER_NAME) as Label3D
+		if label:
+			label.text = "%02d · %dm" % [
+				int(door.get("entrance_id")),
+				roundi(player.global_position.distance_to(door.global_position)),
+			]
 
 
 func spawn_statue() -> bool:

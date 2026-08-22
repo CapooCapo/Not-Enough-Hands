@@ -1,0 +1,132 @@
+{
+  "spec_version": "2.0",
+  "name": "Biet thu Vanh Dai",
+  "grid": { "width": 40, "height": 30, "cell_size": 2.0, "floor_height": 3.5 },
+  "axis_mapping": { "col": "x", "row": "z", "level": "y" },
+
+  "levels": [
+    { "id": "F_B1", "level": -1, "extent": [19, 14, 38, 28] },
+    { "id": "F_00", "level": 0, "extent": [0, 0, 39, 29] },
+    { "id": "F_01", "level": 1, "extent": [0, 0, 39, 29] },
+    { "id": "F_02", "level": 2, "extent": [8, 8, 21, 21] }
+  ],
+
+  "rooms": [
+    { "id": "R_PARLOR", "name": "Phong tiep khach", "level": 0, "rect": [1, 1, 13, 4], "doors": [[11, 5], [3, 5]], "kind": "lounge" },
+    { "id": "R_FOYER", "name": "Dai sanh", "level": 0, "rect": [15, 1, 24, 4], "doors": [[19, 5]], "kind": "hall" },
+    { "id": "R_STUDY", "name": "Phong lam viec", "level": 0, "rect": [26, 1, 38, 4], "doors": [[28, 5], [36, 5]], "kind": "study" },
+    { "id": "R_LIVING", "name": "Phong khach", "level": 0, "rect": [1, 6, 5, 14], "doors": [[6, 10]], "kind": "lounge" },
+    { "id": "R_LIBRARY", "name": "Thu vien", "level": 0, "rect": [1, 16, 5, 23], "doors": [[6, 19]], "kind": "study" },
+    { "id": "R_KITCHEN", "name": "Bep", "level": 0, "rect": [34, 6, 38, 14], "doors": [[33, 10]], "kind": "kitchen" },
+    { "id": "R_PANTRY", "name": "Kho thuc pham", "level": 0, "rect": [34, 16, 38, 23], "doors": [[33, 19]], "kind": "storage" },
+    { "id": "R_GALLERY", "name": "Phong tranh", "level": 0, "rect": [10, 9, 17, 12], "doors": [[13, 8], [13, 13]], "kind": "gallery" },
+    { "id": "R_ATRIUM", "name": "San trong", "level": 0, "rect": [22, 9, 29, 12], "doors": [[25, 8], [25, 13], [21, 10], [30, 11]], "kind": "atrium" },
+    { "id": "R_BILLIARD", "name": "Phong bi-a", "level": 0, "rect": [10, 17, 17, 20], "doors": [[13, 16], [13, 21]], "kind": "lounge" },
+    { "id": "R_CHAPEL", "name": "Nha nguyen", "level": 0, "rect": [22, 17, 29, 20], "doors": [[25, 16], [25, 21]], "kind": "chapel" },
+    { "id": "R_DINING", "name": "Phong an", "level": 0, "rect": [1, 25, 13, 28], "doors": [[11, 24], [14, 26]], "kind": "dining" },
+    { "id": "R_BALLROOM", "name": "Phong khieu vu", "level": 0, "rect": [15, 25, 24, 28], "doors": [[19, 24], [25, 26]], "kind": "hall" },
+    { "id": "R_UTILITY", "name": "Phong phu tro", "level": 0, "rect": [26, 25, 38, 28], "doors": [[28, 24]], "kind": "utility" },
+
+    { "id": "R_BED_1", "name": "Phong ngu 1", "level": 1, "rect": [1, 1, 13, 4], "doors": [[11, 5], [3, 5]], "kind": "bedroom" },
+    { "id": "R_UP_HALL", "name": "Sanh tren", "level": 1, "rect": [15, 1, 24, 4], "doors": [[19, 5]], "kind": "hall" },
+    { "id": "R_BED_2", "name": "Phong ngu 2", "level": 1, "rect": [26, 1, 38, 4], "doors": [[28, 5], [36, 5]], "kind": "bedroom" },
+    { "id": "R_MASTER", "name": "Phong ngu chinh", "level": 1, "rect": [1, 6, 5, 14], "doors": [[6, 10]], "kind": "master" },
+    { "id": "R_NURSERY", "name": "Phong tre em", "level": 1, "rect": [1, 16, 5, 23], "doors": [[6, 19]], "kind": "bedroom" },
+    { "id": "R_BED_3", "name": "Phong ngu 3", "level": 1, "rect": [34, 6, 38, 14], "doors": [[33, 10]], "kind": "bedroom" },
+    { "id": "R_BATH_MAIN", "name": "Phong tam lon", "level": 1, "rect": [34, 16, 38, 23], "doors": [[33, 19]], "kind": "bath" },
+    { "id": "R_STUDY_UP", "name": "Thu phong", "level": 1, "rect": [10, 9, 17, 12], "doors": [[13, 8], [13, 13]], "kind": "study" },
+    { "id": "R_LINEN", "name": "Kho chan man", "level": 1, "rect": [10, 17, 17, 20], "doors": [[13, 16], [13, 21]], "kind": "storage" },
+    { "id": "R_SERVANT", "name": "Phong gia nhan", "level": 1, "rect": [22, 17, 29, 20], "doors": [[25, 16], [25, 21]], "kind": "bedroom" },
+    { "id": "R_STORAGE", "name": "Kho", "level": 1, "rect": [1, 25, 13, 28], "doors": [[11, 24], [14, 26]], "kind": "storage" },
+    { "id": "R_GALLERY_UP", "name": "Hanh lang tranh", "level": 1, "rect": [15, 25, 24, 28], "doors": [[19, 24], [25, 26]], "kind": "gallery" },
+    { "id": "R_SERVICE_UP", "name": "Cau thang phuc vu", "level": 1, "rect": [26, 25, 38, 28], "doors": [[28, 24]], "kind": "utility" },
+    { "id": "V_ATRIUM", "name": "Gieng troi", "level": 1, "rect": [22, 9, 29, 12], "doors": [], "kind": "void", "void": true },
+    { "id": "R_ATRIUM_BALCONY", "name": "Lan can gieng troi", "level": 1, "rect": [21, 9, 21, 12], "doors": [], "kind": "balcony" },
+
+    { "id": "R_ATTIC", "name": "Gac mai", "level": 2, "rect": [9, 9, 20, 20], "doors": [], "kind": "attic" },
+
+    { "id": "R_COAL", "name": "Ham than", "level": -1, "rect": [20, 15, 22, 20], "doors": [[23, 17]], "kind": "storage" },
+    { "id": "R_WINE", "name": "Ham ruou", "level": -1, "rect": [20, 22, 22, 27], "doors": [[23, 25]], "kind": "storage" },
+    { "id": "R_BOILER", "name": "Phong may", "level": -1, "rect": [27, 15, 37, 20], "doors": [[26, 17]], "kind": "utility" },
+    { "id": "R_TUNNEL", "name": "Duong ham", "level": -1, "rect": [27, 22, 37, 27], "doors": [[26, 25]], "kind": "utility" }
+  ],
+
+  "corridors": [
+    { "id": "C_W", "levels": [0, 1], "rect": [7, 6, 8, 23] },
+    { "id": "C_E", "levels": [0, 1], "rect": [31, 6, 32, 23] },
+    { "id": "C_V", "levels": [0, 1], "rect": [19, 6, 20, 23] },
+    { "id": "C_N", "levels": [0, 1], "rect": [7, 6, 32, 7] },
+    { "id": "C_C", "levels": [0, 1], "rect": [7, 14, 32, 15] },
+    { "id": "C_S", "levels": [0, 1], "rect": [7, 22, 32, 23] },
+    { "id": "C_B1", "levels": [-1], "rect": [24, 15, 25, 27] }
+  ],
+
+  "junctions": [
+    { "id": "J1", "level": 0, "rect": [7, 6, 8, 7], "degree": 2 },
+    { "id": "J2", "level": 0, "rect": [19, 6, 20, 7], "degree": 3 },
+    { "id": "J3", "level": 0, "rect": [31, 6, 32, 7], "degree": 2 },
+    { "id": "J4", "level": 0, "rect": [7, 14, 8, 15], "degree": 3 },
+    { "id": "J5", "level": 0, "rect": [19, 14, 20, 15], "degree": 4 },
+    { "id": "J6", "level": 0, "rect": [31, 14, 32, 15], "degree": 3 },
+    { "id": "J7", "level": 0, "rect": [7, 22, 8, 23], "degree": 2 },
+    { "id": "J8", "level": 0, "rect": [19, 22, 20, 23], "degree": 3 },
+    { "id": "J9", "level": 0, "rect": [31, 22, 32, 23], "degree": 2 },
+
+    { "id": "K1", "level": 1, "rect": [7, 6, 8, 7], "degree": 2 },
+    { "id": "K2", "level": 1, "rect": [19, 6, 20, 7], "degree": 3 },
+    { "id": "K3", "level": 1, "rect": [31, 6, 32, 7], "degree": 2 },
+    { "id": "K4", "level": 1, "rect": [7, 14, 8, 15], "degree": 3 },
+    { "id": "K5", "level": 1, "rect": [19, 14, 20, 15], "degree": 4 },
+    { "id": "K6", "level": 1, "rect": [31, 14, 32, 15], "degree": 3 },
+    { "id": "K7", "level": 1, "rect": [7, 22, 8, 23], "degree": 2 },
+    { "id": "K8", "level": 1, "rect": [19, 22, 20, 23], "degree": 3 },
+    { "id": "K9", "level": 1, "rect": [31, 22, 32, 23], "degree": 2 },
+
+    { "id": "B1", "level": -1, "rect": [24, 21, 25, 22], "degree": 4 }
+  ],
+
+  "junction_edges": [
+    ["J1", "J2", 24], ["J2", "J3", 24], ["J4", "J5", 24], ["J5", "J6", 24],
+    ["J7", "J8", 24], ["J8", "J9", 24],
+    ["J1", "J4", 16], ["J4", "J7", 16], ["J2", "J5", 16], ["J5", "J8", 16],
+    ["J3", "J6", 16], ["J6", "J9", 16],
+
+    ["K1", "K2", 24], ["K2", "K3", 24], ["K4", "K5", 24], ["K5", "K6", 24],
+    ["K7", "K8", 24], ["K8", "K9", 24],
+    ["K1", "K4", 16], ["K4", "K7", 16], ["K2", "K5", 16], ["K5", "K8", 16],
+    ["K3", "K6", 16], ["K6", "K9", 16]
+  ],
+
+  "entrances": [
+    { "id": "E01", "entrance_id": 1, "name": "Cua chinh", "level": 0, "cells": [[19, 0], [20, 0]], "room": "R_FOYER", "layers": 3, "break": 22, "repair": 9 },
+    { "id": "E02", "entrance_id": 2, "name": "Cua phuc vu bep", "level": 0, "cells": [[39, 10], [39, 11]], "room": "R_KITCHEN", "layers": 3, "break": 22, "repair": 9 },
+    { "id": "E03", "entrance_id": 3, "name": "Cua so phong khach", "level": 0, "cells": [[0, 10], [0, 11]], "room": "R_LIVING", "layers": 2, "break": 14, "repair": 7 },
+    { "id": "E04", "entrance_id": 4, "name": "Cua kinh phong khieu vu", "level": 0, "cells": [[19, 29], [20, 29]], "room": "R_BALLROOM", "layers": 2, "break": 14, "repair": 7 },
+    { "id": "E05", "entrance_id": 5, "name": "Cua ham ngoai troi", "level": -1, "cells": [[19, 17], [19, 18]], "room": "R_COAL", "layers": 2, "break": 18, "repair": 11 },
+    { "id": "E06", "entrance_id": 6, "name": "Cua ban cong phong ngu chinh", "level": 1, "cells": [[0, 10], [0, 11]], "room": "R_MASTER", "layers": 2, "break": 14, "repair": 7 },
+    { "id": "E07", "entrance_id": 7, "name": "Gieng troi gac mai", "level": 2, "cells": [[14, 12], [15, 12]], "room": "R_ATTIC", "layers": 1, "break": 35, "repair": 20, "overhead": true }
+  ],
+
+  "vertical_links": [
+    { "id": "V01", "type": "stairs", "from": 0, "to": 1, "rect": [22, 1, 24, 3], "heading": "west", "width": 3.0, "cost": 3.5 },
+    { "id": "V02", "type": "stairs", "from": 0, "to": 1, "rect": [35, 25, 36, 26], "heading": "north", "width": 1.8, "cost": 3.5 },
+    { "id": "V03", "type": "stairs", "from": 0, "to": -1, "rect": [37, 25, 38, 26], "heading": "south", "width": 1.8, "cost": 3.5 },
+    { "id": "V04", "type": "ladder", "from": 1, "to": 2, "rect": [13, 18, 14, 18], "heading": "east", "width": 1.8, "hands_required": 2, "cost": 5.0 },
+    { "id": "V05", "type": "shaft", "from": 0, "to": 1, "rect": [22, 9, 29, 12], "walkable": false }
+  ],
+
+  "spawn_points": [
+    { "id": "SP_PLAYER_1", "level": 0, "cell": [16, 3] },
+    { "id": "SP_PLAYER_2", "level": 0, "cell": [17, 2] },
+    { "id": "SP_PLAYER_3", "level": 0, "cell": [18, 3] },
+    { "id": "SP_PLAYER_4", "level": 0, "cell": [19, 2] }
+  ],
+
+  "single_door_rooms": [
+    "R_ATTIC", "R_COAL", "R_WINE",
+    "R_LIBRARY", "R_PANTRY", "R_NURSERY", "R_BATH_MAIN", "R_BOILER", "R_ATRIUM_BALCONY"
+  ],
+
+  "night": { "start_hour": 0, "end_hour": 6, "real_seconds": 1080 },
+  "player_speed": { "walk": 2.6, "run": 4.5, "carry": 2.0 }
+}
