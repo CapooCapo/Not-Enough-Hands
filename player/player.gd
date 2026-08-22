@@ -63,6 +63,19 @@ var eyelid_closure: float = 0.0
 @export var mouse_sensitivity: float = 0.002
 @export var max_interaction_range: float = 10.0
 
+## Temporary look-around constraint a minigame can impose (currently only
+## ToiletMinigame) - false/full-range outside any minigame, so normal
+## mouse-look is unaffected. yaw is clamped via an accumulator (rotate_y()
+## itself has no absolute angle to read back) while pitch is clamped
+## directly on camera_pivot.rotation.x like the un-constrained case already
+## does, just with configurable bounds instead of the hardcoded +-PI/2.
+var yaw_clamp_active: bool = false
+var yaw_clamp_min: float = 0.0
+var yaw_clamp_max: float = 0.0
+var accumulated_yaw: float = 0.0
+var pitch_clamp_min: float = -PI / 2.0
+var pitch_clamp_max: float = PI / 2.0
+
 @export_category("Development")
 @export var minigame_ghost_resume_grace: float = 1.5
 @export var dev_speed_multiplier: float = 3.0
@@ -84,6 +97,14 @@ var hunter_trap_source: Node3D
 @onready var death_ui: CanvasLayer = $DeathUI
 @onready var footstep_players: Array[AudioStreamPlayer3D] = [$FootstepA, $FootstepB]
 @onready var door_minigame: CanvasLayer = get_node_or_null("DoorGhostMinigame") as CanvasLayer
+@onready var equipment: PlayerEquipment = $Equipment
+@onready var bladder: PlayerBladder = $Bladder
+
+## Set by start_toilet_minigame() for the duration of this player's session -
+## ToiletMinigame lives per-toilet, not as a fixed child of Player like
+## DoorGhostMinigame, since only one toilet can ever be occupied by this
+## player at a time.
+var _active_toilet_minigame: Node = null
 
 var _minigame_ghost_safety_locks: int = 0
 var _minigame_ghost_release_remaining: float = 0.0
@@ -143,17 +164,37 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 
 	if event is InputEventMouseMotion and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
-		# Rotate player horizontally
-		rotate_y(-event.relative.x * mouse_sensitivity)
-		
-		# Rotate camera vertically
+		# Rotate player horizontally - clamped to a limited look-around
+		# window while yaw_clamp_active (e.g. ToiletMinigame), full range
+		# otherwise.
+		var yaw_delta: float = -event.relative.x * mouse_sensitivity
+		if yaw_clamp_active:
+			var new_yaw: float = clamp(accumulated_yaw + yaw_delta, yaw_clamp_min, yaw_clamp_max)
+			yaw_delta = new_yaw - accumulated_yaw
+			accumulated_yaw = new_yaw
+		rotate_y(yaw_delta)
+
+		# Rotate camera vertically, clamped to pitch_clamp_min/max (+-90
+		# degrees normally, narrower while a minigame constrains it).
 		camera_pivot.rotate_x(-event.relative.y * mouse_sensitivity)
-		
-		# Clamp vertical rotation (-90 to 90 degrees)
-		camera_pivot.rotation.x = clamp(camera_pivot.rotation.x, -PI/2, PI/2)
-		
+		camera_pivot.rotation.x = clamp(camera_pivot.rotation.x, pitch_clamp_min, pitch_clamp_max)
+
+	if _is_any_minigame_active():
+		return
+
 	if event.is_action_pressed("interact"):
 		_try_interact()
+	if event.is_action_pressed("drop_item"):
+		_drop_selected_item()
+	if event.is_action_pressed("select_slot_1"):
+		equipment.select_slot(0)
+	if event.is_action_pressed("select_slot_2"):
+		equipment.select_slot(1)
+	if event is InputEventMouseButton and event.pressed:
+		# Only 2 slots exist, so "next" and "previous" are both just "the
+		# other slot" - same select_slot() the keyboard shortcuts use.
+		if event.button_index == MOUSE_BUTTON_WHEEL_UP or event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			equipment.select_slot(1 - equipment.selected_slot)
 
 
 func toggle_mouse_capture() -> void:
@@ -183,6 +224,12 @@ func get_interaction_target() -> Node:
 
 	var target := interact_ray.get_collider() as Node
 	while target and target != get_tree().root:
+		# Component-based interactables: a child node literally named
+		# "Interactable" is the actual interaction target, not its parent -
+		# the player calls interact()/can_interact() on the component itself.
+		var component := target.get_node_or_null("Interactable")
+		if component and component.has_method("interact"):
+			return component
 		if target.has_method("interact"):
 			return target
 		target = target.get_parent()
@@ -192,6 +239,9 @@ func get_interaction_target() -> Node:
 
 func can_interact_with(target: Node) -> bool:
 	if not target or not interact_ray.is_colliding():
+		return false
+
+	if target.has_method("can_interact") and not target.can_interact():
 		return false
 
 	var allowed_range: float = target.interaction_range if "interaction_range" in target else 2.5
@@ -205,9 +255,41 @@ func _try_interact() -> void:
 	if target and can_interact_with(target):
 		target.interact(self)
 
+
+## Called by a PickupItem's own script when its Interactable fires - mirrors
+## set_threat_from()/kill_by_ghost(): other systems call into the player's
+## public API, the player never reaches into item internals. Returns false
+## (leaving the item untouched in the world) when both equipment slots are
+## already full.
+func try_pick_up_item(item: Node3D) -> bool:
+	if not equipment.try_add_item(item):
+		return false
+	if item.has_method("set_held"):
+		item.set_held(true)
+	item.reparent(self)
+	return true
+
+
+## Q drops whatever is in the currently selected equipment slot; does nothing
+## if that slot is empty.
+func _drop_selected_item() -> void:
+	var item: Node3D = equipment.remove_selected()
+	if item == null:
+		return
+	item.reparent(get_tree().root)
+	item.global_position = (
+		global_position
+		+ Vector3(0, standing_camera_height, 0)
+		+ (-global_transform.basis.z) * 1.2
+	)
+	item.global_rotation = Vector3.ZERO
+	if item.has_method("set_held"):
+		item.set_held(false)
+
+
 func _physics_process(delta: float) -> void:
 	_update_minigame_ghost_safety(delta)
-	if is_door_minigame_active():
+	if _is_any_minigame_active():
 		_open_eyes_for_minigame()
 		velocity = Vector3.ZERO
 		_stop_footsteps()
@@ -396,7 +478,7 @@ func kill_by_ghost(ghost: Node3D) -> void:
 func start_door_minigame(door: Node) -> bool:
 	if not is_alive \
 		or not door_minigame \
-		or is_door_minigame_active() \
+		or _is_any_minigame_active() \
 		or not is_instance_valid(door):
 		return false
 	if not door.has_method("begin_exorcism") or not bool(door.call("begin_exorcism")):
@@ -412,6 +494,61 @@ func is_door_minigame_active() -> bool:
 	return door_minigame != null \
 		and door_minigame.has_method("is_running") \
 		and bool(door_minigame.call("is_running"))
+
+
+## Called by a Toilet's own script when interacted with - mirrors
+## start_door_minigame(): the toilet never reaches into player internals,
+## it just calls this public API the same way PickupItem/LightSwitch do.
+## Unlike DoorGhostMinigame, ToiletMinigame is owned per-toilet (a child of
+## the Toilet, matching feat/game-character-hoang's node structure) rather
+## than pre-instantiated per-player, so it's resolved from `toilet` here and
+## the reference kept only for as long as this player's session lasts.
+func start_toilet_minigame(toilet: Node) -> bool:
+	if not is_alive or _is_any_minigame_active() or not is_instance_valid(toilet):
+		return false
+	var minigame: Node = toilet.get_node_or_null("ToiletMinigame")
+	if not minigame or not minigame.has_method("start"):
+		return false
+	if not bool(minigame.call("start", self, toilet)):
+		return false
+	_active_toilet_minigame = minigame
+	return true
+
+
+func is_toilet_minigame_active() -> bool:
+	return is_instance_valid(_active_toilet_minigame) \
+		and _active_toilet_minigame.has_method("is_running") \
+		and bool(_active_toilet_minigame.call("is_running"))
+
+
+func _is_any_minigame_active() -> bool:
+	return is_door_minigame_active() or is_toilet_minigame_active()
+
+
+## Thin delegation to this player's own Bladder component - other systems
+## (the toilet minigame, its HUD) call these instead of touching bladder
+## internals directly, the same way try_pick_up_item()/equipment work.
+func get_bladder() -> float:
+	return bladder.get_bladder()
+
+
+func get_bladder_ratio() -> float:
+	return bladder.get_bladder_ratio()
+
+
+func add_bladder(amount: float) -> void:
+	bladder.add_bladder(amount)
+
+
+func reduce_bladder(amount: float) -> void:
+	bladder.reduce_bladder(amount)
+
+
+## Called by ToiletMinigame on success - the only bladder ever touched is
+## this player's own, and only because this player is the one who reached
+## the toilet minigame's success state.
+func reset_bladder() -> void:
+	bladder.reset_bladder()
 
 
 func acquire_minigame_ghost_safety() -> void:
