@@ -13,7 +13,7 @@ signal bladder_warning_started
 signal bladder_full
 
 @export var bladder_max: float = 100.0
-@export var bladder_fill_rate: float = 2.0
+@export var bladder_fill_rate: float = 4.0
 @export var bladder_warning_threshold: float = 70.0
 @export var bladder_full_threshold: float = 100.0
 
@@ -42,6 +42,10 @@ func reduce_bladder(amount: float) -> void:
 
 func reset_bladder() -> void:
 	_set_value(0.0)
+
+
+func set_bladder(value: float) -> void:
+	_set_value(value)
 
 
 func get_bladder() -> float:

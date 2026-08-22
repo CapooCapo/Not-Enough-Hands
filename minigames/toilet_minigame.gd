@@ -46,13 +46,25 @@ var liquid_origin: Marker3D
 @onready var bladder_bar: ProgressBar = $HUDLayer/MarginContainer/VBoxContainer/StatusArea/BladderContainer/ProgressBar
 @onready var health_bar: ProgressBar = $HUDLayer/MarginContainer/VBoxContainer/StatusArea/HealthContainer/ProgressBar
 @onready var feedback_label: Label = $HUDLayer/MarginContainer/VBoxContainer/FeedbackLabel
+@onready var balance_indicator: ColorRect = $HUDLayer/MarginContainer/VBoxContainer/BalanceTrack/Indicator
+@onready var safe_zone_rect: ColorRect = $HUDLayer/MarginContainer/VBoxContainer/BalanceTrack/SafeZone
+@onready var warning_zone_rect: ColorRect = $HUDLayer/MarginContainer/VBoxContainer/BalanceTrack/WarningZone
+@onready var danger_noise_bar: ProgressBar = $HUDLayer/MarginContainer/VBoxContainer/DangerNoiseBar
+@onready var combo_label: Label = $HUDLayer/MarginContainer/VBoxContainer/ComboLabel
 @onready var hud_layer: CanvasLayer = $HUDLayer
 
 # Configurable Parameters
-@export var nozzle_control_speed: float = 1.5
+@export_category("Aim Control")
+@export var keyboard_control_acceleration: float = 2.4
+@export var mouse_velocity_impulse: float = 0.01
 @export var nozzle_max_offset: float = 0.5
 @export var oscillation_speed: float = 1.2
-@export var oscillation_amplitude: float = 0.08
+@export var oscillation_amplitude: float = 0.14
+@export var oscillation_amplitude_end: float = 0.24
+@export var drift_pull: float = 6.0
+@export var velocity_damping: float = 3.0
+@export var max_nozzle_velocity: float = 0.9
+@export_range(0.0, 1.0) var boundary_bounce: float = 0.18
 @export var movement_smoothing: float = 8.0
 @export var camera_transition_duration: float = 0.25
 
@@ -66,17 +78,41 @@ var liquid_origin: Marker3D
 @export var max_camera_rotation_z: float = 90.0
 
 @export var bladder_drain_rate: float = 20.0
-@export var damage_delay: float = 1.0
-@export var damage_amount: float = 10.0
+@export_range(0.0, 1.0) var warning_drain_multiplier: float = 0.35
+@export var center_lock_delay: float = 0.3
+@export var combo_ramp_duration: float = 2.5
+@export var max_combo_bonus: float = 0.3
 
-@export var safe_zone_width: float = 0.1
-@export var warning_zone_width: float = 0.3
+@export_category("Difficulty")
+@export var safe_zone_width: float = 0.16
+@export var safe_zone_width_end: float = 0.1
+@export var warning_zone_width: float = 0.34
+@export var warning_zone_width_end: float = 0.26
+@export var tremor_interval_start: float = 3.8
+@export var tremor_interval_end: float = 2.4
+@export var tremor_warning_duration: float = 0.35
+@export var tremor_force: float = 0.28
+
+@export_category("Danger Consequence")
+@export var danger_noise_delay: float = 0.9
+@export var danger_noise_repeat_interval: float = 1.1
+@export_range(0.0, 1.0) var danger_noise_loudness: float = 0.85
 
 # Internal state
 var damage_timer: float = 0.0
 var time_passed: float = 0.0
 var player_offset: float = 0.0
+var nozzle_velocity: float = 0.0
+var pending_mouse_motion: float = 0.0
+var safe_streak_time: float = 0.0
+var session_start_bladder: float = 0.0
+var noise_cooldown: float = 0.0
+var next_tremor_time: float = 0.0
+var tremor_warning_remaining: float = 0.0
+var tremor_direction: float = 1.0
+var _rng := RandomNumberGenerator.new()
 const TARGET_CENTER_X = 0.0
+const VISUAL_MAX_X = 0.37
 
 # Camera handling
 var saved_player_position: Vector3
@@ -86,6 +122,7 @@ var original_camera: Camera3D
 var camera_pivot: Node3D
 
 func _ready() -> void:
+	_rng.randomize()
 	hud_layer.hide()
 	left_hand.hide()
 	right_hand.hide()
@@ -177,6 +214,20 @@ func start_session(p_player: Node3D, minigame_viewpoint: Marker3D) -> void:
 	damage_timer = 0.0
 	time_passed = 0.0
 	player_offset = 0.0
+	nozzle_velocity = 0.0
+	pending_mouse_motion = 0.0
+	safe_streak_time = 0.0
+	noise_cooldown = 0.0
+	tremor_warning_remaining = 0.0
+	session_start_bladder = (
+		maxf(float(player.call("get_bladder")), 0.01)
+		if player and player.has_method("get_bladder")
+		else 100.0
+	)
+	next_tremor_time = _rng.randf_range(
+		maxf(tremor_interval_start * 0.85, 0.1),
+		maxf(tremor_interval_start * 1.15, 0.11)
+	)
 	asset_anchor.position.x = 0
 	asset_anchor.rotation.z = 0
 
@@ -221,23 +272,80 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		cancel()
 
+
+## Mouse motion is captured in the regular input phase so it can drive the
+## nozzle and be marked handled before Player's camera-look code receives the
+## same event in _unhandled_input(). A/D remains available as an accessibility
+## fallback and for headless tests.
+func _input(event: InputEvent) -> void:
+	if current_state != MinigameState.PLAYING:
+		return
+	if event is InputEventMouseMotion \
+		and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
+		apply_mouse_motion(event.relative.x)
+		get_viewport().set_input_as_handled()
+
+
+func apply_mouse_motion(relative_x: float) -> void:
+	if current_state == MinigameState.PLAYING:
+		pending_mouse_motion += relative_x
+
+
 func _handle_input(delta: float) -> void:
-	var input_dir = Input.get_axis("move_left", "move_right")
-	player_offset += input_dir * nozzle_control_speed * delta
-	player_offset = clamp(player_offset, -nozzle_max_offset, nozzle_max_offset)
+	time_passed += delta
+	var progress := _get_completion_progress()
+	var input_dir := Input.get_axis("move_left", "move_right")
+	var drift_amplitude := lerpf(
+		oscillation_amplitude,
+		oscillation_amplitude_end,
+		progress
+	)
+	# Two readable waves keep the hand from settling into a perfectly repeating
+	# left/right rhythm. The player is counter-steering a moving equilibrium,
+	# not chasing a teleported random target.
+	var drift_target := (
+		sin(time_passed * oscillation_speed) * drift_amplitude
+		+ sin(time_passed * oscillation_speed * 0.43 + 1.7) * drift_amplitude * 0.28
+	)
+	var acceleration := (drift_target - player_offset) * drift_pull
+	acceleration += input_dir * keyboard_control_acceleration
+	nozzle_velocity += acceleration * delta
+	nozzle_velocity += pending_mouse_motion * mouse_velocity_impulse
+	pending_mouse_motion = 0.0
+
+	_update_tremor(delta, progress)
+	nozzle_velocity *= exp(-velocity_damping * delta)
+	nozzle_velocity = clampf(nozzle_velocity, -max_nozzle_velocity, max_nozzle_velocity)
+	player_offset += nozzle_velocity * delta
+	if absf(player_offset) > nozzle_max_offset:
+		player_offset = clampf(player_offset, -nozzle_max_offset, nozzle_max_offset)
+		if signf(nozzle_velocity) == signf(player_offset):
+			nozzle_velocity *= -boundary_bounce
+
+
+func _update_tremor(delta: float, progress: float) -> void:
+	if tremor_force <= 0.0:
+		return
+	if tremor_warning_remaining > 0.0:
+		tremor_warning_remaining = maxf(tremor_warning_remaining - delta, 0.0)
+		if tremor_warning_remaining <= 0.0:
+			nozzle_velocity += tremor_direction * tremor_force * lerpf(0.8, 1.25, progress)
+			var interval := lerpf(tremor_interval_start, tremor_interval_end, progress)
+			next_tremor_time = time_passed + _rng.randf_range(
+				maxf(interval * 0.85, 0.1),
+				maxf(interval * 1.15, 0.11)
+			)
+		return
+	if time_passed >= next_tremor_time:
+		tremor_direction = -1.0 if _rng.randf() < 0.5 else 1.0
+		tremor_warning_remaining = maxf(tremor_warning_duration, 0.001)
 
 func _update_visuals(delta: float) -> void:
-	time_passed += delta
-
-	# Calculate total position
-	var auto_offset = sin(time_passed * oscillation_speed) * oscillation_amplitude
-	var target_x = TARGET_CENTER_X + auto_offset + player_offset
-
-	var max_x = 0.37
-	target_x = clamp(target_x, -max_x, max_x)
+	var target_x := clampf(TARGET_CENTER_X + player_offset, -VISUAL_MAX_X, VISUAL_MAX_X)
 
 	# Move Anchor smoothly
-	asset_anchor.position.x = lerp(asset_anchor.position.x, target_x, movement_smoothing * delta)
+	var visual_blend := 1.0 - exp(-movement_smoothing * delta)
+	asset_anchor.position.x = lerpf(asset_anchor.position.x, target_x, visual_blend)
 
 	# Update Hands and Forearms
 	if left_grip:
@@ -262,46 +370,94 @@ func _update_visuals(delta: float) -> void:
 
 func _evaluate_balance(delta: float) -> void:
 	var distance = abs(asset_anchor.position.x - TARGET_CENTER_X)
+	var progress := _get_completion_progress()
+	var current_safe_width := lerpf(safe_zone_width, safe_zone_width_end, progress)
+	var current_warning_width := lerpf(warning_zone_width, warning_zone_width_end, progress)
 
-	if distance <= (safe_zone_width / 2.0):
+	if distance <= (current_safe_width / 2.0):
 		# CENTERED ZONE
-		feedback_label.text = "CENTERED"
+		safe_streak_time += delta
+		damage_timer = 0.0
+		noise_cooldown = maxf(noise_cooldown - delta, 0.0)
+		var combo := _get_combo_multiplier()
+		feedback_label.text = (
+			"HOLD CENTER"
+			if safe_streak_time < center_lock_delay
+			else "CENTERED  x%.1f" % combo
+		)
 		feedback_label.add_theme_color_override("font_color", Color.GREEN)
 		if stream.material_override:
 			var mat = stream.material_override as StandardMaterial3D
 			mat.albedo_color = Color(0.4, 0.7, 1.0, 0.8)
 		stream.show()
-		damage_timer = 0.0
-
-		if player and player.has_method("get_bladder"):
+		if safe_streak_time >= center_lock_delay \
+			and player and player.has_method("get_bladder"):
 			if player.get_bladder() <= 0:
 				succeed()
 			else:
-				player.reduce_bladder(bladder_drain_rate * delta)
+				player.reduce_bladder(bladder_drain_rate * combo * delta)
 				if player.get_bladder() <= 0:
 					succeed()
 
-	elif distance <= (warning_zone_width / 2.0):
+	elif distance <= (current_warning_width / 2.0):
 		# UNSTABLE ZONE
-		feedback_label.text = "UNSTABLE"
+		safe_streak_time = maxf(safe_streak_time - delta * 2.0, 0.0)
+		damage_timer = 0.0
+		feedback_label.text = "UNSTABLE — SLOW FLOW"
 		feedback_label.add_theme_color_override("font_color", Color.YELLOW)
 		if stream.material_override:
 			var mat = stream.material_override as StandardMaterial3D
 			mat.albedo_color = Color(0.8, 0.8, 0.2, 0.4)
 		stream.show()
-		damage_timer = 0.0
+		if player and player.has_method("get_bladder"):
+			player.reduce_bladder(bladder_drain_rate * warning_drain_multiplier * delta)
+			if player.get_bladder() <= 0:
+				succeed()
 	else:
 		# DANGER ZONE
-		feedback_label.text = "DANGER!"
+		safe_streak_time = 0.0
+		feedback_label.text = "DANGER — TOO LOUD!"
 		feedback_label.add_theme_color_override("font_color", Color.RED)
 		stream.hide()
 
 		damage_timer += delta
-		if damage_timer >= damage_delay:
-			damage_timer = 0.0
-			if player and player.has_method("take_damage"):
-				player.take_damage(damage_amount)
-				minigame_effect_requested.emit("damage_taken")
+		noise_cooldown = maxf(noise_cooldown - delta, 0.0)
+		if damage_timer >= danger_noise_delay and noise_cooldown <= 0.0:
+			_emit_danger_noise()
+			noise_cooldown = danger_noise_repeat_interval
+
+	if tremor_warning_remaining > 0.0:
+		feedback_label.text = "HAND SHAKING — PREPARE!"
+		feedback_label.add_theme_color_override("font_color", Color.ORANGE)
+
+
+func _get_completion_progress() -> float:
+	if not player or not player.has_method("get_bladder") or session_start_bladder <= 0.0:
+		return 0.0
+	return clampf(1.0 - float(player.call("get_bladder")) / session_start_bladder, 0.0, 1.0)
+
+
+func _get_combo_multiplier() -> float:
+	var combo_time := maxf(safe_streak_time - center_lock_delay, 0.0)
+	var combo_ratio := clampf(combo_time / maxf(combo_ramp_duration, 0.01), 0.0, 1.0)
+	return 1.0 + combo_ratio * max_combo_bonus
+
+
+func _emit_danger_noise() -> void:
+	if not is_instance_valid(player):
+		return
+	var noise_position := global_position
+	if is_instance_valid(_toilet) and _toilet is Node3D:
+		noise_position = (_toilet as Node3D).global_position
+	for ghost_group: StringName in [&"crawler_ghosts", &"hunter_ghosts"]:
+		get_tree().call_group(
+			ghost_group,
+			"report_noise",
+			noise_position,
+			danger_noise_loudness,
+			player
+		)
+	minigame_effect_requested.emit("noise_created")
 
 func _update_status_bars() -> void:
 	if not player: return
@@ -313,6 +469,37 @@ func _update_status_bars() -> void:
 	if "current_health" in player and "max_health" in player:
 		health_bar.max_value = player.max_health
 		health_bar.value = player.current_health
+
+	var normalized_x := clampf(
+		(asset_anchor.position.x + VISUAL_MAX_X) / (VISUAL_MAX_X * 2.0),
+		0.0,
+		1.0
+	)
+	balance_indicator.anchor_left = normalized_x
+	balance_indicator.anchor_right = normalized_x
+	var progress := _get_completion_progress()
+	var current_safe_width := lerpf(safe_zone_width, safe_zone_width_end, progress)
+	var current_warning_width := lerpf(warning_zone_width, warning_zone_width_end, progress)
+	_set_zone_anchors(warning_zone_rect, current_warning_width)
+	_set_zone_anchors(safe_zone_rect, current_safe_width)
+	danger_noise_bar.value = clampf(
+		damage_timer / maxf(danger_noise_delay, 0.01),
+		0.0,
+		1.0
+	)
+	combo_label.text = (
+		"LOCKING  %d%%" % int(clampf(safe_streak_time / maxf(center_lock_delay, 0.01), 0.0, 1.0) * 100.0)
+		if safe_streak_time < center_lock_delay
+		else "FLOW COMBO  x%.1f" % _get_combo_multiplier()
+	)
+
+
+func _set_zone_anchors(zone: ColorRect, world_width: float) -> void:
+	if not zone:
+		return
+	var half_anchor_width := clampf(world_width / (VISUAL_MAX_X * 4.0), 0.0, 0.5)
+	zone.anchor_left = 0.5 - half_anchor_width
+	zone.anchor_right = 0.5 + half_anchor_width
 
 func succeed() -> void:
 	if current_state != MinigameState.PLAYING: return

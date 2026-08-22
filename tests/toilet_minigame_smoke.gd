@@ -32,6 +32,15 @@ func _run() -> void:
 	var player_b := player_scene.instantiate()
 	root.add_child(player_b)
 	player_b.global_position = Vector3(50.0, 1.0, 50.0)
+	var full_fill_time: float = player.bladder.bladder_max / player.bladder.bladder_fill_rate
+	var full_drain_time: float = player.bladder.bladder_max / minigame.bladder_drain_rate
+	if not is_equal_approx(full_fill_time, full_drain_time * 5.0):
+		push_error(
+			"A full bladder should take five times longer to fill than to drain "
+			+ "(fill=%.2fs, drain=%.2fs)." % [full_fill_time, full_drain_time]
+		)
+		quit(1)
+		return
 	player_b.bladder.bladder_fill_rate = 0.0
 	player.bladder.bladder_fill_rate = 0.0
 
@@ -39,11 +48,11 @@ func _run() -> void:
 	player.global_rotation = Vector3.ZERO
 	toilet.global_position = Vector3(12.0, 1.22, 0.5)
 
-	# Zero oscillation for deterministic driving: with no player input and
-	# no automatic sway, the nozzle settles dead-center (the safe zone) and
-	# stays there, so bladder-drain progress is driven purely by elapsed
-	# calls, not by chasing a moving target.
+	# Zero drift/tremors for deterministic driving. Individual checks below
+	# briefly re-enable the forces they are intended to isolate.
 	minigame.oscillation_amplitude = 0.0
+	minigame.oscillation_amplitude_end = 0.0
+	minigame.tremor_force = 0.0
 
 	await physics_frame
 	await physics_frame
@@ -110,20 +119,35 @@ func _run() -> void:
 		quit(1)
 		return
 
-	# --- Nozzle oscillates automatically (re-enable briefly to check). ---
-	minigame.oscillation_amplitude = 0.08
+	# --- The moving equilibrium pulls the nozzle off center if ignored. ---
+	minigame.oscillation_amplitude = 0.18
+	minigame.oscillation_amplitude_end = 0.18
 	minigame.asset_anchor.position.x = 0.0
+	minigame.player_offset = 0.0
+	minigame.nozzle_velocity = 0.0
 	minigame.time_passed = 0.0
-	for i in 10:
+	for i in 20:
+		minigame._handle_input(STEP_DELTA)
 		minigame._update_visuals(STEP_DELTA)
 	if is_equal_approx(minigame.asset_anchor.position.x, 0.0):
-		push_error("Nozzle did not oscillate with oscillation_amplitude > 0.")
+		push_error("Ignoring the minigame did not pull the nozzle away from center.")
 		quit(1)
 		return
-	minigame.oscillation_amplitude = 0.0 # back to deterministic for the rest of the test
-
-	# --- A/D controls the nozzle (real Input actions, not a fake parameter). ---
+	minigame.oscillation_amplitude = 0.0
+	minigame.oscillation_amplitude_end = 0.0
 	minigame.player_offset = 0.0
+	minigame.nozzle_velocity = 0.0
+	minigame.asset_anchor.position.x = 0.0
+
+	# --- Mouse motion adds velocity, while A/D remains a real fallback. ---
+	minigame.apply_mouse_motion(24.0)
+	minigame._handle_input(STEP_DELTA)
+	if minigame.nozzle_velocity <= 0.0 or minigame.player_offset <= 0.0:
+		push_error("Moving the mouse right did not push the nozzle right with inertia.")
+		quit(1)
+		return
+	minigame.player_offset = 0.0
+	minigame.nozzle_velocity = 0.0
 	Input.action_press("move_right")
 	for i in 10:
 		minigame._handle_input(STEP_DELTA)
@@ -142,6 +166,77 @@ func _run() -> void:
 		quit(1)
 		return
 	minigame.player_offset = 0.0 # reset for the deterministic success drive below
+	minigame.nozzle_velocity = 0.0
+
+	# --- Sustained danger creates noise instead of silently doing nothing. ---
+	var noise_effects := [0]
+	minigame.minigame_effect_requested.connect(func(effect: String) -> void:
+		if effect == "noise_created":
+			noise_effects[0] += 1
+	)
+	minigame.asset_anchor.position.x = 0.36
+	minigame._evaluate_balance(minigame.danger_noise_delay + 0.01)
+	if noise_effects[0] != 1:
+		push_error("Sustained danger did not emit exactly one noise consequence.")
+		quit(1)
+		return
+	minigame.asset_anchor.position.x = 0.0
+	minigame.damage_timer = 0.0
+	minigame.noise_cooldown = 0.0
+
+	# --- The yellow warning zone now drains, but only at its slower rate. ---
+	player.bladder.current_value = 50.0
+	minigame.session_start_bladder = 50.0
+	minigame.asset_anchor.position.x = 0.12
+	var bladder_before_warning: float = player.get_bladder()
+	minigame._evaluate_balance(1.0)
+	var expected_warning_drain: float = (
+		minigame.bladder_drain_rate * minigame.warning_drain_multiplier
+	)
+	if not is_equal_approx(
+		bladder_before_warning - player.get_bladder(),
+		expected_warning_drain
+	):
+		push_error("The yellow zone did not drain bladder at its configured slow rate.")
+		quit(1)
+		return
+	minigame.asset_anchor.position.x = 0.0
+
+	# --- The original exploit was winning by doing nothing. Twelve simulated
+	# seconds with a full bladder must now leave the session unfinished, and
+	# the unattended drift must eventually enter danger and create noise.
+	noise_effects[0] = 0
+	player.bladder.current_value = 100.0
+	minigame.session_start_bladder = 100.0
+	minigame.oscillation_amplitude = 0.18
+	minigame.oscillation_amplitude_end = 0.31
+	minigame.player_offset = 0.0
+	minigame.nozzle_velocity = 0.0
+	minigame.asset_anchor.position.x = 0.0
+	minigame.safe_streak_time = 0.0
+	minigame.time_passed = 0.0
+	for i in 240:
+		minigame._handle_input(STEP_DELTA)
+		minigame._update_visuals(STEP_DELTA)
+		minigame._evaluate_balance(STEP_DELTA)
+		if minigame.current_state != ToiletMinigame.MinigameState.PLAYING:
+			break
+	if minigame.current_state != ToiletMinigame.MinigameState.PLAYING:
+		push_error("Doing nothing still completed the toilet minigame within 12 seconds.")
+		quit(1)
+		return
+	if noise_effects[0] <= 0:
+		push_error("Unattended drift never reached the danger/noise consequence.")
+		quit(1)
+		return
+	minigame.oscillation_amplitude = 0.0
+	minigame.oscillation_amplitude_end = 0.0
+	minigame.player_offset = 0.0
+	minigame.nozzle_velocity = 0.0
+	minigame.asset_anchor.position.x = 0.0
+	minigame.safe_streak_time = 0.0
+	minigame.damage_timer = 0.0
+	minigame.noise_cooldown = 0.0
 
 	# --- Repeated interact while active must not create a second session. ---
 	player.call("_try_interact")

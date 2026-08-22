@@ -544,6 +544,10 @@ func reduce_bladder(amount: float) -> void:
 	bladder.reduce_bladder(amount)
 
 
+func set_bladder(value: float) -> void:
+	bladder.set_bladder(value)
+
+
 ## Called by ToiletMinigame on success - the only bladder ever touched is
 ## this player's own, and only because this player is the one who reached
 ## the toilet minigame's success state.
