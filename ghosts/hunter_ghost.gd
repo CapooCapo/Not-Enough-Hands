@@ -1742,6 +1742,38 @@ func dev_force_spawn(target: CharacterBody3D = null) -> bool:
 	return true
 
 
+## Spawns this hunter at a real breached exterior doorway.  Unlike the DevTools
+## helper, no player-relative offset is involved: it begins just inside the
+## hole, casts once, then progresses into the authored sweep route.
+func spawn_from_breached_door(door: Node3D) -> bool:
+	if not is_instance_valid(door):
+		return false
+
+	# `_door_side_point()` uses the full entry_offset for walking in from
+	# outdoors.  A breach spawn belongs at the threshold instead, with only
+	# enough inward clearance to keep the body out of the disabled door leaf.
+	var inside_reference := _door_side_point(door, true)
+	var inward := inside_reference - door.global_position
+	inward.y = 0.0
+	var doorway_position := door.global_position
+	if inward.length_squared() > 0.0001:
+		doorway_position += inward.normalized() * minf(entry_offset, 0.45)
+	var landing := _standable_point(doorway_position)
+	global_position = landing + Vector3.UP * 0.1 if landing != Vector3.INF \
+		else doorway_position + Vector3.UP * 0.15
+	velocity = Vector3.ZERO
+	entry_door = door
+	_pending_entry_door = null
+	_reset_hunt_memory()
+	inside_house = true
+	hunt_time_remaining = hunt_duration
+	_set_manifested(true)
+	breach_audio.play()
+	_set_state(HunterState.CASTING)
+	entered_house.emit(door)
+	return true
+
+
 func _reset_hunt_memory() -> void:
 	current_target = null
 	_spot_progress.clear()

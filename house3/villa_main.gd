@@ -30,6 +30,7 @@ var navigation_is_ready: bool = false
 @onready var flashlight: SpotLight3D = $Player/CameraPivot/Camera3D/Flashlight
 
 const DEFENSE_DOOR: PackedScene = preload("res://door/defense_door.tscn")
+const HUNTER_GHOST: PackedScene = preload("res://ghosts/hunter_ghost.tscn")
 
 ## The stock defense door is built for House2's 3 m storey and 2.2 m opening.
 ## A villa entrance is two 2 m cells wide in a 3.5 m wall.
@@ -39,9 +40,14 @@ const DEFENSE_DOOR_SCALE := Vector3(1.55, 1.2, 1.0)
 const DEFENSE_DOOR_LEAF_RISE := 1.15
 
 var _two_sided_cache: Dictionary = {}
+## A breach can happen before Recast has finished baking.  Those hunters wait
+## at the opening instead of trying to search without a navigation map.
+var _hunters_waiting_for_navigation: Array[CharacterBody3D] = []
+var _breach_hunter_serial: int = 0
 
 
 func _ready() -> void:
+	navigation_ready.connect(_activate_waiting_hunters)
 	if development_lighting:
 		horror_overlay.visible = false
 		flashlight.visible = false
@@ -49,6 +55,7 @@ func _ready() -> void:
 		_apply_horror_lighting()
 
 	_place_defense_doors()
+	_watch_breached_entrances()
 	_place_player()
 	_place_ghosts()
 
@@ -105,6 +112,53 @@ func _place_defense_doors() -> void:
 		door.set("repair_per_interaction", 60.0 / float(anchor.get_meta("repair_seconds")))
 
 
+## Every broken entrance adds one hunter at that breach.  The dormant hunter in
+## the scene remains for DevTools only, so a door event always produces exactly
+## one new threat rather than waking a global singleton as well.
+func _watch_breached_entrances() -> void:
+	for node: Node in get_tree().get_nodes_in_group("defense_doors"):
+		if node.has_signal("breached") and not node.is_connected("breached", _on_entrance_breached):
+			node.connect("breached", _on_entrance_breached)
+
+
+func _on_entrance_breached(door: Node) -> void:
+	# DefenseDoor disables its collider deferred during this signal.  Spawn on
+	# the next idle step so the CharacterBody enters an actually open doorway.
+	_spawn_hunter_at_breach.call_deferred(door)
+
+
+func _spawn_hunter_at_breach(door: Node) -> void:
+	var doorway := door as Node3D
+	if not is_instance_valid(doorway) or not HUNTER_GHOST:
+		return
+
+	_breach_hunter_serial += 1
+	var hunter := HUNTER_GHOST.instantiate() as CharacterBody3D
+	if not hunter:
+		return
+	hunter.name = "BreachHunter%02d" % _breach_hunter_serial
+	# This hunter was created by a particular breach; if it later leaves, it
+	# must not re-enter on a later breach and inflate that event's spawn count.
+	hunter.set("entry_enabled", false)
+	add_child(hunter)
+	if not hunter.has_method("spawn_from_breached_door") \
+		or not bool(hunter.call("spawn_from_breached_door", doorway)):
+		hunter.queue_free()
+		return
+
+	if navigation_is_ready:
+		return
+	hunter.set("active", false)
+	_hunters_waiting_for_navigation.append(hunter)
+
+
+func _activate_waiting_hunters() -> void:
+	for hunter: CharacterBody3D in _hunters_waiting_for_navigation:
+		if is_instance_valid(hunter):
+			hunter.set("active", true)
+	_hunters_waiting_for_navigation.clear()
+
+
 func _place_player() -> void:
 	var spawns := get_tree().get_nodes_in_group("villa_spawn_points")
 	if spawns.is_empty():
@@ -127,10 +181,12 @@ func _place_ghosts() -> void:
 		# where that room's own table stands.
 		statue.global_position = chapel.get_meta("clear_point", chapel.global_position)
 
-	# The huntsman starts outside and only ever gets in through a breach.
+	# Keep the authored huntsman outside as a dormant DevTools template.  Live
+	# villa breaches create a fresh hunter at the affected door instead.
 	var hunter := get_node_or_null("HunterGhost") as Node3D
 	if hunter:
 		hunter.global_position = Vector3(40.0, 0.0, -12.0)
+		hunter.set("entry_enabled", false)
 
 
 func _room_marker(room_id: String) -> Node3D:
