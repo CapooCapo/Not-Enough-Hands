@@ -74,8 +74,8 @@ var liquid_origin: Marker3D
 ## A believable over-the-shoulder glance: enough to spot a ghost behind either
 ## side, but not a full 360-degree head rotation. The clamp also means moving
 ## from one shoulder to the other must pass back through the forward view.
-@export var min_camera_rotation_y: float = -135.0
-@export var max_camera_rotation_y: float = 135.0
+@export var min_camera_rotation_y: float = -165.0
+@export var max_camera_rotation_y: float = 165.0
 
 @export var min_camera_rotation_z: float = -90.0
 @export var max_camera_rotation_z: float = 90.0
