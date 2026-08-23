@@ -21,10 +21,11 @@ const WALL_3X2: PackedScene = preload(ASSET_ROOT + "walls/wall_3x2.fbx")
 const BIG_STAIR: PackedScene = preload(ASSET_ROOT + "misc/stairs/stair_big_01.fbx")
 const BALCONY_RAIL: PackedScene = preload(ASSET_ROOT + "railings/railing_balcony_02.fbx")
 
-## Measured from the kit itself: the stair is 3 m of run for 4.2 m of rise and
-## 1 m wide, and one railing panel spans exactly 1 m.
+## Measured from the kit itself: the treads run and rise 3 m, while the railings
+## continue to 4.2 m (1.2 m above the upper landing). The stair is 1 m wide and
+## one standalone railing panel spans exactly 1 m.
 const KIT_STAIR_RUN := 3.0
-const KIT_STAIR_RISE := 4.2
+const KIT_STAIR_RISE := 3.0
 const KIT_STAIR_WIDTH := 1.0
 const KIT_RAIL_WIDTH := 1.0
 
@@ -151,10 +152,25 @@ enum Detail {
 	FULL,
 }
 
+enum AuthoringGranularity {
+	## Long straight walls and contiguous slabs share one collider. This is the
+	## normal runtime layout: fewer physics bodies and a much smaller scene tree.
+	OPTIMIZED,
+	## Walls, floors and ceilings are split into one 2 m grid module apiece. Use
+	## this before baking when an artist needs to move individual architecture.
+	EDITABLE_MODULES,
+}
+
 @export var editor_preview: bool = true
 @export var detail: Detail = Detail.FULL
 @export var build_furniture: bool = true
 @export var build_lighting: bool = true
+
+@export_category("Villa Authoring")
+@export var authoring_granularity: AuthoringGranularity = AuthoringGranularity.OPTIMIZED
+@export_tool_button("Rebuild Preview") var _rebuild_preview_button: Callable = rebuild_preview
+@export_tool_button("Bake Editable Parts") var _bake_editable_button: Callable = bake_editable_parts
+@export_tool_button("Clear Generated Parts") var _clear_generated_button: Callable = clear_generated_parts
 
 var spec: VillaSpec
 var levels: Dictionary = {}
@@ -178,7 +194,80 @@ func _ready() -> void:
 	build()
 
 
+## Replaces the disposable editor preview using the current Inspector options.
+## Preview children deliberately remain unowned, so merely opening a scene never
+## writes thousands of generated nodes into it.
+func rebuild_preview() -> void:
+	if not Engine.is_editor_hint():
+		return
+	_clear_generated_immediately()
+	build()
+
+
+## Generates cell-sized architecture and gives every generated root a scene
+## owner. Save the scene after pressing this button and the parts become ordinary
+## editable nodes; _ready() sees Generated on later loads and will not overwrite
+## the artist's transforms.
+func bake_editable_parts() -> void:
+	if not Engine.is_editor_hint():
+		return
+	authoring_granularity = AuthoringGranularity.EDITABLE_MODULES
+	_clear_generated_immediately()
+	build()
+	var generated := get_node_or_null("Generated")
+	var edited_root := get_tree().edited_scene_root if get_tree() else null
+	if not generated or not edited_root:
+		push_error("Open a scene containing VillaHouse before baking editable parts.")
+		return
+	_make_scene_owned(generated, edited_root)
+
+
+## Removes either a disposable preview or baked parts. Saving after this returns
+## villa_house.tscn to procedural runtime generation.
+func clear_generated_parts() -> void:
+	if not Engine.is_editor_hint():
+		return
+	_clear_generated_immediately()
+
+
+func _clear_generated_immediately() -> void:
+	var generated := get_node_or_null("Generated")
+	if generated:
+		generated.free()
+	_module_index = 0
+	levels.clear()
+	_occupied.clear()
+
+
+## Imported FBX scenes and door scenes stay packed instances: their root is
+## editable, but their implementation subtree is not flattened into this scene.
+func _make_scene_owned(node: Node, scene_owner: Node) -> void:
+	node.owner = scene_owner
+	_make_groups_persistent(node)
+	for child: Node in node.get_children():
+		child.owner = scene_owner
+		_make_groups_persistent(child)
+		if child.scene_file_path.is_empty():
+			_make_scene_owned(child, scene_owner)
+
+
+func _make_groups_persistent(node: Node) -> void:
+	for group: StringName in node.get_groups():
+		if String(group).begins_with("_"):
+			continue
+		# add_to_group() is a no-op when membership already exists; remove first
+		# so the persistent flag really changes and survives PackedScene.save().
+		node.remove_from_group(group)
+		node.add_to_group(group, true)
+
+
 func build() -> void:
+	if has_node("Generated"):
+		push_warning("VillaHouse already has Generated parts; clear or rebuild them first.")
+		return
+	_module_index = 0
+	levels.clear()
+	_occupied.clear()
 	spec = VillaSpec.load_default()
 	if spec.data.is_empty():
 		push_error("VillaHouse has no spec to build from.")
@@ -241,7 +330,7 @@ func _build_floors(parent: Node3D, level_data: Dictionary) -> void:
 	for cell: Vector2i in level_data["walkable"]:
 		if not openings.has(cell):
 			walkable[cell] = true
-	for rect: Rect2i in VillaSpec.decompose_rects(walkable):
+	for rect: Rect2i in _architecture_rects(walkable):
 		var size := spec.rect_world_size(rect)
 		var centre := spec.rect_to_world(rect, level)
 		var slab := _static_box(
@@ -349,6 +438,13 @@ func _build_exterior_shell(parent: Node3D, level_data: Dictionary) -> void:
 func _build_wall_run(parent: Node3D, run: Dictionary, level: int, wall_name: String) -> void:
 	var direction: Vector2i = run["dir"]
 	var span: int = int(run["to"]) - int(run["from"]) + 1
+	if authoring_granularity == AuthoringGranularity.EDITABLE_MODULES and span > 1:
+		for value: int in range(int(run["from"]), int(run["to"]) + 1):
+			var module_run := run.duplicate()
+			module_run["from"] = value
+			module_run["to"] = value
+			_build_wall_run(parent, module_run, level, wall_name)
+		return
 	var length := span * spec.cell_size
 	var y := level * spec.floor_height
 	var plane := _run_plane(run)
@@ -386,6 +482,13 @@ func _build_wall_run(parent: Node3D, run: Dictionary, level: int, wall_name: Str
 func _build_railing_run(parent: Node3D, run: Dictionary, level: int) -> void:
 	var direction: Vector2i = run["dir"]
 	var span: int = int(run["to"]) - int(run["from"]) + 1
+	if authoring_granularity == AuthoringGranularity.EDITABLE_MODULES and span > 1:
+		for value: int in range(int(run["from"]), int(run["to"]) + 1):
+			var module_run := run.duplicate()
+			module_run["from"] = value
+			module_run["to"] = value
+			_build_railing_run(parent, module_run, level)
+		return
 	var length := span * spec.cell_size
 	var y := level * spec.floor_height
 	var plane := _run_plane(run)
@@ -439,7 +542,7 @@ func _build_ceiling(parent: Node3D, level_data: Dictionary) -> void:
 
 	var y := (level + 1) * spec.floor_height
 	var container := _container(parent, "Ceiling")
-	for rect: Rect2i in VillaSpec.decompose_rects(lid):
+	for rect: Rect2i in _architecture_rects(lid):
 		var size := spec.rect_world_size(rect)
 		var centre := spec.rect_to_world(rect, level)
 		_static_box(
@@ -771,16 +874,17 @@ func _add_ramp(
 
 	if detail != Detail.FULL:
 		return body
-	# The kit stair is 3 m of run for 4.2 m of rise and 1 m wide, and its origin
-	# is centred on the run with its foot on the floor. A 45-degree ramp needs
-	# as much run as it has rise, so each axis gets its own factor - scaling all
-	# three by the rise, as this once did, produced a stair twice its own length
-	# and half a storey taller than the room.
+	# The kit's *treads* are a 3 x 3 m staircase; its 4.2 m total AABB includes
+	# the handrail continuing 1.2 m above the landing. Scaling Y from that total
+	# height used to leave the top tread a metre below a 3.5 m villa floor. X and
+	# Y must use the same factor so the visible stair stays at the ramp's 45°.
 	var visual := _asset(
 		BIG_STAIR, parent, ramp_name + "Visual", middle, rotation_y,
 		Vector3(rise / KIT_STAIR_RUN, rise / KIT_STAIR_RISE, width / KIT_STAIR_WIDTH)
 	)
 	visual.add_to_group("smooth_stair_visual")
+	visual.set_meta("stair_base_y", base.y)
+	visual.set_meta("stair_top_y", base.y + rise)
 	return body
 
 
@@ -1330,6 +1434,17 @@ func _ground_slab(parent: Node3D, slab_name: String, area: Rect2) -> void:
 
 
 # --- primitives --------------------------------------------------------------
+
+## Optimized builds greedily merge adjacent cells. Editable builds intentionally
+## keep one collider per cell so moving a visible module never leaves a large,
+## invisible collider behind at its old position.
+func _architecture_rects(cells: Dictionary) -> Array[Rect2i]:
+	if authoring_granularity == AuthoringGranularity.OPTIMIZED:
+		return VillaSpec.decompose_rects(cells)
+	var rects: Array[Rect2i] = []
+	for cell: Vector2i in cells:
+		rects.append(Rect2i(cell, Vector2i.ONE))
+	return rects
 
 func _shaft_cells(level: int) -> Dictionary:
 	var cells: Dictionary = {}

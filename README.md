@@ -290,6 +290,34 @@ that cell grid into geometry — greedy-rectangle floor slabs, wall runs merged
 along each straight face, doorways, ramps, railings and lights — and publishes
 room, junction, entrance, spawn and ghost-route markers.
 
+### Editing generated villa parts
+
+Open the scene the parts should live in - `house3/villa_main.tscn` is the one
+that is played, and it is where the current bake sits - select its `VillaHouse`
+node, and use the **Villa Authoring** controls in the Inspector:
+
+1. Set detail, furniture and lighting to the version you want to edit.
+2. Press **Bake Editable Parts**, then save the scene.
+3. Expand `Generated/Level_*/Architecture`. Walls, floor slabs, ceilings and
+   railings are now separate 2 m modules. Moving a body moves both its visual
+   mesh and collider, while imported FBX and door scenes remain packed instances.
+
+**Rebuild Preview** replaces `Generated` but keeps it disposable and unsaved.
+**Clear Generated Parts** removes a baked version; save after clearing to return
+to generation from `neh_map_spec_v2.json` at runtime. Baking deliberately switches
+`Authoring Granularity` to `Editable Modules`. The default `Optimized` mode still
+merges long wall and slab runs and should be used when no hand editing is needed.
+
+Do not press either rebuild button after hand-adjusting baked parts unless those
+changes can be discarded: rebuilding treats the JSON spec as authoritative.
+
+The trade runs the other way too. `VillaHouse._ready()` returns as soon as a
+baked `Generated` node exists, so a baked scene stops following
+`villa_house.gd`: fix the builder and the saved parts keep the old geometry
+until they are baked again. Re-bake after every builder or spec change, and run
+`tests/villa_boot_smoke.gd`, which measures the baked stairs against the floors
+they are supposed to join.
+
 Two departures from the document, both deliberate:
 
 - **The attic ladder (`V04`) is built as a steep companionway, not a ladder.** A
@@ -337,6 +365,7 @@ patrol routes, sweep points and the statue's start position all use it.
 godot --headless --script tests/villa_layout_smoke.gd
 godot --headless --script tests/villa_seal_smoke.gd
 godot --headless --script tests/villa_boot_smoke.gd
+godot --headless --script tests/villa_editable_parts_smoke.gd
 ```
 
 `villa_layout_smoke.gd` runs spec §10.6 against the tables before any geometry
@@ -359,7 +388,11 @@ the seven defense doors at their correct storey heights, and that every one of
 the 50-odd ghost route markers is reachable from the player spawn. That last
 check is the guard against furnishing a room shut.
 
-Between them these three caught every bug in this map worth recording: a
+`villa_editable_parts_smoke.gd` builds the authoring variant, checks that walls,
+floors and ceilings are cell-sized, then packs and reloads the result to prove
+that generated nodes and gameplay groups survive baking.
+
+Between them these four caught every bug in this map worth recording: a
 storey's worth of walls stacked at y=0, closed interior doors baking into the
 navmesh as permanent walls, the basement stair running out of floor at its foot,
 untiled floor strips in odd-height rooms, an unlined light shaft, unrailed
@@ -374,6 +407,11 @@ storey too tall, and the balustrades were placing one 1 m panel per 2 m cell,
 leaving a metre of open air between every section. Both are now driven by
 constants measured off the kit (`KIT_STAIR_RUN`, `KIT_STAIR_RISE`,
 `KIT_RAIL_WIDTH`) instead of guessed factors.
+
+The stair's 4.2 m full height includes a 1.2 m handrail above its 3 m landing;
+it is not the tread rise. `villa_boot_smoke.gd` measures the tread mesh against
+both connected floors so confusing those two dimensions cannot leave the upper
+step floating below its landing again.
 
 ## Verification
 

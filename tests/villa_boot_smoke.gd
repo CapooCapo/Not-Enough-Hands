@@ -73,6 +73,8 @@ func _run() -> void:
 		return
 	if not _routes_are_usable(spawn):
 		return
+	if not _stairs_meet_their_floors():
+		return
 
 	print(
 		"Villa boot smoke test passed in %.1f s: 7 defense doors, %d navmesh polygons, "
@@ -80,6 +82,49 @@ func _run() -> void:
 		+ "hall to cellar, hall to attic and library to kitchen all routable."
 	)
 	quit()
+
+
+## The imported stair's railing is taller than its treads. This measures the
+## tread mesh itself so accidentally scaling from the full railing AABB cannot
+## leave the final step floating below its landing again.
+func _stairs_meet_their_floors() -> bool:
+	var visuals := get_nodes_in_group("smooth_stair_visual")
+	if visuals.size() != 7:
+		_fail("Expected 7 stair visuals, found %d." % visuals.size())
+		return false
+	for node: Node in visuals:
+		var visual := node as Node3D
+		var tread: MeshInstance3D
+		for child: Node in visual.find_children("*", "MeshInstance3D", true, false):
+			var candidate := child as MeshInstance3D
+			var candidate_bounds := candidate.mesh.get_aabb()
+			if absf(candidate_bounds.position.y) < 0.01 \
+					and absf(candidate_bounds.size.y - VillaHouse.KIT_STAIR_RISE) < 0.01:
+				tread = candidate
+				break
+		if not tread:
+			_fail("Stair %s has no measurable tread mesh." % visual.name)
+			return false
+
+		var bounds := tread.mesh.get_aabb()
+		var bottom := INF
+		var top := -INF
+		for x: int in 2:
+			for y: int in 2:
+				for z: int in 2:
+					var corner := bounds.position + bounds.size * Vector3(x, y, z)
+					var world_y := tread.to_global(corner).y
+					bottom = minf(bottom, world_y)
+					top = maxf(top, world_y)
+		var expected_bottom := float(visual.get_meta("stair_base_y"))
+		var expected_top := float(visual.get_meta("stair_top_y"))
+		if absf(bottom - expected_bottom) > 0.02 or absf(top - expected_top) > 0.02:
+			_fail(
+				"Stair %s spans y %.2f..%.2f, expected %.2f..%.2f."
+				% [visual.name, bottom, top, expected_bottom, expected_top]
+			)
+			return false
+	return true
 
 
 ## Baking a navmesh is synchronous, but the server only folds the new region
