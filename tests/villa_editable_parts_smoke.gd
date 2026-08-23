@@ -47,7 +47,7 @@ func _run() -> void:
 		_fail("Generated parts disappeared after pack/load.")
 		return
 	var rooms := restored.get_tree().get_nodes_in_group("villa_rooms")
-	if rooms.size() != 33:
+	if rooms.size() != 37:
 		_fail("Persistent villa room groups were lost after pack/load: %d." % rooms.size())
 		return
 	print("Villa editable-parts smoke test passed: %d cell-sized parts survived pack/load." % checked)

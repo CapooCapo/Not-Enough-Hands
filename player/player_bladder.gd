@@ -12,8 +12,12 @@ signal bladder_changed(value: float, max_value: float)
 signal bladder_warning_started
 signal bladder_full
 
+## At the default clock speed (1.5 real seconds per game minute), this makes
+## an empty bladder full after 45 in-game minutes / 67.5 real seconds.
+const DEFAULT_FULL_DURATION_REAL_SECONDS: float = 45.0 * 1.5
+
 @export var bladder_max: float = 100.0
-@export var bladder_fill_rate: float = 4.0
+@export var bladder_fill_rate: float = 100.0 / DEFAULT_FULL_DURATION_REAL_SECONDS
 @export var bladder_warning_threshold: float = 70.0
 @export var bladder_full_threshold: float = 100.0
 

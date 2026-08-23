@@ -11,6 +11,10 @@ furniture source packs under `assets/map`.
 3. Move with WASD, sprint with Shift, crouch with Ctrl, jump with Space, interact
    with E, blink with B, and press Alt to show or recapture the mouse.
 
+The toilet minigame starts peeing automatically, building pressure for 0.75
+seconds before it reaches full flow. Move the mouse to aim the stream and look
+around at the same time; press **E** at any time to stop and leave the toilet.
+
 The bottom-left **THỂ LỰC** bar is connected to the player's sprint reserve: it
 drains while Shift-running and refills while walking or standing still.
 
@@ -50,7 +54,7 @@ second-floor landing, and a second flight reaches the attic.
 
 ## Survive until dawn
 
-The HUD clock starts at **11:55 PM**. Every 2.5 real seconds advances exactly
+The HUD clock starts at **11:55 PM**. Every 1.5 real seconds advances exactly
 one in-game minute, including the midnight rollover. Reaching **6:00 AM** stops
 the threats, pauses the world, and displays the dawn victory screen. The clock
 is hidden while the door-ghost flashlight minigame owns the screen.
@@ -290,6 +294,12 @@ that cell grid into geometry — greedy-rectangle floor slabs, wall runs merged
 along each straight face, doorways, ramps, railings and lights — and publishes
 room, junction, entrance, spawn and ghost-route markers.
 
+Four compact 4 × 4 m WCs are cut into the outer room bands: two on the ground
+floor and two upstairs, staggered between the north and south sides. Each is a
+single-door dead end with one interactive toilet, one sink and one mirror. The
+separate upstairs main bathroom is also reduced to 8 × 8 m and retains its
+bathtub and shower.
+
 ### Editing generated villa parts
 
 Open the scene the parts should live in - `house3/villa_main.tscn` is the one
@@ -478,7 +488,7 @@ IDs, generated collision, basement-to-attic navigation, physical stair traversal
 statue stair chases and ambushes, crawler surface-crawling and noise hunting,
 doors, the breached-door minigame, temporary ghost safety, interaction, and
 house audio. `dev_tools_smoke.gd` covers the F1 development controls, while
-`night_clock_smoke.gd` verifies the 2.5-second minute tick,
+`night_clock_smoke.gd` verifies the 1.5-second minute tick,
 midnight rollover, and the 6:00 AM victory boundary.
 
 `hunter_ghost_smoke.gd` covers the huntsman's contract: it only gets in through a

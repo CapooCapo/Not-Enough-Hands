@@ -71,14 +71,22 @@ var liquid_origin: Marker3D
 @export var min_camera_rotation_x: float = -90.0
 @export var max_camera_rotation_x: float = 90.0
 
-@export var min_camera_rotation_y: float = -90.0
-@export var max_camera_rotation_y: float = 90.0
+## A believable over-the-shoulder glance: enough to spot a ghost behind either
+## side, but not a full 360-degree head rotation. The clamp also means moving
+## from one shoulder to the other must pass back through the forward view.
+@export var min_camera_rotation_y: float = -135.0
+@export var max_camera_rotation_y: float = 135.0
 
 @export var min_camera_rotation_z: float = -90.0
 @export var max_camera_rotation_z: float = 90.0
 
-@export var bladder_drain_rate: float = 20.0
+## A full bladder takes 13.5 seconds of controlled flow to empty: five times
+## faster than filling. Flow starts automatically but needs 0.75 seconds to
+## build pressure, so it begins almost imperceptibly slowly.
+@export var bladder_drain_rate: float = 100.0 / 13.5
 @export_range(0.0, 1.0) var warning_drain_multiplier: float = 0.35
+@export var pee_ramp_duration: float = 0.75
+@export var pee_ramp_power: float = 4.0
 @export var center_lock_delay: float = 0.3
 @export var combo_ramp_duration: float = 2.5
 @export var max_combo_bonus: float = 0.3
@@ -110,6 +118,10 @@ var noise_cooldown: float = 0.0
 var next_tremor_time: float = 0.0
 var tremor_warning_remaining: float = 0.0
 var tremor_direction: float = 1.0
+var _flow_ramp_elapsed: float = 0.0
+## The E press that starts the toilet session is still travelling through the
+## input tree. Ignore it until released so it cannot immediately cancel itself.
+var _wait_for_interact_release: bool = false
 var _rng := RandomNumberGenerator.new()
 const TARGET_CENTER_X = 0.0
 const VISUAL_MAX_X = 0.37
@@ -168,6 +180,7 @@ func start_session(p_player: Node3D, minigame_viewpoint: Marker3D) -> void:
 
 	player = p_player
 	current_state = MinigameState.PLAYING
+	_wait_for_interact_release = true
 
 	# Lock player
 	if player.has_method("set_physics_process"):
@@ -219,6 +232,7 @@ func start_session(p_player: Node3D, minigame_viewpoint: Marker3D) -> void:
 	safe_streak_time = 0.0
 	noise_cooldown = 0.0
 	tremor_warning_remaining = 0.0
+	_flow_ramp_elapsed = 0.0
 	session_start_bladder = (
 		maxf(float(player.call("get_bladder")), 0.01)
 		if player and player.has_method("get_bladder")
@@ -268,27 +282,48 @@ func _unhandled_input(event: InputEvent) -> void:
 	if current_state != MinigameState.PLAYING:
 		return
 
+	if event.is_action_released("interact"):
+		_wait_for_interact_release = false
+		return
+
+	if event.is_action_pressed("interact"):
+		if _wait_for_interact_release:
+			get_viewport().set_input_as_handled()
+			return
+		get_viewport().set_input_as_handled()
+		cancel()
+		return
+
 	if event.is_action_pressed("ui_cancel"):
 		get_viewport().set_input_as_handled()
 		cancel()
 
 
-## Mouse motion is captured in the regular input phase so it can drive the
-## nozzle and be marked handled before Player's camera-look code receives the
-## same event in _unhandled_input(). A/D remains available as an accessibility
-## fallback and for headless tests.
+## Mouse motion drives the nozzle here, then continues to Player.gd's camera
+## look code. The player can therefore aim the stream and scan left, right, or
+## behind at the same time. A/D remains an accessibility fallback and helps
+## headless tests.
 func _input(event: InputEvent) -> void:
 	if current_state != MinigameState.PLAYING:
 		return
 	if event is InputEventMouseMotion \
 		and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
 		apply_mouse_motion(event.relative.x)
-		get_viewport().set_input_as_handled()
 
 
 func apply_mouse_motion(relative_x: float) -> void:
 	if current_state == MinigameState.PLAYING:
 		pending_mouse_motion += relative_x
+
+
+func _advance_flow_ramp(delta: float) -> float:
+	_flow_ramp_elapsed += maxf(delta, 0.0)
+	var ramp_progress := clampf(
+		_flow_ramp_elapsed / maxf(pee_ramp_duration, 0.001),
+		0.0,
+		1.0
+	)
+	return pow(ramp_progress, maxf(pee_ramp_power, 1.0))
 
 
 func _handle_input(delta: float) -> void:
@@ -373,6 +408,7 @@ func _evaluate_balance(delta: float) -> void:
 	var progress := _get_completion_progress()
 	var current_safe_width := lerpf(safe_zone_width, safe_zone_width_end, progress)
 	var current_warning_width := lerpf(warning_zone_width, warning_zone_width_end, progress)
+	var flow_multiplier := _advance_flow_ramp(delta)
 
 	if distance <= (current_safe_width / 2.0):
 		# CENTERED ZONE
@@ -390,12 +426,14 @@ func _evaluate_balance(delta: float) -> void:
 			var mat = stream.material_override as StandardMaterial3D
 			mat.albedo_color = Color(0.4, 0.7, 1.0, 0.8)
 		stream.show()
+		if flow_multiplier < 1.0:
+			feedback_label.text = "BUILDING PRESSURE  %d%%" % roundi(flow_multiplier * 100.0)
 		if safe_streak_time >= center_lock_delay \
 			and player and player.has_method("get_bladder"):
 			if player.get_bladder() <= 0:
 				succeed()
 			else:
-				player.reduce_bladder(bladder_drain_rate * combo * delta)
+				player.reduce_bladder(bladder_drain_rate * combo * flow_multiplier * delta)
 				if player.get_bladder() <= 0:
 					succeed()
 
@@ -409,8 +447,10 @@ func _evaluate_balance(delta: float) -> void:
 			var mat = stream.material_override as StandardMaterial3D
 			mat.albedo_color = Color(0.8, 0.8, 0.2, 0.4)
 		stream.show()
+		if flow_multiplier < 1.0:
+			feedback_label.text = "UNSTABLE — BUILDING PRESSURE  %d%%" % roundi(flow_multiplier * 100.0)
 		if player and player.has_method("get_bladder"):
-			player.reduce_bladder(bladder_drain_rate * warning_drain_multiplier * delta)
+			player.reduce_bladder(bladder_drain_rate * warning_drain_multiplier * flow_multiplier * delta)
 			if player.get_bladder() <= 0:
 				succeed()
 	else:
@@ -570,6 +610,7 @@ func _cleanup() -> void:
 
 	# Reset state
 	current_state = MinigameState.IDLE
+	_wait_for_interact_release = false
 	player = null
 	_toilet = null
 

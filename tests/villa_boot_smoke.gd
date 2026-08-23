@@ -30,6 +30,8 @@ func _run() -> void:
 	if not house or not house.has_node("Generated"):
 		_fail("villa_main.tscn did not build the villa.")
 		return
+	if not _restrooms_are_furnished(house):
+		return
 
 	var entrance_ids: Array[int] = []
 	# Entrance 07 is the attic skylight, so it sits in the ceiling above the
@@ -82,6 +84,36 @@ func _run() -> void:
 		+ "hall to cellar, hall to attic and library to kitchen all routable."
 	)
 	quit()
+
+
+func _restrooms_are_furnished(house: Node3D) -> bool:
+	var restroom_paths := [
+		"Generated/Level_F_00/Props/R_WC_GROUND_NORTHProps",
+		"Generated/Level_F_00/Props/R_WC_GROUND_SOUTHProps",
+		"Generated/Level_F_01/Props/R_WC_UP_NORTHProps",
+		"Generated/Level_F_01/Props/R_WC_UP_SOUTHProps",
+	]
+	for restroom_path: String in restroom_paths:
+		var props := house.get_node_or_null(restroom_path)
+		if not props:
+			_fail("Missing furnished restroom %s." % restroom_path)
+			return false
+		for fixture: String in ["Toilet", "Sink", "Mirror"]:
+			var expected_path := VillaHouse.FURNITURE_ROOT + fixture + ".fbx"
+			var count := 0
+			for node: Node in props.find_children("*", "Node3D", true, false):
+				if String(node.get_meta("source_asset", "")) == expected_path:
+					count += 1
+			if count != 1:
+				_fail("%s has %d %s fixture(s), expected exactly one."
+					% [restroom_path, count, fixture])
+				return false
+	var toilets := get_nodes_in_group("villa_toilets")
+	if toilets.size() != 5:
+		_fail("Villa has %d interactive toilets; expected four WCs plus the main bath."
+			% toilets.size())
+		return false
+	return true
 
 
 ## The imported stair's railing is taller than its treads. This measures the

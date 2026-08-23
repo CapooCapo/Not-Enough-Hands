@@ -50,7 +50,7 @@ horizontal_alignment = 1
 
 [node name="InstructionLabel" type="Label" parent="HUDLayer/MarginContainer/VBoxContainer"]
 layout_mode = 2
-text = "MOVE MOUSE TO AIM  •  A/D: FALLBACK LEFT/RIGHT"
+text = "MOVE MOUSE TO AIM + LOOK AROUND  •  A/D: LEFT/RIGHT  •  E: STOP"
 horizontal_alignment = 1
 
 [node name="BalanceTrack" type="Control" parent="HUDLayer/MarginContainer/VBoxContainer"]

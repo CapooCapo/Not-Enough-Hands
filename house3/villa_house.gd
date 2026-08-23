@@ -20,6 +20,7 @@ const FLOOR_4X4: PackedScene = preload(ASSET_ROOT + "floors/floor_4x4.fbx")
 const WALL_3X2: PackedScene = preload(ASSET_ROOT + "walls/wall_3x2.fbx")
 const BIG_STAIR: PackedScene = preload(ASSET_ROOT + "misc/stairs/stair_big_01.fbx")
 const BALCONY_RAIL: PackedScene = preload(ASSET_ROOT + "railings/railing_balcony_02.fbx")
+const TOILET_INTERACTABLE: PackedScene = preload("res://toilet/toilet.tscn")
 
 ## Measured from the kit itself: the treads run and rise 3 m, while the railings
 ## continue to 4.2 m (1.2 m above the upper landing). The stair is 1 m wide and
@@ -103,6 +104,13 @@ const FURNITURE_PLANS := {
 		"unique": ["Bathtub", "Toilet", "Sink", "Simple Shower", "Mirror"],
 		"large": ["Drawer 1", "Drawer-Cabinet"],
 		"small": ["Towel Pile", "Simple Shelf"],
+	},
+	"wc": {
+		# These are deliberately compact dead-end rooms: one usable toilet and
+		# one hand basin, with a mirror that does not consume floor space.
+		"unique": ["Toilet", "Sink", "Mirror"],
+		"large": [],
+		"small": [],
 	},
 	"chapel": {
 		"unique": ["Modern Shelves"],
@@ -1174,7 +1182,9 @@ func _furnish_walls(
 
 	# One piece per four cells of floor fills a room without turning it into a
 	# warehouse; the number of free wall slots is the hard ceiling.
-	var wanted := clampi(roundi(rect.size.x * rect.size.y / 4.0), 2, 18)
+	# Compact rooms still need every required fixture. Without this floor, a
+	# 2x2 WC only requested two slots and silently lost its mirror.
+	var wanted := maxi(unique.size(), clampi(roundi(rect.size.x * rect.size.y / 4.0), 2, 18))
 	var count := mini(wanted, slots.size())
 	var stride := float(slots.size()) / float(count)
 	var large_index := 0
@@ -1257,11 +1267,25 @@ func _place_against_wall(parent: Node3D, item: String, slot: Dictionary) -> void
 
 	var against := centre + toward_wall * (spec.cell_size * 0.5 - 0.55)
 	_asset(_furniture(item), parent, item, against, facing)
+	if item == "Toilet":
+		_place_toilet_interactable(parent, against, facing)
 	if item.begins_with("Bed Base"):
 		_asset(
 			_furniture("Bed 1 Sheets"), parent, "BedSheets",
 			against + Vector3(0, 0.52, 0), facing
 		)
+
+
+## The furniture FBX supplies the visible bowl; this colocated gameplay scene
+## supplies interaction, collision and the per-toilet minigame used in House2.
+func _place_toilet_interactable(parent: Node3D, position: Vector3, rotation_y: float) -> void:
+	var toilet := TOILET_INTERACTABLE.instantiate() as Node3D
+	_module_index += 1
+	toilet.name = "ToiletInteractable_%04d" % _module_index
+	toilet.position = position - _world_offset(parent)
+	toilet.rotation.y = rotation_y
+	toilet.add_to_group("villa_toilets")
+	parent.add_child(toilet)
 
 
 ## A centre piece plus its seating, for the rooms that are built around one:
