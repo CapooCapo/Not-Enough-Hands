@@ -11,8 +11,17 @@ extends Node3D
 ## Everything downstream - player, ghosts, defense doors, power, audio - is
 ## driven off the same node groups House2 publishes, so nothing else changed.
 
+## Emitted once the baked region *and* the stair links are both live in the
+## NavigationServer. A region only enters the map on one of the server's own
+## sync steps and a link needs another one after that, so until this fires the
+## villa can answer "where is the nearest floor" while still having no route up
+## any staircase.
+signal navigation_ready
+
 @export_category("Development")
 @export var development_lighting: bool = false
+
+var navigation_is_ready: bool = false
 
 @onready var house: Node3D = $VillaHouse
 @onready var world_environment: WorldEnvironment = $WorldEnvironment
@@ -172,7 +181,7 @@ func _bake_navigation() -> void:
 	navigation_region.name = "VillaNavigationRegion"
 	navigation_region.navigation_mesh = navigation_mesh
 	add_child(navigation_region)
-	_add_stair_navigation_links()
+	_link_stairs_when_navigation_is_ready(navigation_region)
 
 
 func _interior_door_shapes() -> Array[CollisionShape3D]:
@@ -183,42 +192,185 @@ func _interior_door_shapes() -> Array[CollisionShape3D]:
 	return shapes
 
 
-## Recast erodes a walkable surface by the agent radius, so the seam where a
-## 45-degree ramp meets its landing can come out as two islands. Every ramp
-## therefore states its own connection, and states the extra hop onto the
-## floor beyond the landing tile.
-func _add_stair_navigation_links() -> void:
+## The NavigationServer folds a new region into its map on one of its own sync
+## steps, so on the frame the villa bakes, that map still answers every query
+## with nothing. These links have to measure it to find their ends, so they
+## wait for it rather than being placed blind.
+func _link_stairs_when_navigation_is_ready(region: NavigationRegion3D) -> void:
+	var map := region.get_navigation_map()
+	var probe := region.navigation_mesh.get_vertices()[0]
+	for _attempt: int in 120:
+		if NavigationServer3D.map_get_closest_point(map, probe).distance_to(probe) < 2.0:
+			_add_stair_navigation_links(map)
+			await _stair_links_registered(map)
+			navigation_is_ready = true
+			navigation_ready.emit()
+			return
+		await get_tree().physics_frame
+	push_error("The villa navigation map never came up; its stairs are unlinked.")
+
+
+## Links reach the server on the sync step after the one that accepted the
+## region, so a route asked for in between still walks around the staircase it
+## needs. Wait for the server to report them before saying the map is usable.
+func _stair_links_registered(map: RID) -> void:
+	var expected := (
+		get_tree().get_nodes_in_group("smooth_stair_navigation_links").size()
+		+ get_tree().get_nodes_in_group("smooth_stair_landing_links").size()
+	)
+	for _attempt: int in 60:
+		if NavigationServer3D.map_get_links(map).size() >= expected:
+			# Registered is not yet routable: the map folds the new links into
+			# its graph on its next iteration, and a path asked for in between
+			# still walks around the staircase.
+			var iteration := NavigationServer3D.map_get_iteration_id(map)
+			while NavigationServer3D.map_get_iteration_id(map) == iteration:
+				await get_tree().physics_frame
+			return
+		await get_tree().physics_frame
+	push_warning("Only %d of the villa's %d stair links reached the navigation map."
+		% [NavigationServer3D.map_get_links(map).size(), expected])
+
+
+## Recast erodes every walkable surface by the agent radius, and a 45-degree
+## ramp is narrow enough that the erosion regularly lifts a whole run clear of
+## the floor it starts on. The villa bakes V01's grand staircase as an island
+## joined to the upper landing and to nothing else: walking from the foyer to
+## the landing directly above it cost 152 m around the entire building, so the
+## statue - which only ever hunts a target on its own storey - never once took
+## the stairs, and the crawler and huntsman took the long way round.
+##
+## Every seam is bridged with a NavigationLink3D, across a hop a body can
+## physically walk. A link is not a teleport: NavigationAgent3D hands its far
+## end over as the next path position and the body steers straight at it. The
+## single link this replaces spanned the whole run, floor below to landing
+## above, so anything given one walked into the underside of the staircase and
+## stayed there.
+func _add_stair_navigation_links(map: RID) -> void:
 	for ramp_node: Node in get_tree().get_nodes_in_group("smooth_stair_ramps"):
 		var ramp := ramp_node as StaticBody3D
 		if not ramp:
 			continue
 		var rise := float(ramp.get_meta("rise", 3.5))
 		var uphill := ramp.global_basis.x.normalized()
-		var horizontal_uphill := Vector3(uphill.x, 0.0, uphill.z).normalized()
-		if horizontal_uphill.is_zero_approx():
+		var run := Vector3(uphill.x, 0.0, uphill.z).normalized()
+		if run.is_zero_approx():
 			continue
 
-		var link := NavigationLink3D.new()
-		link.name = ramp.name.trim_suffix("SmoothRamp") + "NavigationLink"
-		link.bidirectional = true
-		link.start_position = (
-			ramp.global_position - horizontal_uphill * (rise * 0.5 + 0.6) - Vector3.UP * rise * 0.5
-		)
-		link.end_position = (
-			ramp.global_position + horizontal_uphill * (rise * 0.5 + 0.9) + Vector3.UP * rise * 0.5
-		)
-		if ramp.has_meta("enter_cost"):
-			link.enter_cost = float(ramp.get_meta("enter_cost")) * 10.0
-		link.add_to_group("smooth_stair_navigation_links")
-		add_child(link)
+		var half_width := _ramp_half_width(ramp)
+		var foot := ramp.global_position - run * rise * 0.5 - Vector3.UP * rise * 0.5
+		var head := ramp.global_position + run * rise * 0.5 + Vector3.UP * rise * 0.5
+		var stem := ramp.name.trim_suffix("SmoothRamp")
 
-		var landing_link := NavigationLink3D.new()
-		landing_link.name = ramp.name.trim_suffix("SmoothRamp") + "UpperLandingNavigationLink"
-		landing_link.bidirectional = true
-		landing_link.start_position = link.end_position
-		landing_link.end_position = link.end_position + horizontal_uphill * 2.0
-		landing_link.add_to_group("smooth_stair_landing_links")
-		add_child(landing_link)
+		# Three hops rather than one span, because a single link from the floor
+		# below to the landing above is only walkable when it happens to lie
+		# along the run - and V01's does not, because its bottom step has no
+		# run-out to anchor to. Each hop here is either along the staircase or a
+		# single step onto it.
+		var toe := _ramp_surface_point(map, foot + run * 0.3 + Vector3.UP * 0.3)
+		var crest := _ramp_surface_point(map, head - run * 0.3 - Vector3.UP * 0.3)
+		_add_navigation_link(
+			stem + "FootNavigationLink",
+			_stair_link_anchor(map, foot, -run, half_width),
+			toe,
+			# Spec section 8 gives each link a traversal time; charging it on
+			# the way in is what keeps a route over flat floor cheaper than one
+			# that uses two staircases to save a few metres.
+			float(ramp.get_meta("enter_cost", 0.0)) * 10.0,
+			&"smooth_stair_navigation_links"
+		)
+		# The run's own polygons are not reliably continuous either: V03 comes
+		# out of the bake with a metre-wide hole halfway down, where the ground
+		# floor's slab edge clips its headroom.
+		_add_navigation_link(
+			stem + "RunNavigationLink", toe, crest, 0.0, &"smooth_stair_navigation_links"
+		)
+		_add_navigation_link(
+			stem + "HeadNavigationLink",
+			crest,
+			_stair_link_anchor(map, head, run, half_width),
+			0.0,
+			&"smooth_stair_landing_links"
+		)
+
+
+## How far navigation may sit from a probe before that probe counts as having
+## missed the floor. The bake lifts polygons about 0.2 m above the surface they
+## came from, so anything inside half a cell is still "on" it.
+const STAIR_LINK_SNAP := 0.45
+
+## Distances tried along the run, then out to the sides of it. A staircase with
+## a generous run-out resolves on the first entry; V01, whose bottom step stops
+## half a metre from the foyer's east wall, has to be entered from beside it.
+const STAIR_LINK_RUN_OUT: Array[float] = [0.6, 1.0, 1.5, 2.0]
+const STAIR_LINK_SIDE_STEP: Array[float] = [0.6, 1.2]
+
+
+## Half the ramp's width, read off the collider rather than the spec so it also
+## holds for the site stairs, which have no vertical-link entry to read.
+func _ramp_half_width(ramp: StaticBody3D) -> float:
+	var collision := ramp.get_node_or_null("SmoothRampCollision") as CollisionShape3D
+	var box := collision.shape as BoxShape3D if collision else null
+	return (box.size.z if box else 1.8) * 0.5
+
+
+## The nearest point that is really on the navigation mesh and really at
+## `origin`'s height, searched outward along `outward` and then to either side
+## of it. Vector3.INF when the whole neighbourhood misses.
+func _stair_link_anchor(
+	map: RID, origin: Vector3, outward: Vector3, half_width: float
+) -> Vector3:
+	var sideways := Vector3.UP.cross(outward).normalized()
+	var probes: Array[Vector3] = []
+	for run_out: float in STAIR_LINK_RUN_OUT:
+		probes.append(origin + outward * run_out)
+	# Sideways probes have to clear the run itself or they land on the ramp.
+	for side_step: float in STAIR_LINK_SIDE_STEP:
+		var across := half_width + side_step
+		for side: float in [1.0, -1.0]:
+			probes.append(origin + sideways * across * side)
+			probes.append(origin + outward * 0.5 + sideways * across * side)
+
+	for probe: Vector3 in probes:
+		var closest := NavigationServer3D.map_get_closest_point(map, probe)
+		if probe.distance_to(closest) > STAIR_LINK_SNAP:
+			continue
+		if absf(closest.y - origin.y) > STAIR_LINK_SNAP:
+			continue
+		return closest
+	return Vector3.INF
+
+
+## Where the run's own navigation actually starts. Erosion eats the last step
+## or two, so this is asked for rather than assumed.
+func _ramp_surface_point(map: RID, probe: Vector3) -> Vector3:
+	var closest := NavigationServer3D.map_get_closest_point(map, probe)
+	return closest if probe.distance_to(closest) <= 0.6 else Vector3.INF
+
+
+## Both ends are stated even when the bake happens to have joined them already:
+## a duplicate link is only a little extra work for the pathfinder, while a
+## missing one is a storey the ghosts cannot reach, and "are these two points
+## already connected" cannot be asked honestly here - the anchors are placed
+## before the server has seen any of this frame's links.
+func _add_navigation_link(
+	link_name: String,
+	from: Vector3,
+	to: Vector3,
+	enter_cost: float,
+	group: StringName
+) -> void:
+	if from == Vector3.INF or to == Vector3.INF:
+		push_warning("%s found no navigation to anchor to." % link_name)
+		return
+	var link := NavigationLink3D.new()
+	link.name = link_name
+	link.bidirectional = true
+	link.start_position = from
+	link.end_position = to
+	link.enter_cost = enter_cost
+	link.add_to_group(group)
+	add_child(link)
 
 
 # --- rendering helpers -------------------------------------------------------

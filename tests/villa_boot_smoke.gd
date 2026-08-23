@@ -61,7 +61,7 @@ func _run() -> void:
 		_fail("The player was not placed on SP_PLAYER_1.")
 		return
 
-	if not await _navigation_map_ready(spawn):
+	if not await _navigation_map_ready(main_scene, spawn):
 		_fail("The navigation map never came up around the player spawn.")
 		return
 
@@ -131,10 +131,13 @@ func _stairs_meet_their_floors() -> bool:
 ## into the map on one of its own sync steps. How many physics frames that
 ## takes is not fixed, so wait for the map to answer instead of counting
 ## frames and hoping - that guess made this test fail about one run in three.
-func _navigation_map_ready(spawn: Vector3) -> bool:
+func _navigation_map_ready(main_scene: Node, spawn: Vector3) -> bool:
 	var map := root.get_world_3d().navigation_map
-	for _attempt: int in 120:
-		if NavigationServer3D.map_get_closest_point(map, spawn).distance_to(spawn) < 2.0:
+	for _attempt: int in 240:
+		# Both halves matter. The region answers "where is the nearest floor"
+		# a sync step or two before the stair links exist, and a route asked
+		# for in that window walks around every staircase in the villa.
+		if bool(main_scene.get("navigation_is_ready")) 				and NavigationServer3D.map_get_closest_point(map, spawn).distance_to(spawn) < 2.0:
 			return true
 		await physics_frame
 	return false

@@ -341,6 +341,57 @@ Kho thực phẩm, Phòng trẻ em, Phòng tắm lớn and Phòng máy. The diag
 the tables, so the tables win and those rooms are listed in `single_door_rooms`
 in the JSON. Any *new* one-door room still fails validation.
 
+### Getting a ghost across the villa
+
+Two things about the villa - neither of which House2 has - stopped every hunt
+dead, and both look identical from the hallway: the statue manifests, walks a
+few metres, then wanders off and never arrives.
+
+**The staircases bake as islands.** Recast erodes every walkable surface by the
+agent radius, and a 45-degree ramp is narrow enough that the erosion regularly
+lifts a whole run clear of the floor it starts on. `V01`, the grand staircase in
+the room the player spawns in, came out joined to the upper landing and to
+nothing below it: a route from the foyer to the landing five metres overhead
+went 152 m around the entire building. The statue only ever hunts a target on
+its own storey, so it simply never used the stairs.
+
+`villa_main.gd` therefore states each staircase as a chain of three
+`NavigationLink3D`s - floor to the bottom step, bottom step to top step, top
+step to the landing - rather than one span from storey to storey. Three hops
+instead of one because **a link is not a teleport**: `NavigationAgent3D` hands
+the far end over as the next path position and the body steers straight at it,
+so every hop has to be walkable on its own. A single floor-to-landing span is
+only walkable when it happens to lie along the run, and V01's does not - its
+bottom step stops half a metre from the foyer's east wall, so its lower anchor
+has to sit beside the staircase rather than in front of it. The middle hop
+covers the other half of the problem: `V03` bakes with a metre-wide hole
+halfway down the run, where the ground floor's slab edge clips its headroom.
+
+None of the anchors are dead-reckoned. Each end is searched for - out along the
+run, then to either side of it - and the first probe that lands on real
+navigation at the right storey wins. The links can only be placed once the
+NavigationServer has folded the region into its map and then re-iterated with
+the links in it, so `villa_main` exposes `navigation_is_ready` and a
+`navigation_ready` signal; a route asked for before that still walks around
+every staircase in the house.
+
+**Every internal doorway carries a closed door.** The navmesh is baked with the
+door leaves deliberately lifted out - a closed door would otherwise freeze into
+the route graph as a permanent wall and cut each storey into one island per
+room - so ghost routes run straight through doorways. Nothing then opened them.
+A ghost has no hands and never presses E, so the first door on its route held
+the hunt for the rest of the night; a statue sent after a player two rooms away
+would jam against a leaf and stand there. House2 has only open door frames,
+which is why this never showed up there.
+
+`door.gd` now lets anything in `hostile_ghosts` shoulder a leaf open, at the
+cost of the swing, and swings it shut again five seconds after the doorway is
+clear - leaving 48 doors standing open would quietly retire the "shut it behind
+you" tactic. A hidden ghost clears its own collision mask, so asking whether the
+leaf can block it is also asking whether it is really in the house yet: doors do
+not open for something that has not manifested. `ghost_shoulder_enabled` turns
+it off per door.
+
 ### Furniture
 
 Rooms are not dressed by hand. `FURNITURE_PLANS` in `villa_house.gd` gives each
@@ -366,6 +417,7 @@ godot --headless --script tests/villa_layout_smoke.gd
 godot --headless --script tests/villa_seal_smoke.gd
 godot --headless --script tests/villa_boot_smoke.gd
 godot --headless --script tests/villa_editable_parts_smoke.gd
+godot --headless --script tests/villa_ghost_chase_smoke.gd
 ```
 
 `villa_layout_smoke.gd` runs spec §10.6 against the tables before any geometry
@@ -392,7 +444,13 @@ check is the guard against furnishing a room shut.
 floors and ceilings are cell-sized, then packs and reloads the result to prove
 that generated nodes and gameplay groups survive baking.
 
-Between them these four caught every bug in this map worth recording: a
+`villa_ghost_chase_smoke.gd` covers the two hunt-killers above, because both are
+invisible to a route query: it puts a player on V01's landing and the statue in
+the foyer below and requires it to climb, then puts a player in the foyer and
+the statue in the corridor behind it and requires it to come through the shut
+door between them.
+
+Between them these five caught every bug in this map worth recording: a
 storey's worth of walls stacked at y=0, closed interior doors baking into the
 navmesh as permanent walls, the basement stair running out of floor at its foot,
 untiled floor strips in odd-height rooms, an unlined light shaft, unrailed
