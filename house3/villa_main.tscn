@@ -28189,7 +28189,7 @@ transform = Transform3D(-4.371139e-08, 0, 1, 0, 0.36666667, 0, -1, 0, -4.371139e
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_23_17" parent="VillaHouse/Generated/Level_F_B1/Doors" unique_id=1398793591 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(-3.80099e-08, 0, 1, 0, 1, 0, -0.8695652, 0, -4.371139e-08, 47, -3.5, 36)
+transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 47, -3.5, 36)
 
 [node name="DoorHeader_0886" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_B1/Doors" unique_id=1144293686]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 47, -0.55, 51)
@@ -28206,7 +28206,7 @@ transform = Transform3D(-4.371139e-08, 0, 1, 0, 0.36666667, 0, -1, 0, -4.371139e
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_23_25" parent="VillaHouse/Generated/Level_F_B1/Doors" unique_id=100699520 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(-3.80099e-08, 0, 1, 0, 1, 0, -0.8695652, 0, -4.371139e-08, 47, -3.5, 52)
+transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 47, -3.5, 52)
 
 [node name="DoorHeader_0889" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_B1/Doors" unique_id=1066456199]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 53, -0.55, 35)
@@ -28223,7 +28223,7 @@ transform = Transform3D(-4.371139e-08, 0, 1, 0, 0.36666667, 0, -1, 0, -4.371139e
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_26_17" parent="VillaHouse/Generated/Level_F_B1/Doors" unique_id=969184203 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(-3.80099e-08, 0, 1, 0, 1, 0, -0.8695652, 0, -4.371139e-08, 53, -3.5, 36)
+transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 53, -3.5, 36)
 
 [node name="DoorHeader_0892" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_B1/Doors" unique_id=1469529854]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 53, -0.55, 51)
@@ -28240,7 +28240,7 @@ transform = Transform3D(-4.371139e-08, 0, 1, 0, 0.36666667, 0, -1, 0, -4.371139e
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_26_25" parent="VillaHouse/Generated/Level_F_B1/Doors" unique_id=364374491 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(-3.80099e-08, 0, 1, 0, 1, 0, -0.8695652, 0, -4.371139e-08, 53, -3.5, 52)
+transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 53, -3.5, 52)
 
 [node name="Junctions" type="Node3D" parent="VillaHouse/Generated/Level_F_B1" unique_id=1946994602]
 
@@ -48077,7 +48077,7 @@ transform = Transform3D(1, 0, 0, 0, 0.36666667, 0, 0, 0, 1, 0, -0.54999995, 1)
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_8_5" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=1687117128 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(0.8695652, 0, 0, 0, 1, 0, 0, 0, 1, 16, 0, 11)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 16, 0, 11)
 
 [node name="DoorHeader_4533" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=1117482882]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7, 2.95, 11)
@@ -48094,7 +48094,7 @@ transform = Transform3D(1, 0, 0, 0, 0.36666667, 0, 0, 0, 1, 0, -0.54999995, 1)
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_3_5" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=513611920 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(0.8695652, 0, 0, 0, 1, 0, 0, 0, 1, 6, 0, 11)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6, 0, 11)
 
 [node name="DoorHeader_4536" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=646196649]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 25, 2.95, 11)
@@ -48111,7 +48111,7 @@ transform = Transform3D(1, 0, 0, 0, 0.36666667, 0, 0, 0, 1, 0, -0.54999995, 1)
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_12_5" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=769792138 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(0.8695652, 0, 0, 0, 1, 0, 0, 0, 1, 24, 0, 11)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 24, 0, 11)
 
 [node name="DoorHeader_4539" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=588102460]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 39, 2.95, 11)
@@ -48128,7 +48128,7 @@ transform = Transform3D(1, 0, 0, 0, 0.36666667, 0, 0, 0, 1, 0, -0.54999995, 1)
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_19_5" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=1144993544 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(0.8695652, 0, 0, 0, 1, 0, 0, 0, 1, 38, 0, 11)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 38, 0, 11)
 
 [node name="DoorHeader_4542" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=1037634055]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 57, 2.95, 11)
@@ -48145,7 +48145,7 @@ transform = Transform3D(1, 0, 0, 0, 0.36666667, 0, 0, 0, 1, 0, -0.54999995, 1)
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_28_5" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=290990673 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(0.8695652, 0, 0, 0, 1, 0, 0, 0, 1, 56, 0, 11)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 56, 0, 11)
 
 [node name="DoorHeader_4545" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=964557596]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 73, 2.95, 11)
@@ -48162,7 +48162,7 @@ transform = Transform3D(1, 0, 0, 0, 0.36666667, 0, 0, 0, 1, 0, -0.54999995, 1)
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_36_5" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=1441668802 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(0.8695652, 0, 0, 0, 1, 0, 0, 0, 1, 72, 0, 11)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 72, 0, 11)
 
 [node name="DoorHeader_4548" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=1352094268]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 13, 2.95, 21)
@@ -48179,7 +48179,7 @@ transform = Transform3D(-4.371139e-08, 0, 1, 0, 0.36666667, 0, -1, 0, -4.371139e
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_6_10" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=637926826 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(-3.80099e-08, 0, 1, 0, 1, 0, -0.8695652, 0, -4.371139e-08, 13, 0, 22)
+transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 13, 0, 22)
 
 [node name="DoorHeader_4551" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=1828059659]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 13, 2.95, 39)
@@ -48196,7 +48196,7 @@ transform = Transform3D(-4.371139e-08, 0, 1, 0, 0.36666667, 0, -1, 0, -4.371139e
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_6_19" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=773127005 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(-3.80099e-08, 0, 1, 0, 1, 0, -0.8695652, 0, -4.371139e-08, 13, 0, 40)
+transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 13, 0, 40)
 
 [node name="DoorHeader_4554" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=902686761]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 67, 2.95, 21)
@@ -48213,7 +48213,7 @@ transform = Transform3D(-4.371139e-08, 0, 1, 0, 0.36666667, 0, -1, 0, -4.371139e
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_33_10" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=1045479645 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(-3.80099e-08, 0, 1, 0, 1, 0, -0.8695652, 0, -4.371139e-08, 67, 0, 22)
+transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 67, 0, 22)
 
 [node name="DoorHeader_4557" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=955121841]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 67, 2.95, 39)
@@ -48230,7 +48230,7 @@ transform = Transform3D(-4.371139e-08, 0, 1, 0, 0.36666667, 0, -1, 0, -4.371139e
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_33_19" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=1984451614 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(-3.80099e-08, 0, 1, 0, 1, 0, -0.8695652, 0, -4.371139e-08, 67, 0, 40)
+transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 67, 0, 40)
 
 [node name="DoorHeader_4560" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=505119389]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 27, 2.95, 17)
@@ -48247,7 +48247,7 @@ transform = Transform3D(1, 0, 0, 0, 0.36666667, 0, 0, 0, 1, 0, -0.54999995, 1)
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_13_8" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=1843436120 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(0.8695652, 0, 0, 0, 1, 0, 0, 0, 1, 26, 0, 17)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 26, 0, 17)
 
 [node name="DoorHeader_4563" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=810989537]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 27, 2.95, 27)
@@ -48264,7 +48264,7 @@ transform = Transform3D(1, 0, 0, 0, 0.36666667, 0, 0, 0, 1, 0, -0.54999995, 1)
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_13_13" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=1809921885 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(0.8695652, 0, 0, 0, 1, 0, 0, 0, 1, 26, 0, 27)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 26, 0, 27)
 
 [node name="DoorHeader_4566" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=1879929150]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 51, 2.95, 17)
@@ -48281,7 +48281,7 @@ transform = Transform3D(1, 0, 0, 0, 0.36666667, 0, 0, 0, 1, 0, -0.54999995, 1)
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_25_8" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=1288430027 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(0.8695652, 0, 0, 0, 1, 0, 0, 0, 1, 50, 0, 17)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 50, 0, 17)
 
 [node name="DoorHeader_4569" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=975701776]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 51, 2.95, 27)
@@ -48298,7 +48298,7 @@ transform = Transform3D(1, 0, 0, 0, 0.36666667, 0, 0, 0, 1, 0, -0.54999995, 1)
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_25_13" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=1573983814 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(0.8695652, 0, 0, 0, 1, 0, 0, 0, 1, 50, 0, 27)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 50, 0, 27)
 
 [node name="DoorHeader_4572" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=331445793]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 43, 2.95, 21)
@@ -48315,7 +48315,7 @@ transform = Transform3D(-4.371139e-08, 0, 1, 0, 0.36666667, 0, -1, 0, -4.371139e
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_21_10" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=1652734556 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(-3.80099e-08, 0, 1, 0, 1, 0, -0.8695652, 0, -4.371139e-08, 43, 0, 22)
+transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 43, 0, 22)
 
 [node name="DoorHeader_4575" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=701734335]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 61, 2.95, 23)
@@ -48332,7 +48332,7 @@ transform = Transform3D(-4.371139e-08, 0, 1, 0, 0.36666667, 0, -1, 0, -4.371139e
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_30_11" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=1269282749 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(-3.80099e-08, 0, 1, 0, 1, 0, -0.8695652, 0, -4.371139e-08, 61, 0, 24)
+transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 61, 0, 24)
 
 [node name="DoorHeader_4578" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=1604309545]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 27, 2.95, 33)
@@ -48349,7 +48349,7 @@ transform = Transform3D(1, 0, 0, 0, 0.36666667, 0, 0, 0, 1, 0, -0.54999995, 1)
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_13_16" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=1790561312 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(0.8695652, 0, 0, 0, 1, 0, 0, 0, 1, 26, 0, 33)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 26, 0, 33)
 
 [node name="DoorHeader_4581" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=335413942]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 27, 2.95, 43)
@@ -48366,7 +48366,7 @@ transform = Transform3D(1, 0, 0, 0, 0.36666667, 0, 0, 0, 1, 0, -0.54999995, 1)
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_13_21" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=479069709 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(0.8695652, 0, 0, 0, 1, 0, 0, 0, 1, 26, 0, 43)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 26, 0, 43)
 
 [node name="DoorHeader_4584" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=1360062873]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 51, 2.95, 33)
@@ -48383,7 +48383,7 @@ transform = Transform3D(1, 0, 0, 0, 0.36666667, 0, 0, 0, 1, 0, -0.54999995, 1)
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_25_16" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=1210291824 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(0.8695652, 0, 0, 0, 1, 0, 0, 0, 1, 50, 0, 33)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 50, 0, 33)
 
 [node name="DoorHeader_4587" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=2079747845]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 51, 2.95, 43)
@@ -48400,7 +48400,7 @@ transform = Transform3D(1, 0, 0, 0, 0.36666667, 0, 0, 0, 1, 0, -0.54999995, 1)
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_25_21" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=412848750 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(0.8695652, 0, 0, 0, 1, 0, 0, 0, 1, 50, 0, 43)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 50, 0, 43)
 
 [node name="DoorHeader_4590" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=53565034]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5, 2.95, 49)
@@ -48417,7 +48417,7 @@ transform = Transform3D(1, 0, 0, 0, 0.36666667, 0, 0, 0, 1, 0, -0.54999995, 1)
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_2_24" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=1120611146 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(0.8695652, 0, 0, 0, 1, 0, 0, 0, 1, 4, 0, 49)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4, 0, 49)
 
 [node name="DoorHeader_4593" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=214958209]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 23, 2.95, 49)
@@ -48434,7 +48434,7 @@ transform = Transform3D(1, 0, 0, 0, 0.36666667, 0, 0, 0, 1, 0, -0.54999995, 1)
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_11_24" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=1132009836 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(0.8695652, 0, 0, 0, 1, 0, 0, 0, 1, 22, 0, 49)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 22, 0, 49)
 
 [node name="DoorHeader_4596" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=1703851742]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 29, 2.95, 53)
@@ -48451,7 +48451,7 @@ transform = Transform3D(-4.371139e-08, 0, 1, 0, 0.36666667, 0, -1, 0, -4.371139e
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_14_26" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=1512347952 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(-3.80099e-08, 0, 1, 0, 1, 0, -0.8695652, 0, -4.371139e-08, 29, 0, 54)
+transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 29, 0, 54)
 
 [node name="DoorHeader_4599" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=1893901307]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 39, 2.95, 49)
@@ -48468,7 +48468,7 @@ transform = Transform3D(1, 0, 0, 0, 0.36666667, 0, 0, 0, 1, 0, -0.54999995, 1)
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_19_24" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=2108860674 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(0.8695652, 0, 0, 0, 1, 0, 0, 0, 1, 38, 0, 49)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 38, 0, 49)
 
 [node name="DoorHeader_4602" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=2090374134]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 51, 2.95, 53)
@@ -48485,7 +48485,7 @@ transform = Transform3D(-4.371139e-08, 0, 1, 0, 0.36666667, 0, -1, 0, -4.371139e
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_25_26" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=304705080 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(-3.80099e-08, 0, 1, 0, 1, 0, -0.8695652, 0, -4.371139e-08, 51, 0, 54)
+transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 51, 0, 54)
 
 [node name="DoorHeader_4605" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=473140102]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 57, 2.95, 49)
@@ -48502,7 +48502,7 @@ transform = Transform3D(1, 0, 0, 0, 0.36666667, 0, 0, 0, 1, 0, -0.54999995, 1)
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_28_24" parent="VillaHouse/Generated/Level_F_00/Doors" unique_id=785310632 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(0.8695652, 0, 0, 0, 1, 0, 0, 0, 1, 56, 0, 49)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 56, 0, 49)
 
 [node name="Junctions" type="Node3D" parent="VillaHouse/Generated/Level_F_00" unique_id=111155955]
 
@@ -74078,7 +74078,7 @@ transform = Transform3D(1, 0, 0, 0, 0.36666667, 0, 0, 0, 1, 0, -0.5499997, 1)
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_11_5" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=728654523 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(0.8695652, 0, 0, 0, 1, 0, 0, 0, 1, 22, 3.5, 11)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 22, 3.5, 11)
 
 [node name="DoorHeader_8868" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=387305087]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7, 6.45, 11)
@@ -74095,7 +74095,7 @@ transform = Transform3D(1, 0, 0, 0, 0.36666667, 0, 0, 0, 1, 0, -0.5499997, 1)
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_3_5" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=1199228504 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(0.8695652, 0, 0, 0, 1, 0, 0, 0, 1, 6, 3.5, 11)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6, 3.5, 11)
 
 [node name="DoorHeader_8871" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=393055677]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 39, 6.45, 11)
@@ -74112,7 +74112,7 @@ transform = Transform3D(1, 0, 0, 0, 0.36666667, 0, 0, 0, 1, 0, -0.5499997, 1)
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_19_5" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=676438749 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(0.8695652, 0, 0, 0, 1, 0, 0, 0, 1, 38, 3.5, 11)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 38, 3.5, 11)
 
 [node name="DoorHeader_8874" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=661748819]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 55, 6.45, 11)
@@ -74129,7 +74129,7 @@ transform = Transform3D(1, 0, 0, 0, 0.36666667, 0, 0, 0, 1, 0, -0.5499997, 1)
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_27_5" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=334017237 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(0.8695652, 0, 0, 0, 1, 0, 0, 0, 1, 54, 3.5, 11)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 54, 3.5, 11)
 
 [node name="DoorHeader_8877" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=1213837820]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 65, 6.45, 11)
@@ -74146,7 +74146,7 @@ transform = Transform3D(1, 0, 0, 0, 0.36666667, 0, 0, 0, 1, 0, -0.5499997, 1)
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_32_5" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=1285444100 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(0.8695652, 0, 0, 0, 1, 0, 0, 0, 1, 64, 3.5, 11)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 64, 3.5, 11)
 
 [node name="DoorHeader_8880" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=1817546173]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 73, 6.45, 11)
@@ -74163,7 +74163,7 @@ transform = Transform3D(1, 0, 0, 0, 0.36666667, 0, 0, 0, 1, 0, -0.5499997, 1)
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_36_5" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=1402750818 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(0.8695652, 0, 0, 0, 1, 0, 0, 0, 1, 72, 3.5, 11)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 72, 3.5, 11)
 
 [node name="DoorHeader_8883" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=1951270617]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 13, 6.45, 21)
@@ -74180,7 +74180,7 @@ transform = Transform3D(-4.371139e-08, 0, 1, 0, 0.36666667, 0, -1, 0, -4.371139e
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_6_10" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=1404966673 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(-3.80099e-08, 0, 1, 0, 1, 0, -0.8695652, 0, -4.371139e-08, 13, 3.5, 22)
+transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 13, 3.5, 22)
 
 [node name="DoorHeader_8886" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=988981411]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 13, 6.45, 39)
@@ -74197,7 +74197,7 @@ transform = Transform3D(-4.371139e-08, 0, 1, 0, 0.36666667, 0, -1, 0, -4.371139e
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_6_19" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=542400346 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(-3.80099e-08, 0, 1, 0, 1, 0, -0.8695652, 0, -4.371139e-08, 13, 3.5, 40)
+transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 13, 3.5, 40)
 
 [node name="DoorHeader_8889" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=1968934814]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 13, 6.45, 45)
@@ -74214,7 +74214,7 @@ transform = Transform3D(-4.371139e-08, 0, 1, 0, 0.36666667, 0, -1, 0, -4.371139e
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_6_22" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=1972985121 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(-3.80099e-08, 0, 1, 0, 1, 0, -0.8695652, 0, -4.371139e-08, 13, 3.5, 46)
+transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 13, 3.5, 46)
 
 [node name="DoorHeader_8892" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=1612075327]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 67, 6.45, 21)
@@ -74231,7 +74231,7 @@ transform = Transform3D(-4.371139e-08, 0, 1, 0, 0.36666667, 0, -1, 0, -4.371139e
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_33_10" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=2002524561 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(-3.80099e-08, 0, 1, 0, 1, 0, -0.8695652, 0, -4.371139e-08, 67, 3.5, 22)
+transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 67, 3.5, 22)
 
 [node name="DoorHeader_8895" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=514233361]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 67, 6.45, 39)
@@ -74248,7 +74248,7 @@ transform = Transform3D(-4.371139e-08, 0, 1, 0, 0.36666667, 0, -1, 0, -4.371139e
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_33_19" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=490161376 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(-3.80099e-08, 0, 1, 0, 1, 0, -0.8695652, 0, -4.371139e-08, 67, 3.5, 40)
+transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 67, 3.5, 40)
 
 [node name="DoorHeader_8898" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=920724847]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 27, 6.45, 17)
@@ -74265,7 +74265,7 @@ transform = Transform3D(1, 0, 0, 0, 0.36666667, 0, 0, 0, 1, 0, -0.5499997, 1)
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_13_8" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=1903162722 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(0.8695652, 0, 0, 0, 1, 0, 0, 0, 1, 26, 3.5, 17)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 26, 3.5, 17)
 
 [node name="DoorHeader_8901" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=924819593]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 27, 6.45, 27)
@@ -74282,7 +74282,7 @@ transform = Transform3D(1, 0, 0, 0, 0.36666667, 0, 0, 0, 1, 0, -0.5499997, 1)
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_13_13" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=894906153 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(0.8695652, 0, 0, 0, 1, 0, 0, 0, 1, 26, 3.5, 27)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 26, 3.5, 27)
 
 [node name="DoorHeader_8904" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=1001622763]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 27, 6.45, 33)
@@ -74299,7 +74299,7 @@ transform = Transform3D(1, 0, 0, 0, 0.36666667, 0, 0, 0, 1, 0, -0.5499997, 1)
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_13_16" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=1336510982 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(0.8695652, 0, 0, 0, 1, 0, 0, 0, 1, 26, 3.5, 33)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 26, 3.5, 33)
 
 [node name="DoorHeader_8907" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=2128422426]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 27, 6.45, 43)
@@ -74316,7 +74316,7 @@ transform = Transform3D(1, 0, 0, 0, 0.36666667, 0, 0, 0, 1, 0, -0.5499997, 1)
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_13_21" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=2044770270 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(0.8695652, 0, 0, 0, 1, 0, 0, 0, 1, 26, 3.5, 43)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 26, 3.5, 43)
 
 [node name="DoorHeader_8910" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=250893221]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 51, 6.45, 33)
@@ -74333,7 +74333,7 @@ transform = Transform3D(1, 0, 0, 0, 0.36666667, 0, 0, 0, 1, 0, -0.5499997, 1)
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_25_16" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=308947808 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(0.8695652, 0, 0, 0, 1, 0, 0, 0, 1, 50, 3.5, 33)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 50, 3.5, 33)
 
 [node name="DoorHeader_8913" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=1262886409]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 51, 6.45, 43)
@@ -74350,7 +74350,7 @@ transform = Transform3D(1, 0, 0, 0, 0.36666667, 0, 0, 0, 1, 0, -0.5499997, 1)
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_25_21" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=338047460 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(0.8695652, 0, 0, 0, 1, 0, 0, 0, 1, 50, 3.5, 43)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 50, 3.5, 43)
 
 [node name="DoorHeader_8916" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=923079017]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 23, 6.45, 49)
@@ -74367,7 +74367,7 @@ transform = Transform3D(1, 0, 0, 0, 0.36666667, 0, 0, 0, 1, 0, -0.5499997, 1)
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_11_24" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=1091687920 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(0.8695652, 0, 0, 0, 1, 0, 0, 0, 1, 22, 3.5, 49)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 22, 3.5, 49)
 
 [node name="DoorHeader_8919" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=1223556853]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 29, 6.45, 53)
@@ -74384,7 +74384,7 @@ transform = Transform3D(-4.371139e-08, 0, 1, 0, 0.36666667, 0, -1, 0, -4.371139e
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_14_26" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=1874719413 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(-3.80099e-08, 0, 1, 0, 1, 0, -0.8695652, 0, -4.371139e-08, 29, 3.5, 54)
+transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 29, 3.5, 54)
 
 [node name="DoorHeader_8922" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=753572962]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 39, 6.45, 49)
@@ -74401,7 +74401,7 @@ transform = Transform3D(1, 0, 0, 0, 0.36666667, 0, 0, 0, 1, 0, -0.5499997, 1)
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_19_24" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=1533121978 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(0.8695652, 0, 0, 0, 1, 0, 0, 0, 1, 38, 3.5, 49)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 38, 3.5, 49)
 
 [node name="DoorHeader_8925" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=1437414833]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 51, 6.45, 53)
@@ -74418,7 +74418,7 @@ transform = Transform3D(-4.371139e-08, 0, 1, 0, 0.36666667, 0, -1, 0, -4.371139e
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_25_26" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=956998862 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(-3.80099e-08, 0, 1, 0, 1, 0, -0.8695652, 0, -4.371139e-08, 51, 3.5, 54)
+transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 51, 3.5, 54)
 
 [node name="DoorHeader_8928" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=1796307776]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 57, 6.45, 49)
@@ -74435,7 +74435,7 @@ transform = Transform3D(1, 0, 0, 0, 0.36666667, 0, 0, 0, 1, 0, -0.5499997, 1)
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="Door_28_24" parent="VillaHouse/Generated/Level_F_01/Doors" unique_id=492071964 groups=["villa_interior_doors"] instance=ExtResource("9_lld2x")]
-transform = Transform3D(0.8695652, 0, 0, 0, 1, 0, 0, 0, 1, 56, 3.5, 49)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 56, 3.5, 49)
 
 [node name="Junctions" type="Node3D" parent="VillaHouse/Generated/Level_F_01" unique_id=328733787]
 

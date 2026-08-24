@@ -642,9 +642,10 @@ func _build_doors(parent: Node3D, level_data: Dictionary) -> void:
 
 		var leaf := interior_door.instantiate() as Node3D
 		leaf.name = "Door_%d_%d" % [cell.x, cell.y]
-		# The stock leaf is 2.3 m wide and hinges on its local origin; a spec
-		# doorway is exactly one 2 m cell, so hang it from one jamb and trim it.
-		leaf.scale = Vector3(spec.cell_size / 2.3, 1.0, 1.0)
+		# The leaf is authored at the spec's 2 m width and hinges on its local
+		# origin. Do not non-uniformly scale this rotating node: combining that
+		# scale with the Hinge yaw introduces shear and can inflate the leaf when
+		# its tween is interrupted and restarted.
 		if travels_x:
 			# Yawing by 90 degrees sends the leaf's local +X to world -Z, so it
 			# has to hang from the far jamb to close across the opening.
