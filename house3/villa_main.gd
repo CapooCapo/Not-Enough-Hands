@@ -39,11 +39,21 @@ const DEFENSE_DOOR_SCALE := Vector3(1.55, 1.2, 1.0)
 ## Height of the leaf's centre above the door node's own origin.
 const DEFENSE_DOOR_LEAF_RISE := 1.15
 
+## The villa has seven entrances and every one of them can break, so "one hunter
+## per breach" had no ceiling at all. It matters more now than it used to for two
+## reasons: a huntsman never leaves the house any more, so they only ever
+## accumulate; and each one is a three-hundred-part body, so the fourth is a
+## frame-rate problem before it is a difficulty problem. Three of them in a
+## building this size is already everywhere at once.
+const MAX_BREACH_HUNTERS := 3
+
 var _two_sided_cache: Dictionary = {}
 ## A breach can happen before Recast has finished baking.  Those hunters wait
 ## at the opening instead of trying to search without a navigation map.
 var _hunters_waiting_for_navigation: Array[CharacterBody3D] = []
 var _breach_hunter_serial: int = 0
+## Every huntsman this level has spawned at a breach and not since freed.
+var _breach_hunters: Array[CharacterBody3D] = []
 
 
 func _ready() -> void:
@@ -112,9 +122,10 @@ func _place_defense_doors() -> void:
 		door.set("repair_per_interaction", 60.0 / float(anchor.get_meta("repair_seconds")))
 
 
-## Every broken entrance adds one hunter at that breach.  The dormant hunter in
-## the scene remains for DevTools only, so a door event always produces exactly
-## one new threat rather than waking a global singleton as well.
+## Every broken entrance adds one hunter at that breach, up to
+## `MAX_BREACH_HUNTERS`.  The dormant hunter in the scene remains for DevTools
+## only, so a door event produces one new threat rather than waking a global
+## singleton as well.
 func _watch_breached_entrances() -> void:
 	for node: Node in get_tree().get_nodes_in_group("defense_doors"):
 		if node.has_signal("breached") and not node.is_connected("breached", _on_entrance_breached):
@@ -131,25 +142,40 @@ func _spawn_hunter_at_breach(door: Node) -> void:
 	var doorway := door as Node3D
 	if not is_instance_valid(doorway) or not HUNTER_GHOST:
 		return
+	if live_breach_hunter_count() >= MAX_BREACH_HUNTERS:
+		# The house is already full. Every further breach is still a hole the
+		# player has to live with - it just does not add a fourth body.
+		return
 
 	_breach_hunter_serial += 1
 	var hunter := HUNTER_GHOST.instantiate() as CharacterBody3D
 	if not hunter:
 		return
 	hunter.name = "BreachHunter%02d" % _breach_hunter_serial
-	# This hunter was created by a particular breach; if it later leaves, it
-	# must not re-enter on a later breach and inflate that event's spawn count.
+	# This hunter belongs to one particular breach and must never let itself back
+	# in through a different one, which would put it outside the cap.
 	hunter.set("entry_enabled", false)
 	add_child(hunter)
 	if not hunter.has_method("spawn_from_breached_door") \
 		or not bool(hunter.call("spawn_from_breached_door", doorway)):
 		hunter.queue_free()
 		return
+	_breach_hunters.append(hunter)
 
 	if navigation_is_ready:
 		return
 	hunter.set("active", false)
 	_hunters_waiting_for_navigation.append(hunter)
+
+
+## How many breach huntsmen are actually still in the world. Prunes as it counts,
+## so a hunter that was freed for any reason gives its slot back.
+func live_breach_hunter_count() -> int:
+	for index: int in range(_breach_hunters.size() - 1, -1, -1):
+		var hunter := _breach_hunters[index]
+		if not is_instance_valid(hunter) or hunter.is_queued_for_deletion():
+			_breach_hunters.remove_at(index)
+	return _breach_hunters.size()
 
 
 func _activate_waiting_hunters() -> void:

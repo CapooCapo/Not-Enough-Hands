@@ -1,8 +1,9 @@
 extends SceneTree
 
 ## Each destroyed villa defense door creates one additional active hunter at
-## that breach.  The scene's dormant HunterGhost is retained for DevTools but
-## must not turn the first breach into two hunters.
+## that breach, up to `MAX_BREACH_HUNTERS` and no further. The scene's dormant
+## HunterGhost is retained for DevTools but must not turn the first breach into
+## two hunters.
 
 const VILLA_SCENE := preload("res://house3/villa_main.tscn")
 
@@ -26,19 +27,36 @@ func _run() -> void:
 		_fail("The villa's dormant HunterGhost template can still enter on a breach.")
 		return
 
+	var cap := int(game.get("MAX_BREACH_HUNTERS"))
 	var doors := get_nodes_in_group("defense_doors")
-	if doors.size() < 2:
-		_fail("Villa needs at least two exterior defense doors for this test.")
+	if doors.size() < cap + 1:
+		_fail("Villa needs more exterior defense doors than the hunter cap for this test.")
 		return
 	var initial_hunters := get_nodes_in_group("hunter_ghosts").size()
-	if not await _breach_and_expect_one(doors[0] as Node, initial_hunters):
+	for index: int in range(cap):
+		if not await _breach_and_expect_one(doors[index] as Node, initial_hunters + index):
+			return
+
+	# The cap is the point: the villa has seven entrances and a huntsman never
+	# leaves, so without it every door the player loses is another body in the
+	# building for the rest of the night.
+	var at_cap := get_nodes_in_group("hunter_ghosts").size()
+	(doors[cap] as Node).call("take_damage", 10000.0, true)
+	for _attempt: int in 30:
+		await physics_frame
+	if get_nodes_in_group("hunter_ghosts").size() != at_cap:
+		_fail(
+			"Breaching a %dth door spawned a huntsman past the cap of %d."
+			% [cap + 1, cap]
+		)
 		return
-	if not await _breach_and_expect_one(doors[1] as Node, initial_hunters + 1):
+	if int(game.call("live_breach_hunter_count")) != cap:
+		_fail("Villa is not tracking exactly %d live breach huntsmen." % cap)
 		return
 
 	game.queue_free()
 	await process_frame
-	print("Villa hunter breach spawn smoke test passed.")
+	print("Villa hunter breach spawn smoke test passed: %d hunters, capped at %d." % [cap, cap])
 	quit()
 
 

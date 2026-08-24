@@ -6,9 +6,9 @@ signal door_minigame_started(door: Node)
 signal door_minigame_finished()
 signal hunter_trap_changed(trapped: bool)
 
-@export var walk_speed: float = 2.45
-@export var crouch_speed: float = 1.35
-@export var sprint_speed_multiplier: float = 1.22
+@export var walk_speed: float = 4
+@export var crouch_speed: float = 1.75
+@export var sprint_speed_multiplier: float = 2.5
 @export var jump_velocity: float = 4.2
 @export var player_radius: float = 0.32
 @export var crouch_height: float = 1.05

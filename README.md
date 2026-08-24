@@ -109,12 +109,12 @@ nothing about surviving the others.
 
 | | Statue (`ghosts/statue_ghost.gd`) | Crawler (`ghosts/crawler_ghost.gd`) | Huntsman (`ghosts/hunter_ghost.gd`) |
 |---|---|---|---|
-| Senses | Sight — it freezes while any player can see it | Sound — it is blind, and hears movement | Tracks — it reads the marks you left on the floor |
-| Counterplay | Keep looking at it; don't blink | Go quiet: crouch, or stop moving entirely | Keep off ground you have already walked; break its line at corners |
+| Senses | Sight — it freezes while any player can see it | Sound — it is blind, and hears movement | Tracks the floor you walked on, then sees you — in every direction at once |
+| Counterplay | Keep looking at it; do not blink | Go quiet: crouch, or stop moving entirely | Keep a wall between you for five whole seconds — then it walks away from you, not toward you |
 | Space | Floors and stairs, on the navmesh | Floors, walls and ceilings; travels overhead | Every room on every floor, on foot, room by room |
 | Arrival | Teleports into a scripted ambush, then vanishes | Announces itself with a fly-past, then sweeps the house | Walks in through a door it has already broken |
 | Presence | Gone the moment you look away | Gone between hunts | Never teleports, never vanishes while inside |
-| Kill | Grabs you during a blink or a look-away; distant statues surge much farther per blink | Leaps 13 m at 21 m/s, or mauls what it touches | Charges faster than a sprint, then a half-second grab |
+| Kill | Grabs you during a blink or a look-away; distant statues surge much farther per blink | Leaps 13 m at 21 m/s, or mauls what it touches | Roars for 2.5 s, then charges a shade faster than a sprint and grabs |
 
 Standing still is the correct answer to the crawler, staring is the correct
 answer to the statue, and neither does anything at all to the huntsman. That is
@@ -167,8 +167,38 @@ seconds later it is standing outside that doorway, and then it walks in — on
 foot, in view, no teleport. Rebuild the door inside that window and nothing ever
 enters.
 
-Once inside it stops in the doorway and sweeps the house with its lantern for
+Once inside it stops in the doorway and sweeps the house with its gaze for
 `entry_scan_duration` seconds. That is the announcement, and it is the only one.
+
+**The body.** `ghosts/stalker_rig.gd` builds it: a hunched 2.1 m skeleton with
+arms longer than its legs, two rings of thin jointed arms writhing around a hole
+where a face should be, and about forty eyes scattered over its chest, ribs,
+joints, back and tail — every one of them independently aimed at whoever is
+nearest, and independently blinking. It is ~280 parts, all of them procedural
+primitives under `stalker_flesh.gdshader` (wet chitin, with a drier bone
+variant) and `stalker_eye.gdshader` (a whole eye resolved from one sphere, so
+the creature can afford to wear forty). It is written as a builder rather than
+laid out in the `.tscn` because almost every part of it is a *chain*, and a
+builder means the proportions are twenty constants at the top of one file and
+every joint that exists is automatically a joint that animates. It is also
+`@tool`, purely so that opening `hunter_ghost.tscn` shows the creature instead
+of one empty `VisualRoot`; the parts it builds have no owner and are never
+written into the scene file. The AI never touches a bone: it sets speed,
+agitation, searching, charging and a look point, and the rig works out the gait,
+the breathing, the crown writhe, the tail whip, the finger twitch and the drips.
+
+Three hundred moving parts is enough to be a frame-rate problem, so the rig pays
+for itself in three places. `stalker_flesh.gdshader` runs two noise octaves
+rather than four — the four-octave version cost about a hundred and fifty hashed
+lookups per fragment and was the most expensive thing in the frame. Only the
+twenty-odd biggest masses cast shadows (`SHADOW_CASTERS`), because a finger bone
+costs a shadow map exactly what a thigh does and is invisible in the result. And
+`gaze_casts_shadows` is off by default: a *moving* shadow-casting spotlight
+re-renders every lit caster in range, creature and house both, every single
+frame. Turn it back on if the budget allows — it is the best-looking thing the
+creature does. Per-frame animation costs about 0.45 ms with the eye aiming
+spread round-robin over three frames and the drips and eye-tracking dropped past
+`detail_distance`.
 
 **It hunts by track.** Every `spoor_interval` (0.4 s) each player writes a mark
 to the floor: a position, a time, and a strength. Sprinting prints hard,
@@ -211,18 +241,57 @@ this it was possible to leave it standing on a staircase for the rest of the
 night, which is the one failure state a creature built on relentlessness cannot
 have.
 
-**The lantern is its eye.** It sweeps while it searches and locks dead-on when it
-finds you, so a beam that stops moving is the worst thing you can see. Time in
-the beam builds toward a lock (`spot_time_near`–`spot_time_far`, halved against a
-crouched shape); inside `certain_range` it does not need the beam at all. A lock
-means a horn and a charge at `charge_speed` (3.5 m/s against a 3.25 m/s sprint) —
-a straight corridor is simply lost. What saves you is that it has `acceleration`
-of a loaded truck and cannot move at full speed in a direction it is not already
-facing (`off_axis_speed_floor`), so corners, doorways and stairs are the escape.
-Break its line for `lose_sight_time` and it drops back to the trail — the trail
-that is now hottest exactly where it lost you. And once it has had you in the
-light it keeps your scent for the rest of the night (`marked_nose_bonus`), and
-every lock extends its stay.
+**It sees in every direction.** There is no cone and no spotting meter: it is
+covered in eyes, so any player inside `sight_range` (15 m) with an unbroken line
+to it is seen the frame they become visible — from behind exactly as readily as
+from in front. Crouching does not help. Standing behind a wall does. The gaze
+cone that sweeps the corridor is now cosmetic (`gaze_sweep_speed`,
+`gaze_sweep_half_angle`); it is how the player sees it coming, not how it sees
+the player.
+
+**It also has ears.** Not the crawler's — that creature *is* its hearing, and
+reaches 16 m — but good enough that being near it while upright brings it over.
+Range scales with how loud you are on the same curve, over a smaller radius
+(`hearing_range`, 13 m at a full sprint, about a room's width at a walk).
+Crouch-walking falls under `hearing_loudness_floor` at any distance and standing
+still makes no sound at all, so crouching is the one movement it cannot hear.
+Hearing never locks on; it only ever hands it somewhere new to go and read the
+floor.
+
+**Being seen: the roar, and then the run.** The instant it has somebody it
+plants, turns to face them and roars for `roar_duration` (2.5 s) at a volume the
+whole house hears — including the players it has *not* seen. Those seconds are
+the entire warning, and the entire head start: about eighteen metres at a
+sprint. Then it charges at `charge_speed` (8 m/s against a 7.5 m/s sprint), so
+it closes half a metre a second — a corridor is a slow loss rather than an
+instant one, and eighteen metres is enough room to actually reach the corner you
+were running for. It also has `acceleration` of a loaded truck and cannot move
+at full speed in a direction it is not already facing (`off_axis_speed_floor`),
+so corners, doorways and stairs are where the chase is actually won. What you
+cannot do is duck behind one sofa: losing line of sight does not shake it, it
+keeps coming to where you were, and only a full `lose_sight_time` (5 s) unseen
+drops the chase. And when it does give up it does not do the correct thing: the
+trail you just laid getting away is the hottest thing in the building, and
+reading it would walk it straight back onto you, which is unbeatable and
+therefore not a game. Instead it turns around and walks `disengage_distance`
+(11 m) in the *opposite* direction from where it last saw you, reading nothing
+at all on the way, and its trail clock resets to the moment it gave up so those
+fresh marks are already too old to use. It can only pick you up again from
+wherever you go next. Once it has seen you it does keep your scent for the rest
+of the night (`marked_nose_bonus`).
+
+Everything short of that charge moves at `walk_speed` (2 m/s) — slower than a
+walking player, so an unaware huntsman can be walked away from in any direction.
+Its footfalls are deliberately loud and carry most of the way across the house,
+getting louder as it closes: hearing which room it is in and going the other way
+is the counterplay to something that outruns you once it looks up.
+
+**And it never leaves.** There is no hunt timer, no giving up, and no walking
+back out through the hole it came in by. Once it is inside, it is inside until
+dawn. Rebuilding every breach behind it therefore no longer locks it out of an
+exit it wanted — it only trips `sealed_inside`, which makes it faster
+(`trapped_speed_bonus`) and sharper-nosed (`trapped_nose_bonus`) for the rest of
+the night. It lays no traps either; that behaviour is gone.
 
 **The grab.** At `seize_range` it plants and reaches: `seize_windup` is half a
 second, and that half second is the only window there is. The reach is
@@ -238,19 +307,13 @@ against a rail with you on the other side — it drops navigation for
 is exactly what dithers along a railing. Only losing sight of you for
 `lose_sight_time` (5 s) ends a lock.
 
-**Bear traps.** While it is searching rather than charging, it periodically
-stops to place a physical trap. At most three can exist in the house. Stepping
-on one immobilizes that player for eight seconds; another player can interact
-with the sprung trap and finish freeing them in two seconds.
-
-**The sealed-house trap.** It leaves the way it came in, after `hunt_duration`, through any
-door that is still a hole — and after `reentry_cooldown_min`–`reentry_cooldown_max`
-seconds of quiet it lets itself back in through that same hole, so a breach left
-standing keeps costing you all night. Rebuild every breach while it is inside and it has no
-way out: it is sealed in with you until dawn (`sealed_inside`), it stops pacing
-itself, and it gets faster and sharper-nosed. Repairing your own house is
-therefore no longer an unambiguously correct move, which is the decision the
-whole creature exists to force.
+**Sealed in.** It has no exit behaviour at all: no hunt timer, no giving up, no
+walking back out through the hole it came in by. Once it is inside it is inside
+until dawn. Rebuilding every breach behind it therefore does not shut a door it
+wanted — it trips `sealed_inside`, and being sealed in with you makes it faster
+(`trapped_speed_bonus`) and sharper-nosed (`trapped_nose_bonus`) for the rest of
+the night. Repairing your own house is still not an unambiguously correct move,
+but for the opposite reason it used to be.
 
 Route markers are level data, not code — drop `Marker3D`s into the
 `hunter_sweep_points` group and it picks them up, and the average of those
@@ -270,6 +333,17 @@ defense doors, the power system and the audio through exactly the same node
 groups.
 
 Run it with `house3/villa_main.tscn` (F6). House2 still runs from `main.tscn`.
+
+The one behavioural difference is the huntsman. House2 has a single one that
+walks in through whichever breach it likes; the villa is big enough that one
+creature is not a threat to a spread-out team, so `villa_main.gd` spawns a fresh
+huntsman *at* each entrance that breaks — capped at `MAX_BREACH_HUNTERS` (3).
+The cap matters because a huntsman never leaves: without it, seven lost doors
+would mean seven bodies in the building for the rest of the night, and the
+fourth one is a frame-rate problem before it is a difficulty problem. Further
+breaches past the cap are still holes the player has to live with, they just do
+not add another creature. The scene's own dormant `HunterGhost` stays out of it
+entirely, as a DevTools template with `entry_enabled` off.
 
 | | House2 | Villa |
 |---|---|---|
@@ -468,7 +542,10 @@ stairwell openings, and a wardrobe parked on the approach to the cellar stair.
 
 `tests/villa_screenshot.gd` and `tests/villa_devshot.gd` are not tests — they
 park a camera in the house (the second one with the dev toggles flipped) and
-write PNGs to `user://villa_shots`. Two bugs got past every
+write PNGs to `user://villa_shots`. `tests/stalker_devshot.gd` does the same for
+the huntsman's body, rendering it from the concept sheet's own angles (front,
+three-quarter, side, back, charging) into `user://stalker_shots`, which is how
+its proportions get retuned without guessing. Two bugs got past every
 assertion above and were only visible in those images: the kit staircase was
 being scaled on the wrong axes, which made it twice its own length and half a
 storey too tall, and the balustrades were placing one 1 m panel per 2 m cell,
@@ -494,9 +571,19 @@ midnight rollover, and the 6:00 AM victory boundary.
 `hunter_ghost_smoke.gd` covers the huntsman's contract: it only gets in through a
 breach, a door rebuilt before it arrives keeps it out entirely, it follows a
 trail laid on the floor with no sight or sound to go on, a mark it can smell but
-cannot reach does not freeze it, its lantern lock leads to a kill, attack safety
-still blocks that kill, sealing the last breach traps it inside, and an open
-breach lets it walk back out (and invites it back in).
+cannot reach does not freeze it, it hears an upright player and not a crouched
+one, seeing a player produces a full roar before a single step, that roar leads
+to a kill, losing a player sends it walking away from them rather than back onto
+them, attack safety still blocks that kill, sealing the last breach traps it
+inside, and a wide-open breach and twelve quiet seconds still leave it in the
+house - because it never leaves.
+`stalker_rig_smoke.gd` covers its body instead of its hunt, because a
+procedurally built creature rots silently: that it still fits through a 2.4 m
+doorway in every pose, that its feet still meet the floor the collision capsule
+stands on, that every chain the builder made is still reachable from the
+animation (a limb that exists but stopped moving is the one bug a screenshot
+will not show), and that the gaze light is still inside the crown the player can
+see scanning the corridor.
 `house_hunter_sweep_smoke.gd` then drops it into House2 itself, in three stages:
 it must search real rooms across the baked navmesh instead of grinding into the
 first wall; it must find a player standing perfectly still two floors above it;
