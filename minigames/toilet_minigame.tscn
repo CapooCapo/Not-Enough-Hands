@@ -1,6 +1,7 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://minigames/toilet_minigame.gd" id="1_toilet_minigame"]
+[ext_resource type="PackedScene" path="res://assets/ghosts/toilet_ghost/toilet_ghost.tscn" id="2_toilet_ghost"]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_liquid"]
 transparency = 1
@@ -156,3 +157,5 @@ mesh = SubResource("CapsuleMesh_hand")
 transform = Transform3D(1, 0, 0, 0, 0.70710677, 0.70710677, 0, -0.70710677, 0.70710677, 0, 0, 0)
 material_override = SubResource("StandardMaterial3D_hand")
 mesh = SubResource("CapsuleMesh_hand")
+
+[node name="ToiletGhost" parent="." instance=ExtResource("2_toilet_ghost")]

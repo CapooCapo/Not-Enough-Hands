@@ -30,6 +30,11 @@ signal minigame_effect_requested(effect: String)
 
 # Asset Pipeline
 @export var balance_asset: PackedScene = preload("res://toilet/assets/water_nozzle.tscn")
+## Brief "caught" reaction shown alongside the existing death flow when the
+## player fails to look at the Toilet Ghost in time (Sprint 10) - see
+## _on_toilet_ghost_caught(). Purely visual/audio; the actual death still
+## goes through the existing player.kill_by_ghost() path unchanged.
+@export var toilet_ghost_caught_scene: PackedScene = preload("res://minigames/toilet_ghost_caught.tscn")
 var instantiated_asset: Node3D
 var left_grip: Marker3D
 var right_grip: Marker3D
@@ -41,6 +46,11 @@ var liquid_origin: Marker3D
 @onready var right_hand: MeshInstance3D = $RightHand
 @onready var stream: MeshInstance3D = $LiquidStream
 @onready var toilet_target: Marker3D = $ToiletTarget
+## Toilet-minigame-specific threat (minigames/toilet_ghost.gd), driven
+## entirely from here (arm()/update()/reset()) - see those three call sites
+## below. Duck-typed like every other cross-object call in this file so a
+## missing/renamed node degrades to a no-op instead of an error.
+@onready var toilet_ghost: Node = get_node_or_null("ToiletGhost")
 
 # HUD Elements
 @onready var bladder_bar: ProgressBar = $HUDLayer/MarginContainer/VBoxContainer/StatusArea/BladderContainer/ProgressBar
@@ -71,11 +81,13 @@ var liquid_origin: Marker3D
 @export var min_camera_rotation_x: float = -90.0
 @export var max_camera_rotation_x: float = 90.0
 
-## A believable over-the-shoulder glance: enough to spot a ghost behind either
-## side, but not a full 360-degree head rotation. The clamp also means moving
-## from one shoulder to the other must pass back through the forward view.
-@export var min_camera_rotation_y: float = -165.0
-@export var max_camera_rotation_y: float = 165.0
+## The direction faced the instant the toilet minigame starts is treated as
+## 0 degrees; the player can turn up to this far either side of it. Keeps
+## the toilet Ghost's own spawn positions (minigames/toilet_ghost.gd,
+## spawn_yaw_range) reachable by construction - it samples within this same
+## +-90 degree cone around that same starting direction.
+@export var min_camera_rotation_y: float = -90.0
+@export var max_camera_rotation_y: float = 90.0
 
 @export var min_camera_rotation_z: float = -90.0
 @export var max_camera_rotation_z: float = 90.0
@@ -141,7 +153,23 @@ func _ready() -> void:
 	stream.hide()
 	hide()
 
+	if toilet_ghost and toilet_ghost.has_signal("ghost_timed_out"):
+		toilet_ghost.ghost_timed_out.connect(_on_toilet_ghost_caught)
+
 	_load_asset()
+
+
+## Reached when the ghost's own reaction timeout fires (see
+## minigames/toilet_ghost.gd's _resolve_failure(), which emits
+## ghost_timed_out immediately before calling the player's existing
+## kill_by_ghost() - unchanged, still the same call, still the same
+## existing death flow). This only adds a brief visual "caught" beat
+## alongside it and stops the minigame right away, rather than waiting a
+## frame for the is_alive guard in _process() to notice.
+func _on_toilet_ghost_caught() -> void:
+	cancel()
+	if toilet_ghost_caught_scene:
+		add_child(toilet_ghost_caught_scene.instantiate())
 
 func _load_asset() -> void:
 	if not balance_asset: return
@@ -261,6 +289,9 @@ func start_session(p_player: Node3D, minigame_viewpoint: Marker3D) -> void:
 	hud_layer.show()
 	show()
 
+	if toilet_ghost and toilet_ghost.has_method("arm"):
+		toilet_ghost.arm()
+
 func _process(delta: float) -> void:
 	if current_state != MinigameState.PLAYING:
 		return
@@ -277,6 +308,9 @@ func _process(delta: float) -> void:
 	_update_visuals(delta)
 	_evaluate_balance(delta)
 	_update_status_bars()
+
+	if toilet_ghost and toilet_ghost.has_method("update"):
+		toilet_ghost.update(delta, player, original_camera)
 
 func _unhandled_input(event: InputEvent) -> void:
 	if current_state != MinigameState.PLAYING:
@@ -577,6 +611,9 @@ func _cleanup() -> void:
 	right_hand.hide()
 	stream.hide()
 	hide()
+
+	if toilet_ghost and toilet_ghost.has_method("reset"):
+		toilet_ghost.reset()
 
 	var was_success = (current_state == MinigameState.SUCCESS)
 

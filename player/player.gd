@@ -433,6 +433,48 @@ func force_blink(duration: float = -1.0) -> void:
 		eyes_closed_changed.emit(true)
 
 
+## Minigame-safe variant of force_blink(): the eyelid animation and
+## forced_blink_remaining's own countdown are both driven by _update_blink(),
+## which only runs from _physics_process() - and minigames such as the
+## toilet's disable physics processing for their whole duration to lock the
+## player. Plain force_blink() would therefore set the logical state but
+## never actually animate, and would only resolve once physics processing
+## resumes after the minigame already ended (a blink playing out of
+## context). This sets the eyelid shader parameter directly instead -
+## mirroring _open_eyes_for_minigame()'s existing "set it directly" pattern
+## for the opposite case - so the close reads immediately regardless of
+## whether physics processing is running. The caller owns reopening (see
+## end_forced_blink()) since there is no running update loop left to expire
+## forced_blink_remaining on its own.
+func force_blink_now() -> void:
+	if dev_clear_vision or not is_alive:
+		return
+	forced_blink_remaining = forced_blink_duration
+	eyelid_closure = 1.0
+	var eyelid_material := blink_overlay.material as ShaderMaterial
+	if eyelid_material:
+		eyelid_material.set_shader_parameter('closure', 1.0)
+	if not eyes_closed:
+		eyes_closed = true
+		eyes_closed_changed.emit(true)
+
+
+## Reopens eyes closed by force_blink_now(), independent of _physics_process -
+## see that method's doc comment for why this is needed. Safe to call even
+## if force_blink_now() was never actually called (e.g. cleanup running
+## unconditionally).
+func end_forced_blink() -> void:
+	if not eyes_closed and forced_blink_remaining <= 0.0 and eyelid_closure <= 0.0:
+		return
+	forced_blink_remaining = 0.0
+	eyelid_closure = 0.0
+	eyes_closed = false
+	var eyelid_material := blink_overlay.material as ShaderMaterial
+	if eyelid_material:
+		eyelid_material.set_shader_parameter('closure', 0.0)
+	eyes_closed_changed.emit(false)
+
+
 func set_statue_threat(amount: float) -> void:
 	set_threat_from('statue', amount)
 
