@@ -82,12 +82,15 @@ var liquid_origin: Marker3D
 @export var max_camera_rotation_x: float = 90.0
 
 ## The direction faced the instant the toilet minigame starts is treated as
-## 0 degrees; the player can turn up to this far either side of it. Keeps
-## the toilet Ghost's own spawn positions (minigames/toilet_ghost.gd,
-## spawn_yaw_range) reachable by construction - it samples within this same
-## +-90 degree cone around that same starting direction.
-@export var min_camera_rotation_y: float = -90.0
-@export var max_camera_rotation_y: float = 90.0
+## 0 degrees; the player can turn up to this far either side of it - a real
+## over-the-shoulder glance, not just a look to the side. The toilet Ghost's
+## creep rail ends exactly here (minigames/toilet_ghost.gd, blind_edge_yaw):
+## the hardest angle it can reach is the hardest angle the player can still
+## turn to, so its final approach is always catchable and never unwinnable.
+## Its *spawns* stay inside a narrower cone than this on purpose - see
+## spawn_yaw_range there.
+@export var min_camera_rotation_y: float = -135.0
+@export var max_camera_rotation_y: float = 135.0
 
 @export var min_camera_rotation_z: float = -90.0
 @export var max_camera_rotation_z: float = 90.0
@@ -523,7 +526,12 @@ func _emit_danger_noise() -> void:
 	var noise_position := global_position
 	if is_instance_valid(_toilet) and _toilet is Node3D:
 		noise_position = (_toilet as Node3D).global_position
-	for ghost_group: StringName in [&"crawler_ghosts", &"hunter_ghosts"]:
+	# The toilet's own ghost hears this too: a danger-zone burst is the player
+	# audibly losing the aim half of the minigame, and it advances the stalk
+	# (minigames/toilet_ghost.gd report_noise()). That is what makes the two
+	# halves one system - bad aim brings it closer, and pushing it back costs
+	# a look, which costs aim.
+	for ghost_group: StringName in [&"crawler_ghosts", &"hunter_ghosts", &"toilet_ghosts"]:
 		get_tree().call_group(
 			ghost_group,
 			"report_noise",

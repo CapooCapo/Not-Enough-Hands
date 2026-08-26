@@ -7,6 +7,40 @@ extends Node3D
 ## run a single frame outside the toilet minigame's own already-guarded
 ## loop - nothing to leak, nothing to stop separately on exit.
 ##
+## ## Catching it in the act
+##
+## The ghost appears as far from the player as the room still lets them see
+## it, and from then on alternates between standing dead still and lurching
+## a step closer. It advances on its own clock whether or not it is being
+## watched - that is the whole point: the player's job is to be looking
+## during one of those windows, not to look often.
+##
+## What a sighting does depends on what it was doing:
+##
+## - **Caught mid-lurch** - it stutters, glitches and is gone at once. This
+##   is the skill play, and it is the only way to be rid of it in one look.
+## - **Caught standing still** - it counts, but only once per lurch. Looking
+##   again while it is still standing does nothing; the tally only moves
+##   again after it has taken another step. Three tallies and the next
+##   sighting banishes it, so patient checking works too - it just costs
+##   three well-spent looks instead of one well-timed one.
+##
+## Staring is not a strategy. Observation time accumulates across looks in
+## `_stare_time` and does not decay when the player glances away; spend more
+## than stare_tolerance watching a single lurch cycle and the ghost takes a
+## long stride instead of its usual step. Only its own movement resets that
+## budget. Without this the dominant play is simply to watch it forever,
+## which is safe from the ghost and fatal to the bladder - the stream is in
+## the red the whole time, so nothing drains and the session never ends.
+##
+## Distance is tracked as `advance` in [0, 1] rather than as an integer step
+## count, because a stare-punishment stride is longer than a normal one; the
+## step *counters* (`step_index`, `spot_count`) drive the rules above, while
+## `advance` alone decides where it stands and how far it leans. In a room
+## with no floor left to give - the villa's WCs are 4x4 m dead ends - the
+## lean/lift axis absorbs whatever advance the geometry refused, so the
+## escalation stays readable without per-map tuning (see _apply_lean()).
+##
 ## Visibility detection duplicates ghosts/statue_ghost.gd's
 ## _camera_can_see_point() idiom (FOV cone + frustum + occlusion raycast)
 ## rather than sharing code with it - that mirrors the existing project
@@ -17,51 +51,132 @@ extends Node3D
 signal ghost_seen
 signal ghost_timed_out
 
-## SEEN and DISAPPEARING are the eye-contact reaction added on top of the
-## original WAITING/VISIBLE pair: once looked at, the ghost holds
-## (SEEN) before actually vanishing and forcing a blink (DISAPPEARING),
-## rather than disappearing the instant it's detected.
-enum GhostPhase { IDLE, WAITING, VISIBLE, SEEN, DISAPPEARING }
+## HOLDING and MOVING are the two halves of the lurch cycle the whole design
+## turns on - which one the ghost is in when it is seen decides what that
+## sighting is worth. STUTTER is the caught-in-the-act beat before it
+## actually vanishes; DISAPPEARING is the forced blink after that.
+enum GhostPhase { IDLE, WAITING, HOLDING, MOVING, STUTTER, DISAPPEARING }
 
-## Five equal slices of the reachable yaw range (spawn_yaw_range either side
-## of the session-start facing), left to right. Consecutive ghosts never
-## reuse the same slice, which is what stops several in a row appearing in
-## the same corner of the room.
-enum SpawnZone { LEFT, FRONT_LEFT, FRONT, FRONT_RIGHT, RIGHT }
-const SPAWN_ZONE_COUNT := 5
+## The reachable arc is sliced into zones the ghost appears in, and
+## consecutive ghosts never reuse one - which is what stops several in a row
+## appearing in the same corner. There is deliberately no FRONT zone: the
+## camera's 70-degree FOV already covers +-35 degrees, so a ghost inside
+## that band is on screen the moment it arrives and costs the player nothing
+## to find. Every zone here sits outside it (see min_spawn_offset_angle), so
+## every appearance demands a real head turn - and turning is what throws
+## the nozzle off centre.
+enum SpawnZone { LEFT_OUTER, LEFT_INNER, RIGHT_INNER, RIGHT_OUTER }
+const SPAWN_ZONE_COUNT := 4
+
+## Vertical span of the downward ray _floor_y() uses to find the floor: far
+## enough above the seated player to start outside any slab, far enough below
+## to still find the floor of a tall room.
+const FLOOR_PROBE_UP := 0.5
+const FLOOR_PROBE_DOWN := 3.0
+
+## Key into the player's per-source threat table (player.gd
+## set_threat_from()) - the horror overlay shows the worst live threat, so
+## reporting the ghost's advance through it is what makes the screen react
+## without this file touching the overlay, and what lets a crawler in the
+## hallway still out-dread a ghost that has only just appeared.
+const THREAT_SOURCE := &"toilet_ghost"
 
 @export_category("Spawn Timing")
 ## The first Ghost of a session always appears at exactly this many seconds
 ## in - not randomized, unlike the repeat spawns below.
 @export var initial_spawn_delay: float = 2.0
-## After a Ghost disappears (successfully seen), the next one appears after
-## a fresh random wait in this range - never sooner than the minimum, never
-## later than the maximum. Re-rolled every time.
+## After a Ghost is banished, the next one appears after a fresh random wait
+## in this range - never sooner than the minimum, never later than the
+## maximum. Re-rolled every time.
 @export var min_respawn_delay: float = 3.0
 @export var max_respawn_delay: float = 5.0
-@export var reaction_time: float = 3.0
-## How long the ghost stays visible, in place, after being successfully
-## looked at before it actually disappears. The reaction timeout can no
-## longer kill the player once this window has started - the encounter has
-## already succeeded.
-@export var ghost_seen_duration: float = 0.5
+
+@export_category("The Lurch Cycle")
+## How long it stands still between lurches. This is the window the player is
+## actually playing against: check too early and it is still standing (worth
+## a tally), check during the lurch and it is gone.
+@export var hold_duration: float = 3.0
+## Randomness either side of hold_duration, so the cycle cannot be counted
+## out loud after the first two.
+@export var hold_duration_jitter: float = 0.8
+## How long one lurch takes. The entire window in which the ghost can be
+## caught in the act - long enough to be catchable by someone already
+## turning, short enough that it cannot be waited for.
+@export var move_duration: float = 0.7
+## Lurches before it reaches the player. Ignore it completely and this many
+## cycles is how long you have.
+@export var steps_to_reach: int = 5
+## Sightings-while-standing needed before one banishes it. Each lurch can
+## only ever yield one, no matter how many times the player looks - see
+## _register_spot().
+@export var spots_to_banish: int = 3
+## Total seconds of watching one lurch cycle before the ghost punishes it
+## with a long stride. Accumulates across separate looks and is only cleared
+## by its own movement, so glancing away does not bank progress back.
+@export var stare_tolerance: float = 3.0
+## How much longer a stare-punishment stride is than a normal lurch.
+@export var stare_step_multiplier: float = 1.8
+## How long the caught-in-the-act glitch runs before it actually vanishes.
+@export var stutter_duration: float = 0.45
+## Peak size of the stutter's positional jitter, in metres.
+@export var stutter_amplitude: float = 0.09
+
+@export_category("Presence")
+## Closest a lurch brings the ghost to the player, in metres. Has to stay
+## clear of the player's own capsule and the toilet they are sitting on -
+## the model is 0.69 m wide, so anything under about a metre puts it
+## visually inside them rather than looming over them.
+@export var contact_distance: float = 1.15
+@export var lean_max_degrees: float = 18.0
+@export var lift_max: float = 0.3
+## Fraction of a full lurch that one danger-zone noise burst shaves off the
+## current hold. Bad aim is loud, and loud brings the next lurch forward -
+## which is what couples the two halves of the toilet minigame instead of
+## running them as two unrelated timers.
+@export_range(0.0, 1.0) var noise_hold_penalty: float = 0.35
+@export var lurch_volume_offset_db: float = -8.0
+@export var lurch_pitch_scale: float = 0.72
 
 @export_category("Spawn Position")
-@export var spawn_min_distance: float = 2.0
+## Nearest and furthest the ghost may first appear. It always takes the
+## furthest its chosen bearing actually allows (see _pick_spawn_position) -
+## it should start at the far end of what the player can still see, so the
+## lurches have somewhere to come from. The minimum is what makes a bearing
+## usable at all; a real bathroom does not have 2 m of clear floor in most
+## directions - House2's has 1.55 m straight ahead and 2.00 m to the left -
+## and a minimum the room cannot satisfy is what used to send every
+## candidate in those directions into a wall.
+@export var spawn_min_distance: float = 1.5
 @export var spawn_max_distance: float = 4.0
+## How far short of whatever is behind it the ghost is kept. The spawn
+## distance is clamped to the measured free floor on the chosen bearing
+## minus this, so it stands in the room rather than in the wall panel.
+@export var wall_margin: float = 0.45
+## Used instead of spawning when no bearing in the whole arc can host the
+## ghost. A ghost that cannot legally appear must not appear - the previous
+## behaviour here was to place it anyway, unchecked, at spawn_min_distance,
+## which is how it ended up inside walls where it could never be seen or
+## caught.
+@export var blocked_spawn_retry_delay: float = 1.0
 ## Ghost spawns are sampled within this many degrees either side of the
 ## camera's orientation at the moment the toilet minigame started (not the
-## camera's current, possibly-already-turned orientation), matching
-## ToiletMinigame's own +-90 degree camera yaw clamp so every spawn is
-## somewhere the player can turn to. Keep the two in sync if either is
-## retuned; they aren't wired together to avoid reaching into another
-## script's exports for one shared number.
+## camera's current, possibly-already-turned orientation). Must stay inside
+## ToiletMinigame's own camera yaw clamp or a spawn could land where the
+## player is unable to turn; tests/toilet_ghost_smoke.gd asserts that.
 @export var spawn_yaw_range: float = 90.0
+## Closest to dead ahead a ghost may appear. Sits outside the camera's own
+## 35-degree FOV half-angle on purpose: inside it the ghost is already on
+## screen when it arrives, so finding it costs the player nothing and the
+## encounter opens with no decision in it. Outside it, every appearance
+## has to be paid for with a head turn - and the same mouse motion that
+## turns the camera shoves the nozzle (ToiletMinigame._handle_input()).
+@export var min_spawn_offset_angle: float = 40.0
 ## Consecutive spawns must differ in yaw by at least this much, on top of
-## never reusing the previous zone - stops two ghosts in a row appearing in
-## nearly the same direction even when they technically land in different
-## adjacent zones.
-@export var min_spawn_angle_separation: float = 45.0
+## never reusing the previous zone. Deliberately smaller than one zone's
+## width: at a full zone width no two same-side zones could ever satisfy it,
+## so every ghost would be forced to the opposite side of the one before it
+## and the player could simply alternate their checks.
+@export var min_spawn_angle_separation: float = 25.0
 ## How many times to re-roll a zone/angle that violates the "different zone
 ## and far enough away" rules before giving up and taking the best-available
 ## pick (see _furthest_zone_angle()). Bounded so this can never spin.
@@ -70,7 +185,9 @@ const SPAWN_ZONE_COUNT := 5
 @export_flags_3d_physics var spawn_blocking_mask: int = 1
 ## Radius of the point-overlap check used to reject a spawn candidate that
 ## would land inside a wall/floor - mirrors player.gd's own _can_stand()
-## shape-query idiom, not a new physics convention.
+## shape-query idiom, not a new physics convention. The same check gates
+## every lurch, which is how a cramped room converts walking into leaning
+## instead of pushing the ghost through a wall.
 @export var spawn_clearance_radius: float = 0.2
 
 @export_category("Detection")
@@ -89,9 +206,32 @@ const SPAWN_ZONE_COUNT := 5
 @export var head_height: float = 1.58
 
 var phase: GhostPhase = GhostPhase.IDLE
+## Distance travelled along the rail so far, 0 at the spawn point and 1 at
+## the player. Not derived from step_index because a stare-punishment stride
+## is longer than a normal lurch - see the class doc comment.
+var advance: float = 0.0
+## Lurches completed. Only used by the rules (the tally cycle), never to
+## position the ghost.
+var step_index: int = 0
+## Sightings-while-standing banked so far, capped by spots_to_banish.
+var spot_count: int = 0
+## Whether this lurch cycle has already yielded its one tally. Cleared when
+## the ghost moves, which is what makes looking twice at a stationary ghost
+## worth nothing.
+var _spotted_this_cycle: bool = false
+## Observation time accumulated in this lurch cycle. Deliberately never
+## decays - see the class doc comment.
+var _stare_time: float = 0.0
 var _spawn_timer: float = 0.0
-var _reaction_timer: float = 0.0
-var _seen_timer: float = 0.0
+var _hold_timer: float = 0.0
+var _move_elapsed: float = 0.0
+var _move_from: float = 0.0
+var _move_to: float = 0.0
+## Whether the lurch under way is the stare punishment rather than an
+## ordinary timed step. Punishment lunges cannot be caught and do not
+## re-arm the tally - see _update_moving().
+var _move_is_punishment: bool = false
+var _stutter_timer: float = 0.0
 var _blink_timer: float = 0.0
 var _active_player: Node3D
 var _rng := RandomNumberGenerator.new()
@@ -101,12 +241,36 @@ var _rng := RandomNumberGenerator.new()
 var _last_spawn_zone: int = -1
 var _last_spawn_angle: float = 0.0
 
+## The rail the lurches travel down, captured once at spawn. The player
+## cannot move for the rest of the session (movement is locked by the
+## minigame), so the origin, eye, floor and bearing are all fixed and there
+## is nothing to recompute per frame.
+var _rail_origin: Vector3 = Vector3.ZERO
+var _rail_eye: Vector3 = Vector3.ZERO
+var _rail_floor_y: float = 0.0
+var _rail_direction: Vector3 = Vector3.FORWARD
+var _rail_far_distance: float = 0.0
+## Highest advance whose rail position actually passed the clearance and
+## line-of-sight checks. Anything above it is advance the room had no space
+## to express as movement, and gets spent on lean/lift instead - see
+## _apply_lean().
+var _expressed_advance: float = 0.0
+## Resting offset written by _ready(), so lift can be added on top of it
+## without the two fighting over visual.position.y.
+var _visual_base_y: float = 0.0
+var _teleport_base_volume_db: float = 0.0
+
 @onready var visual: Node3D = $Visual
 @onready var teleport_audio: AudioStreamPlayer3D = $TeleportAudio
 
 
 func _ready() -> void:
 	_rng.randomize()
+	# Danger-zone noise from the player's own bad aim brings the next lurch
+	# forward - ToiletMinigame._emit_danger_noise() calls this group alongside
+	# the crawler's and hunter's. Every other toilet in the map is in the
+	# group too; report_noise() no-ops unless this particular ghost is live.
+	add_to_group(&"toilet_ghosts")
 	visual.visible = false
 	# _pick_spawn_position() nudges its candidate up by spawn_clearance_radius
 	# so the clearance-check sphere clears the floor - a physics-query fudge,
@@ -114,6 +278,8 @@ func _ready() -> void:
 	# model's own floor-anchored root actually touches the floor instead of
 	# hovering by that same amount.
 	visual.position.y = -(spawn_clearance_radius + 0.02)
+	_visual_base_y = visual.position.y
+	_teleport_base_volume_db = teleport_audio.volume_db
 
 
 ## Called by ToiletMinigame.start_session() - arms the fixed, non-random wait
@@ -122,11 +288,7 @@ func _ready() -> void:
 func arm() -> void:
 	phase = GhostPhase.WAITING
 	_spawn_timer = initial_spawn_delay
-	_reaction_timer = 0.0
-	_seen_timer = 0.0
-	_blink_timer = 0.0
-	_active_player = null
-	visual.visible = false
+	_clear_transient_state()
 	# A new session starts with no spawn history, so its first ghost may use
 	# any zone. _arm_respawn() deliberately does NOT clear this - the
 	# "different zone from last time" rule has to survive between the ghosts
@@ -135,16 +297,36 @@ func arm() -> void:
 	_last_spawn_angle = 0.0
 
 
-## Re-arms the wait for the next ghost after the previous one disappeared -
+## Re-arms the wait for the next ghost after the previous one was banished -
 ## a fresh random roll every time, unlike the fixed initial delay in arm().
 func _arm_respawn() -> void:
 	phase = GhostPhase.WAITING
 	_spawn_timer = _rng.randf_range(min_respawn_delay, maxf(min_respawn_delay, max_respawn_delay))
-	_reaction_timer = 0.0
-	_seen_timer = 0.0
+	_clear_transient_state()
+
+
+## Everything that describes one live encounter, cleared between them.
+## Deliberately does not touch the spawn-zone history, which has to survive
+## across the ghosts of a session.
+func _clear_transient_state() -> void:
+	_clear_threat()
+	advance = 0.0
+	step_index = 0
+	spot_count = 0
+	_spotted_this_cycle = false
+	_stare_time = 0.0
+	_hold_timer = 0.0
+	_move_elapsed = 0.0
+	_move_from = 0.0
+	_move_to = 0.0
+	_move_is_punishment = false
+	_stutter_timer = 0.0
 	_blink_timer = 0.0
+	_expressed_advance = 0.0
 	_active_player = null
 	visual.visible = false
+	visual.rotation.x = 0.0
+	visual.position = Vector3(0.0, _visual_base_y, 0.0)
 
 
 ## Called every frame by ToiletMinigame._process(), only while its own state
@@ -155,23 +337,142 @@ func update(delta: float, player: Node3D, camera: Camera3D) -> void:
 			_spawn_timer -= delta
 			if _spawn_timer <= 0.0:
 				_spawn(player, camera)
-		GhostPhase.VISIBLE:
-			if not is_instance_valid(player) or not is_instance_valid(camera):
-				return
-			if _camera_can_see_point(camera, player, _head_position()):
-				_on_seen()
-				return
-			_reaction_timer -= delta
-			if _reaction_timer <= 0.0:
-				_resolve_failure()
-		GhostPhase.SEEN:
-			_seen_timer -= delta
-			if _seen_timer <= 0.0:
-				_disappear()
+		GhostPhase.HOLDING:
+			_update_holding(delta, player, camera)
+		GhostPhase.MOVING:
+			_update_moving(delta, player, camera)
+		GhostPhase.STUTTER:
+			_update_stutter(delta)
 		GhostPhase.DISAPPEARING:
 			_blink_timer -= delta
 			if _blink_timer <= 0.0:
 				_finish_blink()
+
+
+## Standing still, waiting out the hold. Being seen here is worth one tally
+## per cycle and nothing more - looking again changes nothing until the ghost
+## has moved. Watching too long across the whole cycle is punished with a
+## long stride rather than a normal lurch.
+func _update_holding(delta: float, player: Node3D, camera: Camera3D) -> void:
+	if not is_instance_valid(player) or not is_instance_valid(camera):
+		return
+	if _is_being_watched(player, camera):
+		_stare_time += delta
+		if _register_spot(player):
+			return
+		if _stare_time >= stare_tolerance:
+			_begin_move(stare_step_multiplier, true)
+		# The hold clock is frozen for as long as the player is watching.
+		# Letting it run meant the ghost would eventually take its ordinary
+		# lurch right in front of a staring player, who would catch it for
+		# free - staring was the dominant strategy. It will not move while
+		# watched except to punish the staring itself, and that lunge is not
+		# catchable (see _update_moving()).
+		return
+	_hold_timer -= delta
+	if _hold_timer <= 0.0:
+		_begin_move(1.0, false)
+
+
+## Mid-lurch. The whole of this window is the player's chance to catch it in
+## the act; a single sighting here ends the encounter outright, which is the
+## reward for having timed the look rather than merely repeated it.
+func _update_moving(delta: float, player: Node3D, camera: Camera3D) -> void:
+	if not is_instance_valid(player) or not is_instance_valid(camera):
+		return
+	# A punishment lunge cannot be caught. It is the ghost lunging *because*
+	# the player stared, not a sneaky step they timed - letting a stare
+	# convert into a free catch would make staring the dominant strategy
+	# all over again, from the other direction.
+	if not _move_is_punishment and _is_being_watched(player, camera):
+		_on_caught(player)
+		return
+	_move_elapsed += delta
+	var t := clampf(_move_elapsed / maxf(move_duration, 0.001), 0.0, 1.0)
+	# Ease-in-out, so the lurch reads as a deliberate stride rather than a
+	# constant slide - the player is meant to notice motion, not drift.
+	var eased := t * t * (3.0 - 2.0 * t)
+	advance = lerpf(_move_from, _move_to, eased)
+	_apply_advance(player)
+	if t < 1.0:
+		return
+	# Arrived. A completed lurch is what re-arms the tally and clears the
+	# stare budget, so each cycle is worth exactly one sighting and each
+	# cycle's watching is judged on its own.
+	step_index += 1
+	# Only a lurch the player did NOT force is worth a fresh tally. Without
+	# this a staring player banks a spot, gets lunged at, banks another,
+	# and stares their way to a banish - the exact behaviour
+	# stare_tolerance exists to punish.
+	if not _move_is_punishment:
+		_spotted_this_cycle = false
+	_stare_time = 0.0
+	if advance >= 1.0:
+		_resolve_failure()
+		return
+	phase = GhostPhase.HOLDING
+	_hold_timer = _next_hold_duration()
+
+
+## The caught-in-the-act beat: it jitters in place for stutter_duration and
+## then goes. Purely presentational, but it is the feedback that tells the
+## player their timing was what did it, rather than the ghost happening to
+## leave.
+func _update_stutter(delta: float) -> void:
+	_stutter_timer -= delta
+	var shake := stutter_amplitude * clampf(_stutter_timer / maxf(stutter_duration, 0.001), 0.0, 1.0)
+	visual.position = Vector3(
+		_rng.randf_range(-shake, shake),
+		_visual_base_y + _rng.randf_range(-shake, shake),
+		_rng.randf_range(-shake, shake)
+	)
+	visual.rotation.x = _rng.randf_range(-shake, shake) * 4.0
+	if _stutter_timer <= 0.0:
+		_disappear()
+
+
+## True when the player is looking straight at the ghost's head with nothing
+## in the way - the one perception call the rules above are built on.
+func _is_being_watched(player: Node3D, camera: Camera3D) -> bool:
+	return _camera_can_see_point(camera, player, _head_position())
+
+
+## Banks the one tally this lurch cycle is worth, and banishes the ghost if
+## that was the last one needed. Returns true when the encounter is over, so
+## callers stop touching it this frame.
+##
+## The once-per-cycle guard is the rule that stops a player simply holding
+## the camera on a stationary ghost until it leaves: the second, third and
+## hundredth look at the same standing ghost are all worth nothing.
+func _register_spot(player: Node3D) -> bool:
+	if _spotted_this_cycle:
+		return false
+	_spotted_this_cycle = true
+	spot_count += 1
+	if spot_count >= spots_to_banish:
+		_on_caught(player)
+		return true
+	# A tally that did not finish it still reads - the ghost acknowledges
+	# being seen, so the player knows the look counted for something.
+	_play_cue(lurch_volume_offset_db * 0.5, lurch_pitch_scale * 1.6)
+	return false
+
+
+## Starts a lurch. `step_scale` is 1.0 for the ordinary timed one and
+## stare_step_multiplier for the punishment lunge, which is also flagged
+## so _update_moving() knows not to let it be caught or counted.
+func _begin_move(step_scale: float, is_punishment: bool) -> void:
+	_move_is_punishment = is_punishment
+	phase = GhostPhase.MOVING
+	_move_elapsed = 0.0
+	_move_from = advance
+	_move_to = clampf(advance + step_scale / float(maxi(steps_to_reach, 1)), 0.0, 1.0)
+	_play_cue(lurch_volume_offset_db, lurch_pitch_scale)
+
+
+func _next_hold_duration() -> float:
+	var jitter := maxf(hold_duration_jitter, 0.0)
+	return maxf(hold_duration + _rng.randf_range(-jitter, jitter), 0.35)
 
 
 ## Called by ToiletMinigame._cleanup() on every exit path (success, cancel,
@@ -191,26 +492,144 @@ func reset() -> void:
 		_active_player.call("end_forced_blink")
 	phase = GhostPhase.IDLE
 	_spawn_timer = 0.0
-	_reaction_timer = 0.0
-	_seen_timer = 0.0
-	_blink_timer = 0.0
-	_active_player = null
-	visual.visible = false
+	_clear_transient_state()
 	_last_spawn_zone = -1
 	_last_spawn_angle = 0.0
-	# Cancelling shortly after the ghost spawns (the teleport stinger is only
-	# ~0.5s) could otherwise leave it audibly finishing after the ghost has
-	# already disappeared and the minigame has moved on.
+	# Cancelling shortly after a lurch cue (the stinger is only ~0.5s) could
+	# otherwise leave it audibly finishing after the ghost has already gone
+	# and the minigame has moved on.
 	teleport_audio.stop()
 
 
+## Danger-zone noise from ToiletMinigame._emit_danger_noise(), matching the
+## crawler's and hunter's own report_noise() signature so all three can be
+## driven by the same call_group(). Position is ignored - the player and this
+## ghost are in the same small room by construction; what matters is that the
+## player just made a mess of their aim, which brings the next lurch forward.
+## Only shortens a hold: it can never interrupt a lurch already under way,
+## which would rob the player of the window they are playing for.
+func report_noise(_position: Vector3, loudness: float, _source: Node = null) -> void:
+	if phase != GhostPhase.HOLDING:
+		return
+	_hold_timer = maxf(
+		_hold_timer - hold_duration * noise_hold_penalty * clampf(loudness, 0.0, 1.0),
+		0.0
+	)
+
+
 func _spawn(player: Node3D, camera: Camera3D) -> void:
-	global_position = _pick_spawn_position(player, camera)
+	var pick := _pick_spawn_position(player, camera)
+	if not pick["ok"]:
+		# Nowhere legal right now - stay armed and try again shortly rather
+		# than appearing somewhere the player could never look at. See
+		# _pick_spawn_position()'s doc comment.
+		phase = GhostPhase.WAITING
+		_spawn_timer = blocked_spawn_retry_delay
+		return
+	var spawn_position: Vector3 = pick["position"]
+	_rail_origin = player.global_position
+	_rail_eye = camera.global_position if camera else player.global_position
+	_rail_floor_y = _floor_y(player)
+	var flat_offset := spawn_position - _rail_origin
+	flat_offset.y = 0.0
+	# The rail runs straight in from wherever the room allowed the ghost to
+	# stand. There is no angular component: the lurches close distance, and
+	# the bearing it arrived on is the bearing the player has to keep
+	# checking for the rest of the encounter.
+	_rail_far_distance = maxf(flat_offset.length(), contact_distance + 0.05)
+	_rail_direction = (
+		flat_offset.normalized()
+		if not flat_offset.is_zero_approx()
+		else -player.global_transform.basis.z
+	)
+
+	advance = 0.0
+	step_index = 0
+	spot_count = 0
+	_spotted_this_cycle = false
+	_stare_time = 0.0
+	_expressed_advance = 0.0
+	global_position = spawn_position
 	_face_player(player)
+	_apply_lean()
 	_active_player = player
 	visual.visible = true
-	phase = GhostPhase.VISIBLE
-	_reaction_timer = reaction_time
+	phase = GhostPhase.HOLDING
+	_hold_timer = _next_hold_duration()
+	_report_threat(player)
+	_play_cue(0.0, 1.0)
+
+
+## Places the ghost at the point on the rail its current advance names, and
+## looms it.
+##
+## A rail position is only taken if the ghost would both fit there and be
+## visible from where the player is sitting. The line-of-sight half is what
+## keeps a lurch from putting it through a side wall or out of an open
+## doorway - a ghost the player cannot see is a ghost they cannot catch, so
+## the lurch stops short and the escalation continues on the looming axis.
+## That is also the whole small-room story: the ghost that runs out of floor
+## stops walking and starts leaning in, with no per-map measurement, markers
+## or tuning.
+func _apply_advance(player: Node3D) -> void:
+	var distance := lerpf(_rail_far_distance, contact_distance, clampf(advance, 0.0, 1.0))
+	var candidate := _rail_origin + _rail_direction * distance
+	candidate.y = _rail_floor_y + spawn_clearance_radius + 0.02
+	if _is_position_clear(candidate) \
+			and not _is_path_blocked(_rail_eye, candidate + Vector3(0, head_height, 0), player):
+		global_position = candidate
+		_expressed_advance = advance
+	if is_instance_valid(player):
+		_face_player(player)
+	_apply_lean()
+	_report_threat(player)
+
+
+## The looming axis. Driven by advance plus whatever advance the room refused
+## to express as movement (see _apply_advance()), so a ghost pinned against a
+## wall halfway in reads as advanced as one that had the floor to walk it.
+## Clamped, so the two together can never over-rotate the model.
+func _apply_lean() -> void:
+	var blocked := maxf(advance - _expressed_advance, 0.0)
+	var drive := clampf(advance + blocked, 0.0, 1.0)
+	visual.rotation.x = -deg_to_rad(lean_max_degrees) * drive
+	visual.position = Vector3(0.0, _visual_base_y + lift_max * drive, 0.0)
+
+
+## Caught - either mid-lurch, or standing still with the last tally banked.
+## Either way the encounter is over: it glitches, then vanishes, then forces
+## the blink, then the loop re-arms.
+func _on_caught(player: Node3D) -> void:
+	phase = GhostPhase.STUTTER
+	_stutter_timer = stutter_duration
+	_clear_threat()
+	_play_cue(0.0, 1.35)
+	if is_instance_valid(player):
+		_face_player(player)
+
+
+## Mirrors the player's per-source threat entry to how far in the ghost has
+## come, so the horror overlay swells as it closes. See THREAT_SOURCE.
+func _report_threat(player: Node3D) -> void:
+	if is_instance_valid(player) and player.has_method("set_threat_from"):
+		player.call("set_threat_from", THREAT_SOURCE, clampf(advance, 0.0, 1.0))
+
+
+## Drops this ghost's threat entry entirely (0.0 erases the source rather
+## than pinning it at zero - see player.gd set_threat_from()). Every path
+## that ends an encounter goes through here, so a cancelled session can
+## never leave the overlay stuck red.
+func _clear_threat() -> void:
+	if is_instance_valid(_active_player) and _active_player.has_method("set_threat_from"):
+		_active_player.call("set_threat_from", THREAT_SOURCE, 0.0)
+
+
+## One cue on the shared teleport player: full volume at natural pitch for an
+## arrival, quieter and pitched down for a lurch, up for a tally or a catch.
+## Restoring both every time is what keeps one cue from detuning the next.
+func _play_cue(volume_offset_db: float, pitch: float) -> void:
+	teleport_audio.volume_db = _teleport_base_volume_db + volume_offset_db
+	teleport_audio.pitch_scale = pitch
 	teleport_audio.play()
 
 
@@ -219,11 +638,9 @@ func _spawn(player: Node3D, camera: Camera3D) -> void:
 ## looking up/down at a height difference) - duplicated from
 ## ghosts/statue_ghost.gd's own face_player_on_freeze idiom
 ## (rotation.y = atan2(-flat_target.x, -flat_target.z)) rather than shared,
-## matching this file's existing convention. The player's position is fixed
-## for the rest of the toilet minigame session once it starts (movement is
-## locked and never tweens again until the session ends), so orienting once
-## at spawn is enough - nothing needs to re-face it every frame, and this
-## node still has no _process() of its own.
+## matching this file's existing convention. Re-applied on every lurch,
+## since unlike a fixed-position spawn the ghost is now closing on the
+## player rather than standing where it landed.
 func _face_player(player: Node3D) -> void:
 	var flat_target := player.global_position - global_position
 	flat_target.y = 0.0
@@ -232,40 +649,32 @@ func _face_player(player: Node3D) -> void:
 
 
 ## The point the player actually needs to look at - see head_height's doc
-## comment. This is what "seen" is checked against, not the root.
+## comment. This is what every sighting is checked against, not the root.
 func _head_position() -> Vector3:
-	return visual.global_position + Vector3(0, head_height, 0)
+	return global_position + Vector3(0, visual.position.y + head_height, 0)
 
 
-## Entered the instant the player looks directly at the ghost. It stays
-## visible, in its current position, for ghost_seen_duration before actually
-## disappearing - from this point on the reaction timeout can no longer
-## kill the player; the encounter has already succeeded.
-func _on_seen() -> void:
-	phase = GhostPhase.SEEN
-	_seen_timer = ghost_seen_duration
-
-
-## After ghost_seen_duration has elapsed since detection: the ghost actually
-## disappears, then the existing player blink API is forced so the beat
-## reads as "I looked, it vanished, I blinked, it's gone" rather than a
-## silent pop. The reopen is scheduled on this node's own timer (see
-## _finish_blink()) rather than left to the player's _physics_process, which
-## minigames like the toilet's disable for their whole duration - see
-## force_blink_now()'s doc comment in player.gd.
+## After the stutter: the ghost actually disappears, then the existing player
+## blink API is forced so the beat reads as "I caught it, it glitched, I
+## blinked, it's gone" rather than a silent pop. The reopen is scheduled on
+## this node's own timer (see _finish_blink()) rather than left to the
+## player's _physics_process, which minigames like the toilet's disable for
+## their whole duration - see force_blink_now()'s doc comment in player.gd.
 func _disappear() -> void:
 	phase = GhostPhase.DISAPPEARING
 	visual.visible = false
+	visual.rotation.x = 0.0
+	visual.position = Vector3(0.0, _visual_base_y, 0.0)
 	teleport_audio.stop()
 	_blink_timer = _forced_blink_duration()
 	if is_instance_valid(_active_player) and _active_player.has_method("force_blink_now"):
 		_active_player.call("force_blink_now")
 
 
-## Reopens the eyes closed by _disappear(), ends this encounter, and arms
-## the next one - a successful sighting continues the spawn loop rather than
-## ending it (only a missed reaction timeout - see _resolve_failure() - stops
-## it, since the player is dead by then and the minigame is about to cancel).
+## Reopens the eyes closed by _disappear(), ends this encounter, and arms the
+## next one - a banished ghost continues the spawn loop rather than ending it
+## (only advance reaching 1.0 - see _resolve_failure() - stops it, since the
+## player is dead by then and the minigame is about to cancel).
 func _finish_blink() -> void:
 	var resolved_player := _active_player
 	if is_instance_valid(resolved_player) and resolved_player.has_method("end_forced_blink"):
@@ -284,14 +693,19 @@ func _forced_blink_duration() -> float:
 	return 0.22
 
 
+## The last lurch landed on the player: steps_to_reach cycles went by without
+## the player ever catching it. Unchanged from the original failure path -
+## the same signal, then the same existing kill_by_ghost() call.
 func _resolve_failure() -> void:
 	phase = GhostPhase.IDLE
 	visual.visible = false
-	# A fast find can still be within the ~0.5s teleport stinger's length;
-	# the ghost should disappear cleanly, not keep sounding after it's gone.
+	visual.rotation.x = 0.0
+	visual.position = Vector3(0.0, _visual_base_y, 0.0)
 	teleport_audio.stop()
+	_clear_threat()
 	var resolved_player := _active_player
 	_active_player = null
+	advance = 0.0
 	ghost_timed_out.emit()
 	if is_instance_valid(resolved_player) and resolved_player.has_method("kill_by_ghost"):
 		resolved_player.call("kill_by_ghost", self)
@@ -322,12 +736,22 @@ func _session_start_forward(camera: Camera3D, player: Node3D) -> Vector3:
 	return current_forward.rotated(Vector3.UP, -accumulated)
 
 
-## Yaw range [low, high] in degrees covered by one spawn zone - the
-## reachable arc split into SPAWN_ZONE_COUNT equal slices, left to right.
+## Yaw range [low, high] in degrees covered by one spawn zone. The zones
+## tile the two off-centre bands - [-spawn_yaw_range, -min_spawn_offset_angle]
+## and [min_spawn_offset_angle, spawn_yaw_range] - and deliberately leave
+## the band in front of the player empty. See the SpawnZone enum: a ghost
+## inside the camera's own FOV needs no head turn to find, so it costs the
+## player nothing, and it was where most spawns were landing.
 func _zone_bounds(zone: int) -> Vector2:
-	var width := (spawn_yaw_range * 2.0) / float(SPAWN_ZONE_COUNT)
-	var low := -spawn_yaw_range + width * float(zone)
-	return Vector2(low, low + width)
+	var band := maxf(spawn_yaw_range - min_spawn_offset_angle, 1.0)
+	var width := band / float(SPAWN_ZONE_COUNT / 2)
+	var per_side := SPAWN_ZONE_COUNT / 2
+	if zone < per_side:
+		# Left band, outermost slice first, running inward toward the player.
+		var low := -spawn_yaw_range + width * float(zone)
+		return Vector2(low, low + width)
+	var right_low := min_spawn_offset_angle + width * float(zone - per_side)
+	return Vector2(right_low, right_low + width)
 
 
 ## Picks the direction of the next spawn as {zone, angle}: a random zone
@@ -380,14 +804,25 @@ func _record_spawn(zone: int, angle_deg: float) -> void:
 	_last_spawn_angle = angle_deg
 
 
-## Places the ghost at a random distance along a direction chosen by
-## _next_zone_angle() (see there for the zone/separation rules), measured
-## from the fixed session-start camera facing so it is always somewhere the
-## player can turn to - see _session_start_forward(). Rejects anything that
-## overlaps blocking geometry or has no clear line from the player's eye to
-## it (keeps it in the same open room the player is standing in without
-## needing a navmesh or per-map markers), re-rolling direction and distance
-## together on each retry. Never returns the player's own position.
+## Picks where the ghost appears, or reports that nowhere works.
+##
+## Returns {"ok": bool, "position": Vector3}. The direction comes from
+## _next_zone_angle() (see there for the zone/separation rules); the
+## *distance* is then measured rather than guessed - a ray down the chosen
+## bearing says how much open floor is actually there, and the roll is
+## clamped to that minus wall_margin. Guessing was the bug: House2's
+## bathroom has 1.55 m of floor straight ahead and 2.00 m to the left, so a
+## blind roll in [2, 4] m put nearly every candidate in those directions
+## inside a wall, and the arc's whole left-hand side could only ever be
+## satisfied by the old unvalidated fallback - which is how ghosts ended up
+## outside the room where they could never be seen or caught.
+##
+## Candidates are still rejected if they overlap geometry or have no clear
+## line from the player's eye (that check is at head height, not the
+## floor-level candidate: checking the base point let a candidate pass with
+## a clear view to its feet while its actual head - the point the live
+## "seen" check raycasts to every frame - sat behind the toilet's own body,
+## producing ghosts that could never be seen no matter how the player aimed).
 ##
 ## Deliberately does NOT require the spawn to be inside the camera's current
 ## frustum. The LEFT and RIGHT zones sit beyond the edge of a 70-degree FOV,
@@ -396,7 +831,7 @@ func _record_spawn(zone: int, angle_deg: float) -> void:
 ## the zone rules exist to prevent. The ghost is still always within the
 ## camera's reachable yaw range, and still has to be actually looked at
 ## before it counts as seen.
-func _pick_spawn_position(player: Node3D, camera: Camera3D) -> Vector3:
+func _pick_spawn_position(player: Node3D, camera: Camera3D) -> Dictionary:
 	var floor_y := _floor_y(player)
 	var eye_position := camera.global_position if camera else player.global_position
 	var reference_forward := _session_start_forward(camera, player) if camera else -player.global_transform.basis.z
@@ -405,8 +840,26 @@ func _pick_spawn_position(player: Node3D, camera: Camera3D) -> Vector3:
 		var pick := _next_zone_angle()
 		var zone: int = pick["zone"]
 		var angle_deg: float = pick["angle"]
-		var distance := _rng.randf_range(spawn_min_distance, spawn_max_distance)
 		var direction := reference_forward.rotated(Vector3.UP, deg_to_rad(angle_deg))
+
+		# How much room this bearing actually has. A bearing with nothing
+		# behind it inside the sampled range is an opening rather than a
+		# wall - a doorway - and the ghost is held at the minimum there so
+		# it stays in the room with the player instead of drifting out
+		# through it into the next one.
+		var wall_distance := _free_distance_along(eye_position, direction, player)
+		var available := (
+			spawn_min_distance
+			if wall_distance < 0.0
+			else wall_distance - wall_margin
+		)
+		if available < spawn_min_distance:
+			continue
+		# The furthest this bearing allows, not a roll inside the range: the
+		# ghost is supposed to arrive at the far edge of what the player can
+		# still see, so its lurches have somewhere to come from. Variety
+		# comes from which bearing it picks, not from how close it starts.
+		var distance := minf(spawn_max_distance, available)
 		var candidate := player.global_position + direction * distance
 		# The clearance sphere below is spawn_clearance_radius wide, so its
 		# center must clear the floor by more than that radius or it always
@@ -415,39 +868,69 @@ func _pick_spawn_position(player: Node3D, camera: Camera3D) -> Vector3:
 
 		if not _is_position_clear(candidate):
 			continue
-		# Validated at head height, not the floor-level candidate itself:
-		# checking the base point let a candidate pass with a clear view to
-		# its feet while its actual head - the point the live "seen" check
-		# raycasts to every frame - sat behind the toilet's own body. That
-		# produced ghosts that could never be seen no matter how the player
-		# aimed (found via Sprint 5 playtest simulation - a real, reproducible
-		# unwinnable-encounter bug, not a balance/tuning nuance).
 		var candidate_head := candidate + Vector3(0, head_height, 0)
 		if _is_path_blocked(eye_position, candidate_head, player):
 			continue
 
 		_record_spawn(zone, angle_deg)
-		return candidate
+		return {"ok": true, "position": candidate}
 
-	# Nowhere clear at all (a fully boxed-in room) - every one of
-	# spawn_sample_count candidates failed clearance/occlusion. This must
-	# never mean "skip this spawn"; still put the ghost in a fresh zone at
-	# the near edge of the distance range rather than on top of the player.
-	push_warning(
-		"ToiletGhost: all %d spawn candidates were blocked; using an unvalidated fallback position." %
-		spawn_sample_count
+	# Nowhere in the whole arc can host the ghost right now. Say so instead
+	# of forcing it: _spawn() re-arms a short retry, and the encounter simply
+	# starts a beat later. Placing an unseeable ghost is strictly worse than
+	# placing none - the player cannot catch what is inside a wall, so it
+	# would just walk in unopposed.
+	return {"ok": false, "position": Vector3.ZERO}
+
+
+## Open floor along `direction` from the player's eye, or -1.0 if nothing is
+## hit inside the range the ghost could spawn in at all. Cast at eye height
+## because that is the height the live "seen" raycast has to travel later:
+## a bearing that is clear down here but walled at head height would produce
+## exactly the unseeable ghost this whole path exists to prevent.
+func _free_distance_along(eye: Vector3, direction: Vector3, player: Node3D) -> float:
+	var reach := spawn_max_distance + wall_margin
+	var exclude: Array[RID] = []
+	if player and player.has_method("get_rid"):
+		exclude.append(player.get_rid())
+	var query := PhysicsRayQueryParameters3D.create(
+		eye,
+		eye + direction * reach,
+		spawn_blocking_mask,
+		exclude
 	)
-	var last_resort := _next_zone_angle()
-	_record_spawn(last_resort["zone"], last_resort["angle"])
-	var last_resort_direction := reference_forward.rotated(Vector3.UP, deg_to_rad(last_resort["angle"]))
-	var last_resort_position := player.global_position + last_resort_direction * spawn_min_distance
-	last_resort_position.y = floor_y + spawn_clearance_radius + 0.02
-	return last_resort_position
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	if hit.is_empty():
+		return -1.0
+	return eye.distance_to(hit["position"])
 
 
-## Approximates the floor under the player from its own capsule, mirroring
-## ghosts/statue_ghost.gd's _player_foot_y() without duplicating navigation.
+## The floor the ghost stands on, found by casting down from the player
+## rather than assumed from the bottom of their capsule.
+##
+## The capsule cannot be used here: ToiletMinigame.start_session() seats
+## the player about 0.3 m below standing height for the whole session, so
+## the capsule bottom sits *under* the real floor. Deriving the floor from
+## it put every spawn candidate inside the floor slab, which failed the
+## clearance check on all of them and sent every single spawn through the
+## fallback path - which is how ghosts ended up inside walls in House2's
+## bathroom, where they could never be seen or caught.
 func _floor_y(player: Node3D) -> float:
+	var exclude: Array[RID] = []
+	if player and player.has_method("get_rid"):
+		exclude.append(player.get_rid())
+	var origin := player.global_position
+	var query := PhysicsRayQueryParameters3D.create(
+		origin + Vector3(0, FLOOR_PROBE_UP, 0),
+		origin - Vector3(0, FLOOR_PROBE_DOWN, 0),
+		spawn_blocking_mask,
+		exclude
+	)
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	if not hit.is_empty():
+		return hit["position"].y
+	# Nothing underfoot at all (a headless test scene with no ground, say).
+	# Fall back to the old capsule estimate rather than to nothing.
 	var shape_node := player.get_node_or_null("CollisionShape3D") as CollisionShape3D
 	if shape_node:
 		var capsule := shape_node.shape as CapsuleShape3D

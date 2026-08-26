@@ -6,12 +6,76 @@ extends SceneTree
 ## timing, matching this suite's existing convention (see
 ## tests/toilet_minigame_smoke.gd) of calling internal methods directly for
 ## determinism instead of simulating real input/time.
+##
+## The contract under test is the lurch cycle (see minigames/toilet_ghost.gd's
+## class doc): the ghost stands still, lurches closer on its own clock, and
+## what a sighting is worth depends entirely on which of the two it was doing.
+## Every assertion reads the ghost's own exports rather than hardcoding tuning
+## numbers, except the explicit spec block at the top - a regressed default
+## would otherwise pass everything else silently.
 
-const STEP_DELTA := 0.1
+const STEP_DELTA := 0.05
+## Distance ahead of the camera used to park the ghost's head for the
+## deterministic "is being looked at" cases. Kept well short of the toilet
+## (1.5 m ahead, 0.5x0.8x0.7 collision box) so the occlusion raycast in
+## _camera_can_see_point() doesn't clip its geometry.
+const LOOK_DISTANCE := 0.8
 
 
 func _initialize() -> void:
 	_run.call_deferred()
+
+
+## Parks the ghost so its head - the point every sighting is checked against -
+## sits directly in front of the camera. Re-applied before every update() in
+## the "being watched" cases, because a lurch moves the ghost back onto its
+## rail at the end of the frame; the sighting check runs first, so the forced
+## position is what that frame observes.
+func _park_in_view(ghost: Node, camera: Camera3D) -> void:
+	var head_target: Vector3 = camera.global_position + (-camera.global_basis.z).normalized() * LOOK_DISTANCE
+	ghost.global_position = head_target - Vector3(0, ghost.visual.position.y + ghost.head_height, 0)
+
+
+## The opposite: parks the ghost's head behind the camera, so the player is
+## unambiguously not looking at it whatever the rail would otherwise do.
+func _park_out_of_view(ghost: Node, camera: Camera3D) -> void:
+	var head_target: Vector3 = camera.global_position + camera.global_basis.z.normalized() * LOOK_DISTANCE
+	ghost.global_position = head_target - Vector3(0, ghost.visual.position.y + ghost.head_height, 0)
+
+
+## Runs updates with the ghost held out of sight until it leaves `from_phase`
+## or `max_frames` is spent. Returns the frames used.
+func _ignore_until_phase_change(ghost: Node, player: Node3D, camera: Camera3D, from_phase: int, max_frames: int) -> int:
+	for i in max_frames:
+		_park_out_of_view(ghost, camera)
+		ghost.update(STEP_DELTA, player, camera)
+		if ghost.phase != from_phase:
+			return i + 1
+	return max_frames
+
+
+## Runs `frames` updates with the ghost held out of sight.
+func _ignore_for(ghost: Node, player: Node3D, camera: Camera3D, frames: int) -> void:
+	for i in frames:
+		_park_out_of_view(ghost, camera)
+		ghost.update(STEP_DELTA, player, camera)
+
+
+## Runs `frames` updates with the ghost held in plain view.
+func _watch_for(ghost: Node, player: Node3D, camera: Camera3D, frames: int) -> void:
+	for i in frames:
+		_park_in_view(ghost, camera)
+		ghost.update(STEP_DELTA, player, camera)
+
+
+## Drives the ghost from HOLDING through one complete lurch without ever
+## looking at it, leaving it standing still again one step further in.
+func _complete_one_lurch(ghost: Node, player: Node3D, camera: Camera3D) -> bool:
+	_ignore_until_phase_change(ghost, player, camera, ghost.GhostPhase.HOLDING, 400)
+	if ghost.phase != ghost.GhostPhase.MOVING:
+		return false
+	_ignore_until_phase_change(ghost, player, camera, ghost.GhostPhase.MOVING, 400)
+	return true
 
 
 func _run() -> void:
@@ -28,7 +92,6 @@ func _run() -> void:
 		quit(1)
 		return
 	var camera: Camera3D = player.get_node("CameraPivot/Camera3D")
-	var camera_pivot: Node3D = player.get_node("CameraPivot")
 
 	player.global_position = Vector3(12.0, 1.0, 2.0)
 	player.global_rotation = Vector3.ZERO
@@ -38,895 +101,487 @@ func _run() -> void:
 	await physics_frame
 	await physics_frame
 
-	# --- Configured values match the required spec exactly, not just
-	# "internally consistent with itself" - every other check in this file
-	# reads these exports dynamically, so a regressed default would
-	# otherwise pass every other assertion silently. ---
-	if not is_equal_approx(ghost.initial_spawn_delay, 2.0):
-		push_error("initial_spawn_delay is %.2f, not the required 2.0." % ghost.initial_spawn_delay)
+	# --- Configured values match the required spec exactly. Every other check
+	# reads these exports dynamically, so a regressed default would otherwise
+	# pass every assertion silently. ---
+	var spec := {
+		"initial_spawn_delay": 2.0,
+		"min_respawn_delay": 3.0,
+		"max_respawn_delay": 5.0,
+		"hold_duration": 3.0,
+		"move_duration": 0.7,
+		"stare_tolerance": 3.0,
+		"contact_distance": 1.15,
+		"spawn_yaw_range": 90.0,
+		"min_spawn_offset_angle": 40.0,
+	}
+	for key: String in spec:
+		if not is_equal_approx(float(ghost.get(key)), float(spec[key])):
+			push_error("%s is %.3f, not the required %.3f." % [key, float(ghost.get(key)), float(spec[key])])
+			quit(1)
+			return
+	if ghost.spots_to_banish != 3:
+		push_error("spots_to_banish is %d, not the required 3." % ghost.spots_to_banish)
 		quit(1)
 		return
-	if not is_equal_approx(ghost.min_respawn_delay, 3.0):
-		push_error("min_respawn_delay is %.2f, not the required 3.0." % ghost.min_respawn_delay)
+	if ghost.steps_to_reach != 5:
+		push_error("steps_to_reach is %d, not the required 5." % ghost.steps_to_reach)
 		quit(1)
 		return
-	if not is_equal_approx(ghost.max_respawn_delay, 5.0):
-		push_error("max_respawn_delay is %.2f, not the required 5.0." % ghost.max_respawn_delay)
+	# A spawn has to land somewhere the player can physically turn to, and
+	# far enough off centre that finding it costs a head turn at all.
+	if ghost.spawn_yaw_range > minigame.max_camera_rotation_y:
+		push_error("spawn_yaw_range (%.1f) exceeds the minigame's camera yaw clamp (%.1f) - a spawn could be unreachable." % [
+			ghost.spawn_yaw_range, minigame.max_camera_rotation_y
+		])
+		quit(1)
+		return
+	if ghost.min_spawn_offset_angle >= ghost.spawn_yaw_range:
+		push_error("min_spawn_offset_angle (%.1f) leaves no arc to spawn in below spawn_yaw_range (%.1f)." % [
+			ghost.min_spawn_offset_angle, ghost.spawn_yaw_range
+		])
+		quit(1)
+		return
+	# The lurch has to be catchable at the rate the minigame actually ticks.
+	if ghost.move_duration < STEP_DELTA * 3.0:
+		push_error("move_duration %.2fs is too short to ever be caught in the act." % ghost.move_duration)
 		quit(1)
 		return
 
-	# --- Initial delay: no ghost before 2.0s, exactly (no randomization for
-	# the first spawn of a session). ---
+	# --- Initial delay, then it arrives standing still. ---
 	ghost.arm()
 	if ghost.phase != ghost.GhostPhase.WAITING:
-		push_error("arm() did not enter the WAITING phase.")
-		quit(1)
-		return
-	if not is_equal_approx(ghost._spawn_timer, ghost.initial_spawn_delay):
-		push_error("The first spawn delay was randomized; it must be exactly initial_spawn_delay.")
+		push_error("arm() did not put the ghost into WAITING.")
 		quit(1)
 		return
 	var elapsed := 0.0
 	while elapsed < ghost.initial_spawn_delay - STEP_DELTA:
 		ghost.update(STEP_DELTA, player, camera)
 		elapsed += STEP_DELTA
-	if ghost.phase != ghost.GhostPhase.WAITING:
-		push_error("Ghost spawned before initial_spawn_delay elapsed (elapsed=%.2f)." % elapsed)
+		if ghost.phase != ghost.GhostPhase.WAITING:
+			push_error("Ghost spawned after %.2fs, before its %.2fs initial delay." % [elapsed, ghost.initial_spawn_delay])
+			quit(1)
+			return
+	ghost.update(STEP_DELTA * 2.0, player, camera)
+	if ghost.phase != ghost.GhostPhase.HOLDING:
+		push_error("Ghost did not arrive standing still (phase=%d)." % ghost.phase)
 		quit(1)
 		return
-
-	# --- First spawn: happens once initial_spawn_delay has elapsed. ---
-	while elapsed < ghost.initial_spawn_delay + STEP_DELTA and ghost.phase == ghost.GhostPhase.WAITING:
-		ghost.update(STEP_DELTA, player, camera)
-		elapsed += STEP_DELTA
-	if ghost.phase != ghost.GhostPhase.VISIBLE:
-		push_error("Ghost did not spawn shortly after initial_spawn_delay elapsed.")
+	if not is_zero_approx(ghost.advance) or ghost.step_index != 0 or ghost.spot_count != 0:
+		push_error("A fresh ghost should start at advance 0 with no steps or spots (%.2f/%d/%d)." % [
+			ghost.advance, ghost.step_index, ghost.spot_count
+		])
 		quit(1)
 		return
-
-	# --- Ghost faces the player horizontally after spawning (not the
-	# camera - the player's own position, which is what look_at-style
-	# facing means here). ---
+	if not ghost.visual.visible:
+		push_error("Ghost is holding but its visual is hidden.")
+		quit(1)
+		return
+	# It starts at the far end of the room it could find, not on top of you.
+	var spawn_offset: Vector3 = ghost.global_position - player.global_position
+	spawn_offset.y = 0.0
+	if spawn_offset.length() < ghost.contact_distance:
+		push_error("Ghost arrived %.2f m away, inside contact_distance %.2f." % [
+			spawn_offset.length(), ghost.contact_distance
+		])
+		quit(1)
+		return
 	var facing_error := _ghost_facing_error(ghost, player)
 	if facing_error != "":
 		push_error(facing_error)
 		quit(1)
 		return
 
-	# --- Spawn position: never at the player's own position, and within the
-	# configured [min, max] distance from it. ---
-	if not ghost._is_position_clear(ghost.global_position):
-		push_error("Ghost spawned inside blocking geometry.")
+	# --- Seen while standing still: worth exactly ONE tally, and only one,
+	# no matter how long or how often the player looks. This is the rule that
+	# stops "hold the camera on it until it leaves" from being a strategy. ---
+	_watch_for(ghost, player, camera, 1)
+	if ghost.spot_count != 1:
+		push_error("Seeing the standing ghost banked %d spots, expected 1." % ghost.spot_count)
 		quit(1)
 		return
-	if ghost.global_position.distance_to(player.global_position) < 0.01:
-		push_error("Ghost spawned exactly at the player's own position.")
+	if ghost.phase != ghost.GhostPhase.HOLDING:
+		push_error("A single sighting of a standing ghost resolved it (phase=%d) - only the last tally should." % ghost.phase)
 		quit(1)
 		return
-	var spawn_distance: float = Vector2(player.global_position.x, player.global_position.z).distance_to(
-		Vector2(ghost.global_position.x, ghost.global_position.z)
-	)
-	if spawn_distance < ghost.spawn_min_distance - 0.01 or spawn_distance > ghost.spawn_max_distance + 0.01:
-		push_error("Ghost spawn distance %.2f outside the configured [%.2f, %.2f] range." % [
-			spawn_distance, ghost.spawn_min_distance, ghost.spawn_max_distance
+	# Keep staring, but stay under stare_tolerance: still exactly one, and it
+	# must NOT take its ordinary timed lurch while being watched - if the hold
+	# clock ran under observation, a staring player would be handed a free
+	# mid-lurch catch and staring would be the dominant strategy.
+	var stare_frames := int(floor(ghost.stare_tolerance / STEP_DELTA)) - 6
+	_watch_for(ghost, player, camera, stare_frames)
+	if ghost.spot_count != 1:
+		push_error("Staring at the same standing ghost banked %d spots - a lurch cycle is worth one, however long the look." % ghost.spot_count)
+		quit(1)
+		return
+	if ghost.phase != ghost.GhostPhase.HOLDING:
+		push_error("The ghost left HOLDING (phase=%d) while under continuous observation and still inside stare_tolerance." % ghost.phase)
+		quit(1)
+		return
+	# ...and looking away and back does not bank another either.
+	_ignore_for(ghost, player, camera, 3)
+	_watch_for(ghost, player, camera, 2)
+	if ghost.spot_count != 1:
+		push_error("Looking away and back at the same standing ghost banked %d spots, expected still 1." % ghost.spot_count)
+		quit(1)
+		return
+
+	# --- Staring past stare_tolerance is punished with a long lunge. The
+	# budget accumulates across separate looks and never decays, which is why
+	# the frames above already spent most of it. ---
+	_watch_for(ghost, player, camera, 10)
+	if ghost.phase != ghost.GhostPhase.MOVING:
+		push_error("Watching for over stare_tolerance (%.1fs) did not provoke a lunge (phase=%d, stare=%.2f)." % [
+			ghost.stare_tolerance, ghost.phase, ghost._stare_time
+		])
+		quit(1)
+		return
+	if not ghost._move_is_punishment:
+		push_error("The stare provoked an ordinary lurch, not a punishment lunge.")
+		quit(1)
+		return
+	var punished_target: float = ghost._move_to
+	var normal_step: float = 1.0 / float(ghost.steps_to_reach)
+	if punished_target < normal_step * ghost.stare_step_multiplier - 0.001:
+		push_error("The stare punishment advanced to %.3f, short of a %.1fx stride (%.3f)." % [
+			punished_target, ghost.stare_step_multiplier, normal_step * ghost.stare_step_multiplier
 		])
 		quit(1)
 		return
 
-	# --- Spawn spread: consecutive spawns never reuse a zone, always clear
-	# the minimum angle separation, keep distance inside the configured
-	# range, and reach every zone rather than clustering. Driven over many
-	# spawns because all three are randomized per spawn.
-	#
-	# The toilet itself is temporarily moved out of the way: it sits right in
-	# front of the player, and the (correct) head-height occlusion rule
-	# rejects front-zone candidates hidden behind it, which would make "every
-	# zone is reachable" untestable here for reasons that have nothing to do
-	# with the zone logic under test.
-	var saved_toilet_position: Vector3 = toilet.global_position
-	toilet.global_position = Vector3(40.0, 1.22, 40.0)
-	# Pitched down toward the bowl, the way a real session leaves the camera
-	# (see start_session()'s target_pitch). This matters for the distance
-	# assertion below: spawn direction is derived from the camera's forward,
-	# and an unflattened forward drags that pitch in and foreshortens every
-	# distance by cos(pitch) - invisible with a level camera, which is why
-	# this block deliberately does not run level.
-	var spread_viewpoint := toilet.get_node("MinigameViewPoint") as Marker3D
-	camera_pivot.rotation.x = spread_viewpoint.global_rotation.x
-	await physics_frame
-	await physics_frame
-	ghost.arm()
-	var zone_counts := [0, 0, 0, 0, 0]
-	var previous_zone := -1
-	var previous_angle := 0.0
-	for i in 200:
-		var candidate: Vector3 = ghost._pick_spawn_position(player, camera)
-		var zone: int = ghost._last_spawn_zone
-		var angle: float = ghost._last_spawn_angle
-		zone_counts[zone] += 1
-		if zone == previous_zone:
-			push_error("Spawn %d reused the previous zone (%d) - consecutive spawns must differ." % [i, zone])
+	# --- A punishment lunge is NOT catchable. Otherwise staring would still
+	# win, just from the other direction: stare, get lunged at, catch the
+	# lunge for free. Watch it the whole way through and it must survive. ---
+	var spots_before_lunge: int = ghost.spot_count
+	var lunge_guard := 0
+	while ghost.phase == ghost.GhostPhase.MOVING and lunge_guard < 400:
+		_park_in_view(ghost, camera)
+		ghost.update(STEP_DELTA, player, camera)
+		lunge_guard += 1
+	if ghost.phase == ghost.GhostPhase.STUTTER:
+		push_error("Watching the punishment lunge caught it - staring is a winning strategy again.")
+		quit(1)
+		return
+	if ghost.phase != ghost.GhostPhase.HOLDING:
+		push_error("The punishment lunge did not settle back into HOLDING (phase=%d)." % ghost.phase)
+		quit(1)
+		return
+	# ...and it does not hand back a fresh tally either.
+	if ghost._spotted_this_cycle == false and ghost.spot_count == spots_before_lunge:
+		var re_armed := true
+		_watch_for(ghost, player, camera, 1)
+		if ghost.spot_count > spots_before_lunge:
+			push_error("A punishment lunge re-armed the tally - a staring player could bank spots off their own punishment.")
 			quit(1)
 			return
-		if previous_zone >= 0 and absf(angle - previous_angle) < ghost.min_spawn_angle_separation - 0.001:
-			push_error("Spawn %d was only %.1f deg from the previous one (minimum %.1f)." % [
-				i, absf(angle - previous_angle), ghost.min_spawn_angle_separation
-			])
-			quit(1)
-			return
-		if absf(angle) > ghost.spawn_yaw_range + 0.001:
-			push_error("Spawn %d angle %.1f deg is outside the reachable +-%.1f range." % [i, angle, ghost.spawn_yaw_range])
-			quit(1)
-			return
-		var flat_distance: float = Vector2(candidate.x, candidate.z).distance_to(
-			Vector2(player.global_position.x, player.global_position.z)
-		)
-		if flat_distance < ghost.spawn_min_distance - 0.05 or flat_distance > ghost.spawn_max_distance + 0.05:
-			push_error("Spawn %d distance %.2f is outside the configured [%.1f, %.1f] range." % [
-				i, flat_distance, ghost.spawn_min_distance, ghost.spawn_max_distance
-			])
-			quit(1)
-			return
-		previous_zone = zone
-		previous_angle = angle
-	for zone_index in zone_counts.size():
-		if zone_counts[zone_index] == 0:
-			push_error("Spawn zone %d was never used across 200 spawns - the spread has collapsed." % zone_index)
-			quit(1)
-			return
-	toilet.global_position = saved_toilet_position
-	camera_pivot.rotation.x = 0.0
-	await physics_frame
-	await physics_frame
 
-	# --- Spawn fallback: even if every candidate is invalid (fully blocked
-	# spawn area), the ghost must still end up somewhere - and never at the
-	# player's own exact position. Forced without touching the scene tree:
-	# an absurdly large clearance radius makes every candidate's own
-	# clearance sphere overlap nearby world geometry (floor/walls), so
-	# _is_position_clear() always rejects it, exactly like a fully blocked
-	# room would.
-	var original_clearance_radius: float = ghost.spawn_clearance_radius
-	ghost.spawn_clearance_radius = 100.0
-	var fallback_candidate: Vector3 = ghost._pick_spawn_position(player, camera)
-	ghost.spawn_clearance_radius = original_clearance_radius
-	if fallback_candidate.distance_to(player.global_position) < ghost.spawn_min_distance - 0.01:
-		push_error("With every candidate blocked, the spawn fallback still landed on (or too close to) the player.")
+	# --- Caught mid-lurch: gone at once, whatever the tally says. This is the
+	# skill play - the reward for timing a look rather than repeating one. ---
+	if ghost.spot_count >= ghost.spots_to_banish - 1:
+		ghost.spot_count = 0
+		ghost._spotted_this_cycle = true
+	_ignore_until_phase_change(ghost, player, camera, ghost.GhostPhase.HOLDING, 400)
+	if ghost.phase != ghost.GhostPhase.MOVING:
+		push_error("Could not reach an ordinary lurch for the mid-lurch catch (phase=%d)." % ghost.phase)
 		quit(1)
 		return
-
-	# --- Spawn direction: within spawn_yaw_range of the camera orientation at
-	# the moment the session started (here, since the player never rotated,
-	# that's just the current forward). Sampled repeatedly since the angle is
-	# randomized per spawn. ---
-	var reference_forward: Vector3 = ghost._session_start_forward(camera, player)
-	for i in 60:
-		var candidate: Vector3 = ghost._pick_spawn_position(player, camera)
-		var offset := candidate - player.global_position
-		offset.y = 0.0
-		if offset.length() < 0.01:
-			continue
-		var angle_deg: float = rad_to_deg(reference_forward.angle_to(offset.normalized()))
-		if angle_deg > ghost.spawn_yaw_range + 0.5:
-			push_error("Spawn candidate at %.1f deg exceeds spawn_yaw_range (%.1f deg)." % [angle_deg, ghost.spawn_yaw_range])
-			quit(1)
-			return
-	ghost.reset()
-
-	# --- Spawn: the head-height detection point must never be occluded, even
-	# when the floor-level base point is clear. Sprint 5 found a real
-	# repeatable case here: the toilet's own body (spanning roughly y=0.8 to
-	# y=1.6) sat between the camera and a candidate's *head* while its
-	# floor-level base point had a clear line - producing a ghost that could
-	# never be seen no matter how the player aimed. Reproducing it needs the
-	# camera pitched down toward the bowl the way a real session leaves it
-	# (see start_session()'s target_pitch) - an unpitched, level camera
-	# barely triggers it at all. Sampled repeatedly since spawn position is
-	# randomized; a single sample could get lucky (empirically ~6-7% of
-	# calls hit it against the unfixed code, so 200 samples is well past the
-	# point of being a reliable regression guard).
-	var viewpoint := toilet.get_node("MinigameViewPoint") as Marker3D
-	camera_pivot.rotation.x = viewpoint.global_rotation.x
-	for i in 200:
-		var candidate: Vector3 = ghost._pick_spawn_position(player, camera)
-		var candidate_head := candidate + Vector3(0, ghost.head_height, 0)
-		if ghost._is_path_blocked(camera.global_position, candidate_head, player):
-			push_error("Spawn candidate's head-height point is occluded even though the spawn algorithm accepted it (trial %d, candidate=%s)." % [i, candidate])
-			quit(1)
-			return
-	camera_pivot.rotation.x = 0.0
-
-	# --- FOV helper: reused by both spawn preference and detection. ---
-	# Kept well short of the toilet (1.5m ahead, 0.5x0.8x0.7 collision box) so
-	# these "clear line of sight" checks don't clip its own geometry.
-	player.global_rotation = Vector3.ZERO
-	await physics_frame
-	var point_ahead: Vector3 = camera.global_position + (-camera.global_basis.z) * 0.8
-	var point_behind: Vector3 = camera.global_position + camera.global_basis.z * 0.8
-	if not ghost._is_inside_camera_fov(camera, point_ahead):
-		push_error("A point directly ahead of the camera was not judged inside its FOV.")
+	if ghost._move_is_punishment:
+		push_error("Reached a punishment lunge where an ordinary lurch was expected.")
 		quit(1)
 		return
-	if ghost._is_inside_camera_fov(camera, point_behind):
-		push_error("A point directly behind the camera was judged inside its FOV.")
-		quit(1)
-		return
-
-	# --- Detection: outside FOV -> not seen. ---
-	if ghost._camera_can_see_point(camera, player, point_behind):
-		push_error("A point behind the camera was reported as seen.")
-		quit(1)
-		return
-
-	# --- Detection: inside FOV, unobstructed -> seen. ---
-	if not ghost._camera_can_see_point(camera, player, point_ahead):
-		push_error("A point directly ahead and unobstructed was not reported as seen.")
-		quit(1)
-		return
-
-	# --- Detection: inside FOV, blocked by geometry -> not seen. ---
-	var wall := StaticBody3D.new()
-	var wall_shape := CollisionShape3D.new()
-	var wall_box := BoxShape3D.new()
-	wall_box.size = Vector3(2.0, 2.0, 0.1)
-	wall_shape.shape = wall_box
-	wall.add_child(wall_shape)
-	root.add_child(wall)
-	wall.global_position = camera.global_position + (-camera.global_basis.z) * 0.4
-	await physics_frame
-	if ghost._camera_can_see_point(camera, player, point_ahead):
-		push_error("A point behind blocking geometry was reported as seen.")
-		quit(1)
-		return
-	wall.queue_free()
-	await physics_frame
-
-	# --- Camera: yaw clamp is +-90 degrees around the orientation the
-	# session started with (0 degrees), matching spawn_yaw_range. ---
-	player.call("_try_interact")
-	if minigame.current_state != minigame.MinigameState.PLAYING:
-		push_error("Interacting with the toilet did not start the minigame for the camera-clamp case.")
-		quit(1)
-		return
-	if not is_equal_approx(player.yaw_clamp_min, deg_to_rad(minigame.min_camera_rotation_y)) \
-			or not is_equal_approx(player.yaw_clamp_max, deg_to_rad(minigame.max_camera_rotation_y)):
-		push_error("Yaw clamp does not match ToiletMinigame's configured range.")
-		quit(1)
-		return
-	if not is_equal_approx(minigame.min_camera_rotation_y, -90.0) or not is_equal_approx(minigame.max_camera_rotation_y, 90.0):
-		push_error("Toilet camera yaw range is not +-90 degrees (min=%.1f max=%.1f)." % [
-			minigame.min_camera_rotation_y, minigame.max_camera_rotation_y
-		])
-		quit(1)
-		return
-	if not is_equal_approx(player.accumulated_yaw, 0.0):
-		push_error("accumulated_yaw should start at 0 - the session-start orientation is the 0-degree reference.")
-		quit(1)
-		return
-
-	# --- Success: seeing the ghost starts the eye-contact reaction, not an
-	# instant disappearance - see minigames/toilet_ghost.gd's GhostPhase.SEEN.
-	# This is also Ghost #1 of the multiple-spawns sequence below. ---
-	ghost.initial_spawn_delay = 0.0
-	ghost.reaction_time = 0.05 # about to expire - proves detection cancels it, not luck
-	ghost.ghost_seen_duration = 0.5
-	# Respawn delays deliberately left at their real configured values so the
-	# repeat-spawn timing below tests the shipped 3-6s window, not a stub.
-	ghost.arm()
-	ghost.update(0.01, player, camera) # 0-delay roll: spawns immediately
-	if ghost.phase != ghost.GhostPhase.VISIBLE:
-		push_error("Ghost #1 did not spawn with a zeroed initial delay.")
-		quit(1)
-		return
-	# Force it into plain view for a deterministic "seen" check regardless of
-	# where it happened to land. The "seen" check targets visual.global_position
-	# + head_height (see _head_position()), so place the visual that far below
-	# the target point.
-	ghost.visual.global_position = point_ahead - Vector3(0, ghost.head_height, 0)
-	var seen_count := [0]
-	ghost.ghost_seen.connect(func(): seen_count[0] += 1)
-
-	# Ghost detected, but must NOT disappear immediately.
-	ghost.update(STEP_DELTA, player, camera)
-	if ghost.phase != ghost.GhostPhase.SEEN:
-		push_error("Looking at the ghost did not enter the SEEN hold phase.")
+	_watch_for(ghost, player, camera, 1)
+	if ghost.phase != ghost.GhostPhase.STUTTER:
+		push_error("Seeing the ghost mid-lurch produced phase %d, not the STUTTER catch." % ghost.phase)
 		quit(1)
 		return
 	if not ghost.visual.visible:
-		push_error("Ghost disappeared the instant it was seen instead of holding for ghost_seen_duration.")
+		push_error("The ghost vanished instantly on being caught - the stutter beat exists so it does not pop.")
 		quit(1)
 		return
 
-	# Once seen, the (already-expired-if-it-still-counted) reaction timeout
-	# must not be able to kill the player. 3 steps (0.3s) is comfortably
-	# short of the 0.5s hold, so this also checks it hasn't disappeared yet.
-	for i in 3:
+	# --- The catch resolves: stutter, vanish, forced blink, re-arm. ---
+	var seen_count := [0]
+	ghost.ghost_seen.connect(func(): seen_count[0] += 1)
+	var guard := 0
+	while ghost.phase == ghost.GhostPhase.STUTTER and guard < 400:
 		ghost.update(STEP_DELTA, player, camera)
-	if not player.is_alive:
-		push_error("The reaction timeout killed the player after the ghost had already been seen.")
-		quit(1)
-		return
-	if ghost.phase != ghost.GhostPhase.SEEN or not ghost.visual.visible:
-		push_error("Ghost left the SEEN hold (or disappeared) well before ghost_seen_duration elapsed.")
-		quit(1)
-		return
-
-	# Disappears once ghost_seen_duration has elapsed, forcing the existing
-	# player blink the instant it does.
-	if player.eyes_closed:
-		push_error("Player's eyes were already closed before the ghost disappeared.")
-		quit(1)
-		return
-	var disappear_iterations := 0
-	while ghost.phase == ghost.GhostPhase.SEEN and disappear_iterations < 100:
-		ghost.update(STEP_DELTA, player, camera)
-		disappear_iterations += 1
+		guard += 1
 	if ghost.phase != ghost.GhostPhase.DISAPPEARING:
-		push_error("Ghost never entered DISAPPEARING after ghost_seen_duration elapsed.")
+		push_error("The stutter did not resolve into DISAPPEARING (phase=%d)." % ghost.phase)
 		quit(1)
 		return
-	if ghost.visual.visible:
-		push_error("Ghost visual remained visible after ghost_seen_duration elapsed.")
+	if player.forced_blink_remaining <= 0.0:
+		push_error("Catching the ghost did not force the player's blink.")
 		quit(1)
 		return
-	if not player.eyes_closed:
-		push_error("Ghost disappearing did not force the player's existing blink.")
-		quit(1)
-		return
-
-	# The blink must not remain stuck: it reopens on its own shortly after,
-	# driven by the ghost's own timer (see force_blink_now()'s doc comment in
-	# player.gd for why it can't rely on the player's own _physics_process
-	# here). Finishing the blink also re-arms the spawn loop (Ghost #2).
-	var blink_iterations := 0
-	while ghost.phase == ghost.GhostPhase.DISAPPEARING and blink_iterations < 100:
+	while ghost.phase == ghost.GhostPhase.DISAPPEARING and guard < 800:
 		ghost.update(STEP_DELTA, player, camera)
-		blink_iterations += 1
-	if ghost.phase != ghost.GhostPhase.WAITING:
-		push_error("Ghost did not re-arm for a repeat spawn after the forced blink finished.")
-		quit(1)
-		return
-	if player.eyes_closed:
-		push_error("The forced blink remained stuck closed instead of reopening.")
-		quit(1)
-		return
+		guard += 1
 	if seen_count[0] != 1:
-		push_error("ghost_seen did not fire exactly once for the full eye-contact sequence.")
+		push_error("ghost_seen fired %d times across one catch, expected exactly 1." % seen_count[0])
 		quit(1)
 		return
-	if ghost.teleport_audio.playing:
-		push_error("Teleport audio kept playing after the ghost was seen and disappeared.")
+	if ghost.phase != ghost.GhostPhase.WAITING:
+		push_error("A caught ghost did not re-arm the spawn loop (phase=%d)." % ghost.phase)
 		quit(1)
 		return
-	if not player.is_alive:
-		push_error("Success incorrectly killed the player.")
-		quit(1)
-		return
-
-	# The toilet minigame (bar, A/D, camera) continues normally throughout
-	# and after the sequence - nothing above paused or reset it.
-	if minigame.current_state != minigame.MinigameState.PLAYING:
-		push_error("The eye-contact reaction should not end the toilet minigame.")
-		quit(1)
-		return
-	minigame.player_offset = 0.0
-	minigame.nozzle_velocity = 0.0
-	Input.action_press("move_right")
-	minigame._handle_input(STEP_DELTA)
-	Input.action_release("move_right")
-	if minigame.player_offset <= 0.0:
-		push_error("A/D bar control stopped working after the eye-contact reaction.")
-		quit(1)
-		return
-	if not is_equal_approx(player.pitch_clamp_min, deg_to_rad(minigame.min_camera_rotation_x)) \
-			or not is_equal_approx(player.pitch_clamp_max, deg_to_rad(minigame.max_camera_rotation_x)):
-		push_error("Camera pitch clamp changed as a side effect of the eye-contact reaction.")
-		quit(1)
-		return
-
-	# --- Repeat spawn (Ghost #2): must not appear during the first
-	# min_respawn_delay seconds of the wait, and must appear by
-	# max_respawn_delay - both re-rolled fresh from _arm_respawn(). ---
-	if ghost._spawn_timer < ghost.min_respawn_delay - 0.01 or ghost._spawn_timer > ghost.max_respawn_delay + 0.01:
-		push_error("Respawn timer %.2f is outside the configured [%.1f, %.1f] range." % [
+	if ghost._spawn_timer < ghost.min_respawn_delay - 0.001 or ghost._spawn_timer > ghost.max_respawn_delay + 0.001:
+		push_error("Respawn delay %.2fs is outside the configured %.1f-%.1fs window." % [
 			ghost._spawn_timer, ghost.min_respawn_delay, ghost.max_respawn_delay
 		])
 		quit(1)
 		return
-	var respawn_elapsed := 0.0
-	while respawn_elapsed < ghost.min_respawn_delay - STEP_DELTA:
-		ghost.update(STEP_DELTA, player, camera)
-		respawn_elapsed += STEP_DELTA
-	if ghost.phase != ghost.GhostPhase.WAITING:
-		push_error("Ghost #2 spawned before the minimum respawn delay elapsed.")
+	if player.forced_blink_remaining > 0.0:
+		push_error("The forced blink was never ended - the player's eyes are stranded shut.")
 		quit(1)
 		return
-	var respawn_iterations := 0
-	while ghost.phase == ghost.GhostPhase.WAITING and respawn_iterations < 100:
-		ghost.update(STEP_DELTA, player, camera)
-		respawn_iterations += 1
-	if ghost.phase != ghost.GhostPhase.VISIBLE:
-		push_error("Ghost #2 never spawned within the configured maximum respawn delay.")
-		quit(1)
-		return
-	if float(respawn_iterations) * STEP_DELTA > ghost.max_respawn_delay + STEP_DELTA * 2.0:
-		push_error("Ghost #2 took longer than max_respawn_delay to appear.")
-		quit(1)
-		return
-	var g2_facing_error := _ghost_facing_error(ghost, player)
-	if g2_facing_error != "":
-		push_error("Ghost #2: " + g2_facing_error)
-		quit(1)
-		return
-	if not ghost.teleport_audio.playing:
-		push_error("Repeat spawn did not play the teleport audio again.")
+	if player.threat_sources.has(ghost.THREAT_SOURCE):
+		push_error("A caught ghost left its threat entry behind - the overlay would stay lit.")
 		quit(1)
 		return
 
-	# Drive Ghost #2 through the same full seen -> disappear -> blink ->
-	# re-armed cycle as Ghost #1, matching "#1 -> disappear -> #2 ->
-	# disappear -> #3" - just spawning it isn't enough to prove the loop
-	# really repeats a full encounter, not just a timer.
-	ghost.visual.global_position = point_ahead - Vector3(0, ghost.head_height, 0)
-	ghost.update(STEP_DELTA, player, camera)
-	if ghost.phase != ghost.GhostPhase.SEEN:
-		push_error("Ghost #2 was not detected.")
+	# --- Three tallies, one per lurch, and the third banishes it. This is the
+	# patient route: it works, it just costs three well-spent looks instead of
+	# one well-timed one. Each tally has to come from a SEPARATE lurch cycle -
+	# that is the whole point of the once-per-cycle guard. ---
+	ghost.initial_spawn_delay = 0.0
+	ghost.arm()
+	ghost.update(0.01, player, camera)
+	if ghost.phase != ghost.GhostPhase.HOLDING:
+		push_error("Ghost did not arrive for the three-tally case.")
 		quit(1)
 		return
-	var g2_iterations := 0
-	while ghost.phase != ghost.GhostPhase.WAITING and g2_iterations < 200:
-		ghost.update(STEP_DELTA, player, camera)
-		g2_iterations += 1
-	if ghost.phase != ghost.GhostPhase.WAITING:
-		push_error("Ghost #2's full seen/disappear/blink cycle did not complete and re-arm.")
-		quit(1)
-		return
-	if seen_count[0] != 2:
-		push_error("Expected exactly 2 successful sightings after Ghost #2 (Ghosts #1-#2), got %d." % seen_count[0])
-		quit(1)
-		return
-
-	# --- Maximum respawn delay: sampled repeatedly (the roll is random),
-	# never exceeds max_respawn_delay. Re-arming the ghost's own timer here
-	# is fine to do destructively - Ghost #3 below calls arm() again first,
-	# so nothing from this loop needs to survive it.
-	for i in 100:
-		ghost._arm_respawn()
-		if ghost._spawn_timer > ghost.max_respawn_delay + 0.001:
-			push_error("_arm_respawn() rolled %.3f, exceeding max_respawn_delay (%.1f)." % [ghost._spawn_timer, ghost.max_respawn_delay])
+	for expected_spots in [1, 2]:
+		_watch_for(ghost, player, camera, 1)
+		if ghost.spot_count != expected_spots:
+			push_error("Expected %d tallies at this point, have %d." % [expected_spots, ghost.spot_count])
 			quit(1)
 			return
-		if ghost._spawn_timer < ghost.min_respawn_delay - 0.001:
-			push_error("_arm_respawn() rolled %.3f, under min_respawn_delay (%.1f)." % [ghost._spawn_timer, ghost.min_respawn_delay])
+		if ghost.phase != ghost.GhostPhase.HOLDING:
+			push_error("Tally %d resolved the ghost early (phase=%d)." % [expected_spots, ghost.phase])
 			quit(1)
 			return
-
-	# --- No duplicate timers: re-arming twice in a row (as if two
-	# disappearance events somehow both tried to schedule a respawn) must
-	# leave exactly one pending timer - the single _spawn_timer float is
-	# fully overwritten each time, so there is structurally nowhere for a
-	# second one to live. Confirmed by driving it: exactly one WAITING->
-	# VISIBLE transition occurs, at the SECOND roll's duration, not the
-	# first's and not both. ---
-	ghost._arm_respawn()
-	var first_roll: float = ghost._spawn_timer
-	ghost._arm_respawn()
-	var second_roll: float = ghost._spawn_timer
-	if ghost.phase != ghost.GhostPhase.WAITING:
-		push_error("Re-arming left the ghost outside WAITING.")
+		if not _complete_one_lurch(ghost, player, camera):
+			push_error("Could not drive a clean lurch after tally %d (phase=%d)." % [expected_spots, ghost.phase])
+			quit(1)
+			return
+		if ghost._spotted_this_cycle:
+			push_error("A completed lurch did not re-arm the tally for the next cycle.")
+			quit(1)
+			return
+	var steps_before_banish: int = ghost.step_index
+	_watch_for(ghost, player, camera, 1)
+	if ghost.spot_count != ghost.spots_to_banish:
+		push_error("Expected the tally to reach %d, got %d." % [ghost.spots_to_banish, ghost.spot_count])
 		quit(1)
 		return
-	var dup_elapsed := 0.0
-	var dup_transitions := 0
-	while ghost.phase == ghost.GhostPhase.WAITING and dup_elapsed < second_roll + 1.0:
-		ghost.update(STEP_DELTA, player, camera)
-		dup_elapsed += STEP_DELTA
-		if ghost.phase == ghost.GhostPhase.VISIBLE:
-			dup_transitions += 1
-	if dup_transitions != 1:
-		push_error("Re-arming twice produced %d spawn transitions instead of exactly 1 (first_roll=%.2f second_roll=%.2f)." % [
-			dup_transitions, first_roll, second_roll
+	if ghost.phase != ghost.GhostPhase.STUTTER:
+		push_error("The %drd tally on a STANDING ghost did not banish it (phase=%d) - the patient route is broken." % [
+			ghost.spots_to_banish, ghost.phase
 		])
 		quit(1)
 		return
-	if dup_elapsed < second_roll - STEP_DELTA * 2.0:
-		push_error("Ghost spawned at %.2fs, before the second (winning) roll of %.2fs - the first roll leaked through." % [dup_elapsed, second_roll])
+	if steps_before_banish < 2:
+		push_error("The ghost only took %d lurches to give up three tallies - the once-per-cycle guard is not holding." % steps_before_banish)
 		quit(1)
 		return
 	ghost.reset()
 
-	# --- Single reaction timer: the same "re-trigger can't create a second
-	# pending timer" guarantee, but for detection (_on_seen()) rather than
-	# respawn (_arm_respawn()). Calling _on_seen() twice - as if the "player
-	# looked at it" check somehow fired twice for one encounter - must still
-	# leave exactly one _seen_timer, resolving at ghost_seen_duration from
-	# the SECOND call, not sooner and not twice. ---
+	# --- Lurches close the distance, monotonically, and never overshoot the
+	# player. Driven on an explicit rail so this measures the mapping from
+	# advance to position, not whatever bearing the spawn roll picked. ---
 	ghost.initial_spawn_delay = 0.0
 	ghost.arm()
 	ghost.update(0.01, player, camera)
-	if ghost.phase != ghost.GhostPhase.VISIBLE:
-		push_error("Ghost did not spawn for the single-reaction-timer case.")
-		quit(1)
-		return
-	ghost._on_seen()
-	var redetect_steps := 0
-	while redetect_steps < 2 and ghost.phase == ghost.GhostPhase.SEEN:
-		ghost.update(STEP_DELTA, player, camera)
-		redetect_steps += 1
-	ghost._on_seen() # simulated re-trigger, partway through the first hold
-	if not is_equal_approx(ghost._seen_timer, ghost.ghost_seen_duration):
-		push_error("Re-triggering detection did not cleanly reset to a single fresh ghost_seen_duration timer (got %.3f, expected %.3f)." % [
-			ghost._seen_timer, ghost.ghost_seen_duration
+	ghost._rail_origin = player.global_position
+	ghost._rail_eye = camera.global_position
+	ghost._rail_floor_y = ghost._floor_y(player)
+	# Angled away from the test scene's own toilet: a rail pointed straight
+	# down -Z runs the line of sight through it, and _apply_advance()
+	# correctly refuses to move the ghost somewhere the player cannot see.
+	ghost._rail_direction = Vector3(0, 0, -1).rotated(Vector3.UP, deg_to_rad(60.0))
+	ghost._rail_far_distance = 3.0
+
+	ghost.advance = 0.0
+	ghost._apply_advance(player)
+	var far_offset: Vector3 = ghost.global_position - player.global_position
+	far_offset.y = 0.0
+	if absf(far_offset.length() - ghost._rail_far_distance) > 0.05:
+		push_error("At advance 0 the ghost sits %.2f m out, not the rail's far end %.2f m." % [
+			far_offset.length(), ghost._rail_far_distance
 		])
 		quit(1)
 		return
-	var redetect_iterations := 0
-	var redetect_disappear_transitions := 0
-	var redetect_prev_phase = ghost.phase
-	while ghost.phase != ghost.GhostPhase.WAITING and redetect_iterations < 200:
-		ghost.update(STEP_DELTA, player, camera)
-		redetect_iterations += 1
-		if redetect_prev_phase != ghost.GhostPhase.DISAPPEARING and ghost.phase == ghost.GhostPhase.DISAPPEARING:
-			redetect_disappear_transitions += 1
-		redetect_prev_phase = ghost.phase
-	if redetect_disappear_transitions != 1:
-		push_error("Re-triggering detection produced %d disappear transitions instead of exactly 1." % redetect_disappear_transitions)
-		quit(1)
-		return
-	if ghost.phase != ghost.GhostPhase.WAITING:
-		push_error("The single-reaction-timer case did not complete its cycle and re-arm.")
-		quit(1)
-		return
-	ghost.reset()
-
-	# --- Multiple spawns (Ghost #3): see the ghost through one more full
-	# seen -> disappear -> blink -> re-armed cycle, proving the loop is not
-	# one-shot (it already produced #1 and #2 above). ---
-	ghost.arm()
-	ghost.initial_spawn_delay = 0.0
-	ghost.arm() # re-apply the zeroed delay
-	ghost.update(0.01, player, camera)
-	if ghost.phase != ghost.GhostPhase.VISIBLE:
-		push_error("Ghost #3 did not spawn.")
-		quit(1)
-		return
-	var g3_facing_error := _ghost_facing_error(ghost, player)
-	if g3_facing_error != "":
-		push_error("Ghost #3: " + g3_facing_error)
-		quit(1)
-		return
-	ghost.visual.global_position = point_ahead - Vector3(0, ghost.head_height, 0)
-	ghost.update(STEP_DELTA, player, camera)
-	if ghost.phase != ghost.GhostPhase.SEEN:
-		push_error("Ghost #3 was not detected.")
-		quit(1)
-		return
-	var g3_iterations := 0
-	while ghost.phase != ghost.GhostPhase.WAITING and g3_iterations < 200:
-		ghost.update(STEP_DELTA, player, camera)
-		g3_iterations += 1
-	if ghost.phase != ghost.GhostPhase.WAITING:
-		push_error("Ghost #3's full seen/disappear/blink cycle did not complete and re-arm.")
-		quit(1)
-		return
-	if seen_count[0] != 4:
-		push_error("Expected exactly 4 successful sightings (Ghosts #1-#3 plus the single-reaction-timer case), got %d." % seen_count[0])
-		quit(1)
-		return
-
-	# --- Multiple cycles, measured: Ghosts #4-#7 continue the loop with the
-	# real (not zeroed) respawn timing, each interval measured precisely and
-	# checked against [min_respawn_delay, max_respawn_delay]. Also confirms
-	# there is never more than one active ghost / one pending timer: every
-	# cycle sees exactly one WAITING->VISIBLE transition, and phase is
-	# tracked every single step, not just polled at the end.
-	var measured_intervals := []
-	for cycle in range(4, 8):
-		var interval_elapsed := 0.0
-		var visible_transitions := 0
-		while ghost.phase == ghost.GhostPhase.WAITING and interval_elapsed < ghost.max_respawn_delay + 1.0:
-			ghost.update(STEP_DELTA, player, camera)
-			interval_elapsed += STEP_DELTA
-			if ghost.phase == ghost.GhostPhase.VISIBLE:
-				visible_transitions += 1
-		if ghost.phase != ghost.GhostPhase.VISIBLE:
-			push_error("Ghost #%d never spawned - a respawn was missed." % cycle)
-			quit(1)
-			return
-		if visible_transitions != 1:
-			push_error("Ghost #%d: expected exactly 1 spawn transition, saw %d (possible duplicate spawn/timer)." % [cycle, visible_transitions])
-			quit(1)
-			return
-		if interval_elapsed < ghost.min_respawn_delay - STEP_DELTA or interval_elapsed > ghost.max_respawn_delay + STEP_DELTA:
-			push_error("Ghost #%d respawned after %.2fs, outside the configured [%.1f, %.1f] range." % [
-				cycle, interval_elapsed, ghost.min_respawn_delay, ghost.max_respawn_delay
+	var previous_distance: float = far_offset.length()
+	var sweep := 0.05
+	while sweep <= 1.0:
+		ghost.advance = sweep
+		ghost._apply_advance(player)
+		var step_offset: Vector3 = ghost.global_position - player.global_position
+		step_offset.y = 0.0
+		if step_offset.length() > previous_distance + 0.01:
+			push_error("Advance %.2f moved the ghost outward (%.2f m from %.2f m)." % [
+				sweep, step_offset.length(), previous_distance
 			])
 			quit(1)
 			return
-		measured_intervals.append(interval_elapsed)
-		var cycle_facing_error := _ghost_facing_error(ghost, player)
-		if cycle_facing_error != "":
-			push_error("Ghost #%d: %s" % [cycle, cycle_facing_error])
-			quit(1)
-			return
-		ghost.visual.global_position = point_ahead - Vector3(0, ghost.head_height, 0)
-		ghost.update(STEP_DELTA, player, camera)
-		if ghost.phase != ghost.GhostPhase.SEEN:
-			push_error("Ghost #%d was not detected." % cycle)
-			quit(1)
-			return
-		var cycle_iterations := 0
-		while ghost.phase != ghost.GhostPhase.WAITING and cycle_iterations < 200:
-			ghost.update(STEP_DELTA, player, camera)
-			cycle_iterations += 1
-		if ghost.phase != ghost.GhostPhase.WAITING:
-			push_error("Ghost #%d's seen/disappear/blink cycle did not complete and re-arm." % cycle)
-			quit(1)
-			return
-	if seen_count[0] != 8:
-		push_error("Expected exactly 8 successful sightings (Ghosts #1-#3, the single-reaction-timer case, and #4-#7), got %d." % seen_count[0])
+		previous_distance = step_offset.length()
+		sweep += 0.05
+	# Explicitly, rather than trusting the sweep to land on 1.0: twenty
+	# additions of 0.05 stop fractionally short of it.
+	ghost.advance = 1.0
+	ghost._apply_advance(player)
+	var contact_offset: Vector3 = ghost.global_position - player.global_position
+	contact_offset.y = 0.0
+	previous_distance = contact_offset.length()
+	if absf(previous_distance - ghost.contact_distance) > 0.05:
+		push_error("At advance 1 the ghost is %.2f m away, not contact_distance %.2f m." % [
+			previous_distance, ghost.contact_distance
+		])
 		quit(1)
 		return
-	print("Measured respawn intervals (Ghosts #4-#7, seconds): %s" % [measured_intervals])
 
-	# --- Failure: not seeing it before the reaction timer expires kills the
-	# player, and STOPS the spawn loop (no Ghost #4 after death). ---
-	ghost.reaction_time = 1.0
-	ghost.arm()
+	# --- The looming axis, and with it the small-room contract. Advance the
+	# room had no space to express as movement is spent on lean/lift instead,
+	# so a ghost pinned against a wall still escalates. Asserted directly on
+	# _apply_lean() because the alternative - building a sealed box around the
+	# ghost mid-test - would prove the same arithmetic far less legibly. ---
+	ghost.advance = 0.0
+	ghost._expressed_advance = 0.0
+	ghost._apply_lean()
+	if not is_zero_approx(ghost.visual.rotation.x) or not is_equal_approx(ghost.visual.position.y, ghost._visual_base_y):
+		push_error("A ghost at advance 0 is already leaning (rot.x=%.3f, y=%.3f)." % [
+			ghost.visual.rotation.x, ghost.visual.position.y
+		])
+		quit(1)
+		return
+	ghost.advance = 1.0
+	ghost._expressed_advance = 1.0
+	ghost._apply_lean()
+	if not is_equal_approx(ghost.visual.rotation.x, -deg_to_rad(ghost.lean_max_degrees)):
+		push_error("A fully-advanced ghost leans %.1f degrees, not lean_max_degrees %.1f." % [
+			rad_to_deg(-ghost.visual.rotation.x), ghost.lean_max_degrees
+		])
+		quit(1)
+		return
+	# The cramped case: half the advance, none of it expressible as movement.
+	# It must read as far along as the ghost that had the floor to walk it.
+	ghost.advance = 0.5
+	ghost._expressed_advance = 0.0
+	ghost._apply_lean()
+	if not is_equal_approx(ghost.visual.rotation.x, -deg_to_rad(ghost.lean_max_degrees)):
+		push_error("A ghost with 0.5 blocked advance leans only %.1f degrees - blocked advance is not reaching the looming axis." % rad_to_deg(-ghost.visual.rotation.x))
+		quit(1)
+		return
+	ghost.reset()
+
+	# --- Noise brings the next lurch forward, but can never interrupt one
+	# already under way - that would rob the player of the window they are
+	# playing for. Asserted through the real ToiletMinigame call group. ---
+	if not ghost.is_in_group(&"toilet_ghosts"):
+		push_error("Ghost is not in the toilet_ghosts group - danger noise would never reach it.")
+		quit(1)
+		return
 	ghost.initial_spawn_delay = 0.0
 	ghost.arm()
 	ghost.update(0.01, player, camera)
-	if ghost.phase != ghost.GhostPhase.VISIBLE:
-		push_error("Ghost did not spawn for the failure case.")
+	minigame.player = player
+	var hold_before: float = ghost._hold_timer
+	minigame._emit_danger_noise()
+	var expected_hold: float = maxf(
+		hold_before - ghost.hold_duration * ghost.noise_hold_penalty * minigame.danger_noise_loudness,
+		0.0
+	)
+	if not is_equal_approx(snappedf(ghost._hold_timer, 0.0001), snappedf(expected_hold, 0.0001)):
+		push_error("Danger noise left the hold at %.4f, expected %.4f." % [ghost._hold_timer, expected_hold])
 		quit(1)
 		return
-	# Force it out of view deterministically, regardless of where the spawn
-	# algorithm happened to place it or which way the camera currently faces.
-	var point_behind_now: Vector3 = camera.global_position + camera.global_basis.z * 3.0
-	ghost.visual.global_position = point_behind_now - Vector3(0, ghost.head_height, 0)
-	var timed_out_count := [0]
-	ghost.ghost_timed_out.connect(func(): timed_out_count[0] += 1)
-	var reaction_elapsed := 0.0
-	while reaction_elapsed < 1.2 and ghost.phase == ghost.GhostPhase.VISIBLE:
+	ghost.phase = ghost.GhostPhase.MOVING
+	var mid_lurch_hold: float = ghost._hold_timer
+	minigame._emit_danger_noise()
+	if not is_equal_approx(ghost._hold_timer, mid_lurch_hold):
+		push_error("Danger noise altered a lurch already in progress.")
+		quit(1)
+		return
+	ghost.reset()
+
+	# --- Cleanup: reset() is unconditional, from any phase. The mid-blink case
+	# is the critical one - force_blink_now() has fired and nothing else is
+	# left to reopen the eyes once the ghost stops being driven. ---
+	ghost.initial_spawn_delay = 0.0
+	ghost.arm()
+	ghost.update(0.01, player, camera)
+	ghost.spot_count = ghost.spots_to_banish - 1
+	_watch_for(ghost, player, camera, 1)
+	var to_blink := 0
+	while ghost.phase != ghost.GhostPhase.DISAPPEARING and to_blink < 400:
 		ghost.update(STEP_DELTA, player, camera)
-		reaction_elapsed += STEP_DELTA
-	if timed_out_count[0] != 1:
-		push_error("Reaction timeout did not fire exactly once.")
+		to_blink += 1
+	if ghost.phase != ghost.GhostPhase.DISAPPEARING:
+		push_error("Could not drive the ghost into DISAPPEARING for the mid-blink cleanup case.")
+		quit(1)
+		return
+	ghost.reset()
+	if ghost.phase != ghost.GhostPhase.IDLE:
+		push_error("reset() left the ghost in phase %d." % ghost.phase)
+		quit(1)
+		return
+	if player.forced_blink_remaining > 0.0:
+		push_error("Exiting mid-blink stranded the player's eyes shut.")
+		quit(1)
+		return
+	if player.threat_sources.has(ghost.THREAT_SOURCE):
+		push_error("reset() left a threat entry behind - the overlay would stay lit after leaving the toilet.")
+		quit(1)
+		return
+	if ghost.visual.visible or ghost.teleport_audio.playing:
+		push_error("reset() left the ghost visible or still sounding.")
+		quit(1)
+		return
+	if not is_zero_approx(ghost.visual.rotation.x) or not ghost.visual.position.is_equal_approx(Vector3(0, ghost._visual_base_y, 0)):
+		push_error("reset() left the ghost mid-lean or mid-stutter, so the next arrival would start askew.")
+		quit(1)
+		return
+
+	# --- Failure: steps_to_reach lurches with the player never once looking
+	# is the kill, through the same existing ghost_timed_out -> kill_by_ghost()
+	# path. Run last, because it leaves the player dead. ---
+	var timed_out := [0]
+	ghost.ghost_timed_out.connect(func(): timed_out[0] += 1)
+	ghost.initial_spawn_delay = 0.0
+	ghost.arm()
+	ghost.update(0.01, player, camera)
+	if ghost.phase != ghost.GhostPhase.HOLDING:
+		push_error("Ghost did not arrive for the failure case.")
+		quit(1)
+		return
+	var lurches := 0
+	while lurches < ghost.steps_to_reach and player.is_alive:
+		if not _complete_one_lurch(ghost, player, camera):
+			break
+		lurches += 1
+		if lurches < ghost.steps_to_reach and not player.is_alive:
+			push_error("The ghost killed the player after only %d of its %d lurches." % [lurches, ghost.steps_to_reach])
+			quit(1)
+			return
+	if timed_out[0] != 1:
+		push_error("ghost_timed_out fired %d times after %d lurches, expected exactly 1." % [timed_out[0], lurches])
 		quit(1)
 		return
 	if player.is_alive:
-		push_error("Missing the ghost's reaction window did not kill the player.")
+		push_error("The ghost completed all %d lurches without killing the player." % ghost.steps_to_reach)
+		quit(1)
+		return
+	if ghost.phase != ghost.GhostPhase.IDLE or ghost.visual.visible:
+		push_error("The ghost did not clean itself up after taking the player.")
+		quit(1)
+		return
+	if player.threat_sources.has(ghost.THREAT_SOURCE):
+		push_error("The kill left a threat entry behind.")
 		quit(1)
 		return
 	if ghost.teleport_audio.playing:
-		push_error("Teleport audio kept playing after the ghost timed out and disappeared.")
-		quit(1)
-		return
-	# The spawn loop must stop on death - no re-arm, unlike a successful
-	# sighting. Stepping further must not produce another ghost.
-	for i in 60:
-		ghost.update(STEP_DELTA, player, camera)
-	if ghost.phase != ghost.GhostPhase.IDLE:
-		push_error("The spawn loop kept running after the player died instead of stopping.")
-		quit(1)
-		return
-
-	# --- Failure, end to end (Sprint 10): the ghost's own ghost_timed_out
-	# signal (unchanged name/emission point) now also drives
-	# ToiletMinigame._on_toilet_ghost_caught(), which calls cancel()
-	# synchronously - the minigame must stop immediately, not one frame
-	# later via the is_alive guard as it used to. The existing death call
-	# (kill_by_ghost(), asserted just above via player.is_alive) is
-	# untouched; this only confirms the minigame-side reaction is now
-	# immediate and that the new caught-scene beat was actually created. ---
-	if minigame.current_state != minigame.MinigameState.CANCELLED:
-		push_error("The minigame did not cancel immediately when the ghost caught the player.")
-		quit(1)
-		return
-	var caught_instances := 0
-	for child in minigame.get_children():
-		if child is ToiletGhostCaught:
-			caught_instances += 1
-	if caught_instances != 1:
-		push_error("Expected exactly 1 ToiletGhostCaught instance after the catch, found %d." % caught_instances)
-		quit(1)
-		return
-	await minigame.session_ended
-	if minigame.current_state != minigame.MinigameState.IDLE:
-		push_error("Minigame did not return to IDLE after the death-triggered cleanup finished.")
-		quit(1)
-		return
-	if ghost.phase != ghost.GhostPhase.IDLE or ghost.visual.visible:
-		push_error("Ghost did not reset when death cancelled the minigame.")
-		quit(1)
-		return
-	player.is_alive = true
-
-	# --- Cleanup: a normal cancel also stops the ghost, whatever phase it's
-	# in - here, still WAITING, never having spawned at all. Then verify
-	# waiting past the maximum respawn delay produces no ghost after exit. ---
-	await physics_frame
-	player.call("_try_interact")
-	if minigame.current_state != minigame.MinigameState.PLAYING:
-		push_error("Toilet did not start a fresh session for the cleanup case.")
-		quit(1)
-		return
-	if ghost.phase != ghost.GhostPhase.WAITING:
-		push_error("Starting a session did not arm the ghost into WAITING.")
-		quit(1)
-		return
-	# The E press that started this session is ignored as a cancel request
-	# until it is released (see ToiletMinigame._wait_for_interact_release);
-	# only the press after that release actually cancels.
-	minigame._unhandled_input(_make_interact_event())
-	minigame._unhandled_input(_make_interact_release_event())
-	minigame._unhandled_input(_make_interact_event())
-	if minigame.current_state != minigame.MinigameState.CANCELLED:
-		push_error("Interact did not cancel the session for the cleanup case.")
-		quit(1)
-		return
-	await minigame.session_ended
-	if ghost.phase != ghost.GhostPhase.IDLE:
-		push_error("Ghost did not reset when the minigame cleaned up.")
-		quit(1)
-		return
-	if ghost.visual.visible:
-		push_error("Ghost visual remained visible after minigame cleanup.")
-		quit(1)
-		return
-	# "exit minigame -> wait 5s -> MUST NOT spawn Ghost": the minigame no
-	# longer calls ghost.update() at all once it's IDLE (ToiletMinigame._process()
-	# returns immediately unless current_state == PLAYING), but drive the
-	# ghost's own update() directly here anyway as the strongest possible
-	# check that nothing spontaneously reactivates it.
-	for i in 90: # 9.0s worth of steps - comfortably longer than max_respawn_delay
-		ghost.update(STEP_DELTA, player, camera)
-	if ghost.phase != ghost.GhostPhase.IDLE or ghost.visual.visible:
-		push_error("A Ghost appeared more than 5 seconds after the minigame was exited.")
-		quit(1)
-		return
-
-	# --- TEST 9a: exit during the 0.5s SEEN window (before it disappears). ---
-	await physics_frame
-	player.call("_try_interact")
-	if minigame.current_state != minigame.MinigameState.PLAYING:
-		push_error("Toilet did not start a fresh session for the exit-during-SEEN case.")
-		quit(1)
-		return
-	ghost.initial_spawn_delay = 0.0
-	ghost.ghost_seen_duration = 0.5
-	ghost.arm()
-	ghost.update(0.01, player, camera)
-	ghost.visual.global_position = point_ahead - Vector3(0, ghost.head_height, 0)
-	ghost.update(STEP_DELTA, player, camera)
-	if ghost.phase != ghost.GhostPhase.SEEN:
-		push_error("Ghost did not enter SEEN for the exit-during-SEEN case.")
-		quit(1)
-		return
-	minigame._unhandled_input(_make_interact_event())
-	minigame._unhandled_input(_make_interact_release_event())
-	minigame._unhandled_input(_make_interact_event())
-	if minigame.current_state != minigame.MinigameState.CANCELLED:
-		push_error("Cancelling during the SEEN window did not cancel the session.")
-		quit(1)
-		return
-	await minigame.session_ended
-	if ghost.phase != ghost.GhostPhase.IDLE or ghost.visual.visible:
-		push_error("Ghost was not fully removed when the minigame was exited during the SEEN window.")
-		quit(1)
-		return
-	if player.eyes_closed:
-		push_error("Exiting during the SEEN window (before any blink was forced) left the player's eyes closed.")
-		quit(1)
-		return
-	# No delayed callback: stepping further must not suddenly resolve, blink,
-	# or spawn another ghost.
-	for i in 60:
-		ghost.update(STEP_DELTA, player, camera)
-	if ghost.phase != ghost.GhostPhase.IDLE or player.eyes_closed:
-		push_error("A stale SEEN-window timer kept running, blinked, or respawned after the minigame was exited.")
-		quit(1)
-		return
-
-	# --- TEST 9b: exit mid-blink (DISAPPEARING) - the critical case, since
-	# force_blink_now() has already fired here and nothing else is left to
-	# reopen the eyes if reset() didn't handle it.
-	await physics_frame
-	player.call("_try_interact")
-	if minigame.current_state != minigame.MinigameState.PLAYING:
-		push_error("Toilet did not start a fresh session for the exit-mid-blink case.")
-		quit(1)
-		return
-	ghost.arm()
-	ghost.update(0.01, player, camera)
-	ghost.visual.global_position = point_ahead - Vector3(0, ghost.head_height, 0)
-	ghost.update(STEP_DELTA, player, camera) # -> SEEN
-	ghost.update(ghost.ghost_seen_duration + STEP_DELTA, player, camera) # -> DISAPPEARING, blink forced
-	if ghost.phase != ghost.GhostPhase.DISAPPEARING or not player.eyes_closed:
-		push_error("Failed to reach the mid-blink DISAPPEARING state to test exit-cleanup against.")
-		quit(1)
-		return
-	minigame._unhandled_input(_make_interact_event())
-	minigame._unhandled_input(_make_interact_release_event())
-	minigame._unhandled_input(_make_interact_event())
-	if minigame.current_state != minigame.MinigameState.CANCELLED:
-		push_error("Cancelling mid-blink did not cancel the session.")
-		quit(1)
-		return
-	await minigame.session_ended
-	if ghost.phase != ghost.GhostPhase.IDLE or ghost.visual.visible:
-		push_error("Ghost was not fully removed when the minigame was exited mid-blink.")
-		quit(1)
-		return
-	if player.eyes_closed:
-		push_error("Exiting mid-blink left the player's eyes stuck closed - reset() must reopen them.")
-		quit(1)
-		return
-	for i in 60:
-		ghost.update(STEP_DELTA, player, camera)
-	if player.eyes_closed or ghost.phase != ghost.GhostPhase.IDLE:
-		push_error("A stale blink-reopen or respawn timer fired after the minigame was exited mid-blink.")
-		quit(1)
-		return
-
-	# --- Re-entry: completely clean state after the mid-blink exit above -
-	# no leftover SEEN/DISAPPEARING phase, no leftover blink state. ---
-	if ghost.phase != ghost.GhostPhase.IDLE:
-		push_error("Ghost phase was not IDLE before re-entry.")
-		quit(1)
-		return
-	if player.eyes_closed:
-		push_error("Player's eyes were closed before re-entry even started.")
-		quit(1)
-		return
-
-	# --- Cleanup: reaching minigame SUCCESS (not just cancel/death) while the
-	# ghost is still active/unresolved must also clean it up - _cleanup() is
-	# shared by succeed() and cancel(), but this exact path wasn't covered.
-	await physics_frame
-	player.call("_try_interact")
-	if minigame.current_state != minigame.MinigameState.PLAYING:
-		push_error("Toilet did not start a fresh session for the success-cleanup case.")
-		quit(1)
-		return
-	if ghost.phase != ghost.GhostPhase.WAITING:
-		push_error("Re-entering the minigame did not arm the ghost into a fresh WAITING state.")
-		quit(1)
-		return
-	ghost.initial_spawn_delay = 0.0
-	ghost.reaction_time = 5.0 # comfortably longer than the quick drive below
-	ghost.arm()
-	ghost.update(0.01, player, camera)
-	if ghost.phase != ghost.GhostPhase.VISIBLE:
-		push_error("Ghost did not spawn for the success-cleanup case.")
-		quit(1)
-		return
-	player.bladder.current_value = 5.0 # small on purpose - fast, deterministic drain
-	minigame.asset_anchor.position.x = 0.0
-	minigame._flow_ramp_elapsed = minigame.pee_ramp_duration
-	var success_iterations := 0
-	while minigame.current_state == minigame.MinigameState.PLAYING and success_iterations < 2000:
-		minigame._evaluate_balance(STEP_DELTA)
-		success_iterations += 1
-	if minigame.current_state != minigame.MinigameState.SUCCESS:
-		push_error("Minigame never reached SUCCESS while the ghost was still active.")
-		quit(1)
-		return
-	if ghost.phase != ghost.GhostPhase.VISIBLE:
-		push_error("Ghost resolved on its own during the drive - this case needs it still unresolved to be meaningful.")
-		quit(1)
-		return
-	await minigame.session_ended
-	if minigame.current_state != minigame.MinigameState.IDLE:
-		push_error("Minigame did not return to IDLE after success's cleanup finished.")
-		quit(1)
-		return
-	if ghost.phase != ghost.GhostPhase.IDLE or ghost.visual.visible:
-		push_error("Ghost was not cleaned up when the minigame succeeded while it was still active.")
-		quit(1)
-		return
-	if ghost.teleport_audio.playing:
-		push_error("Teleport audio kept playing after success cleaned up an active ghost.")
+		push_error("Teleport audio kept playing after the kill.")
 		quit(1)
 		return
 
@@ -934,23 +589,10 @@ func _run() -> void:
 	quit()
 
 
-func _make_interact_event() -> InputEventAction:
-	var event := InputEventAction.new()
-	event.action = "interact"
-	event.pressed = true
-	return event
-
-
-func _make_interact_release_event() -> InputEventAction:
-	var event := InputEventAction.new()
-	event.action = "interact"
-	event.pressed = false
-	return event
-
-
 ## Returns "" if the ghost's horizontal forward points at the player (within
 ## a tight tolerance) with no unwanted pitch/roll introduced, otherwise a
-## message describing what's wrong.
+## message describing what's wrong. The lean and the stutter both live on the
+## Visual child, not the root, precisely so this stays true throughout.
 func _ghost_facing_error(ghost: Node, player: Node3D) -> String:
 	var ghost_position: Vector3 = ghost.global_position
 	var to_player: Vector3 = player.global_position - ghost_position

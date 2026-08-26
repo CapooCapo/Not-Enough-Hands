@@ -15,6 +15,27 @@ The toilet minigame starts peeing automatically, building pressure for 0.75
 seconds before it reaches full flow. Move the mouse to aim the stream and look
 around at the same time; press **E** at any time to stop and leave the toilet.
 
+Something joins you in there. It arrives at the far end of whatever the room
+still lets you see, never in front of you, and from then on it alternates
+between standing dead still and lurching a step closer. It keeps its own
+clock: your job is to be looking during one of those lurches, not to look
+often.
+
+Catch it mid-lurch and it stutters, glitches and is gone at once - that is
+the only way to be rid of it in a single look. Catch it standing still and
+it counts, but only once per lurch; looking again while it is still standing
+is worth nothing until it has moved. Three of those and the next sighting
+banishes it, so patience works too - it just costs three well-spent looks
+instead of one well-timed one.
+
+Staring is not a strategy. It will not take its ordinary step while you are
+watching, but watch one cycle for more than about three seconds - across as
+many separate glances as you like, the budget does not reset - and it lunges
+a long stride instead, and that lunge cannot be caught. Ignore it entirely
+and five lurches is all it needs. Turning to look is never free either: the
+same mouse motion that swings the camera also throws the stream off centre,
+and a stream in the red is loud enough to bring the next lurch forward.
+
 The bottom-left **THỂ LỰC** bar is connected to the player's sprint reserve: it
 drains while Shift-running and refills while walking or standing still.
 
