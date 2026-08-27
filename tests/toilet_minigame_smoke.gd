@@ -76,6 +76,14 @@ func _run() -> void:
 		push_error("Interacting with the toilet did not start the minigame (state=%s)." % minigame.current_state)
 		quit(1)
 		return
+	# The same E press that begins a session must not be interpreted as an
+	# immediate request to leave it. Only E presses after its release may cancel.
+	minigame._unhandled_input(_make_interact_event())
+	if minigame.current_state != ToiletMinigame.MinigameState.PLAYING:
+		push_error("The E press that started the toilet minigame immediately cancelled it.")
+		quit(1)
+		return
+	minigame._unhandled_input(_make_interact_release_event())
 	if not player.is_toilet_minigame_active():
 		push_error("Player.is_toilet_minigame_active() should be true once the minigame starts.")
 		quit(1)
@@ -106,8 +114,8 @@ func _run() -> void:
 		push_error("yaw_clamp_active was not enabled while the toilet minigame is playing.")
 		quit(1)
 		return
-	if not is_equal_approx(player.yaw_clamp_max - player.yaw_clamp_min, deg_to_rad(180.0)):
-		push_error("Yaw clamp range is not +-90 degrees around the entry orientation.")
+	if not is_equal_approx(player.yaw_clamp_max - player.yaw_clamp_min, deg_to_rad(270.0)):
+		push_error("Yaw clamp range is not a believable +-135-degree over-the-shoulder glance.")
 		quit(1)
 		return
 	if not is_equal_approx(player.pitch_clamp_max - player.pitch_clamp_min, deg_to_rad(180.0)):
@@ -188,6 +196,8 @@ func _run() -> void:
 	player.bladder.current_value = 50.0
 	minigame.session_start_bladder = 50.0
 	minigame.asset_anchor.position.x = 0.12
+	minigame._flow_ramp_elapsed = 0.0
+	minigame._evaluate_balance(minigame.pee_ramp_duration)
 	var bladder_before_warning: float = player.get_bladder()
 	minigame._evaluate_balance(1.0)
 	var expected_warning_drain: float = (
@@ -198,6 +208,21 @@ func _run() -> void:
 		expected_warning_drain
 	):
 		push_error("The yellow zone did not drain bladder at its configured slow rate.")
+		quit(1)
+		return
+	# Flow starts automatically, but its first 0.1 seconds are near-zero. The
+	# ramp must reach maximum only after the configured 0.75 seconds.
+	player.bladder.current_value = 50.0
+	minigame._flow_ramp_elapsed = 0.0
+	var bladder_before_short_flow: float = player.get_bladder()
+	minigame._evaluate_balance(0.1)
+	if bladder_before_short_flow - player.get_bladder() >= 0.01:
+		push_error("A fresh 0.1-second automatic flow drained too quickly; the 0.75-second ramp was bypassed.")
+		quit(1)
+		return
+	minigame._evaluate_balance(0.65)
+	if minigame._flow_ramp_elapsed < minigame.pee_ramp_duration:
+		push_error("Automatic flow did not reach full pressure after 0.75 seconds.")
 		quit(1)
 		return
 	minigame.asset_anchor.position.x = 0.0
@@ -257,9 +282,9 @@ func _run() -> void:
 	# correct gameplay behavior, just not what this specific assertion
 	# means to isolate.
 	player.bladder.current_value = 30.0
-	minigame._unhandled_input(_make_cancel_event())
+	minigame._unhandled_input(_make_interact_event())
 	if minigame.current_state != ToiletMinigame.MinigameState.CANCELLED:
-		push_error("ui_cancel did not move the minigame into CANCELLED.")
+		push_error("E/interact did not move the minigame into CANCELLED.")
 		quit(1)
 		return
 	await create_timer(1.0).timeout # cancel's own 0.5s delay + cleanup tween
@@ -299,6 +324,7 @@ func _run() -> void:
 	# --- Success: drive bladder to 0 while parked in the safe zone. ---
 	player.bladder.current_value = 5.0 # small on purpose - fast, deterministic drain
 	minigame.asset_anchor.position.x = 0.0
+	minigame._flow_ramp_elapsed = minigame.pee_ramp_duration
 	var iterations := 0
 	while minigame.current_state == ToiletMinigame.MinigameState.PLAYING and iterations < 2000:
 		minigame._evaluate_balance(STEP_DELTA)
@@ -377,8 +403,15 @@ func _run() -> void:
 	quit()
 
 
-func _make_cancel_event() -> InputEventAction:
+func _make_interact_event() -> InputEventAction:
 	var event := InputEventAction.new()
-	event.action = "ui_cancel"
+	event.action = "interact"
 	event.pressed = true
+	return event
+
+
+func _make_interact_release_event() -> InputEventAction:
+	var event := InputEventAction.new()
+	event.action = "interact"
+	event.pressed = false
 	return event

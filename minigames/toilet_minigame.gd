@@ -30,6 +30,11 @@ signal minigame_effect_requested(effect: String)
 
 # Asset Pipeline
 @export var balance_asset: PackedScene = preload("res://toilet/assets/water_nozzle.tscn")
+## Brief "caught" reaction shown alongside the existing death flow when the
+## player fails to look at the Toilet Ghost in time (Sprint 10) - see
+## _on_toilet_ghost_caught(). Purely visual/audio; the actual death still
+## goes through the existing player.kill_by_ghost() path unchanged.
+@export var toilet_ghost_caught_scene: PackedScene = preload("res://minigames/toilet_ghost_caught.tscn")
 var instantiated_asset: Node3D
 var left_grip: Marker3D
 var right_grip: Marker3D
@@ -41,6 +46,11 @@ var liquid_origin: Marker3D
 @onready var right_hand: MeshInstance3D = $RightHand
 @onready var stream: MeshInstance3D = $LiquidStream
 @onready var toilet_target: Marker3D = $ToiletTarget
+## Toilet-minigame-specific threat (minigames/toilet_ghost.gd), driven
+## entirely from here (arm()/update()/reset()) - see those three call sites
+## below. Duck-typed like every other cross-object call in this file so a
+## missing/renamed node degrades to a no-op instead of an error.
+@onready var toilet_ghost: Node = get_node_or_null("ToiletGhost")
 
 # HUD Elements
 @onready var bladder_bar: ProgressBar = $HUDLayer/MarginContainer/VBoxContainer/StatusArea/BladderContainer/ProgressBar
@@ -71,14 +81,27 @@ var liquid_origin: Marker3D
 @export var min_camera_rotation_x: float = -90.0
 @export var max_camera_rotation_x: float = 90.0
 
-@export var min_camera_rotation_y: float = -90.0
-@export var max_camera_rotation_y: float = 90.0
+## The direction faced the instant the toilet minigame starts is treated as
+## 0 degrees; the player can turn up to this far either side of it - a real
+## over-the-shoulder glance, not just a look to the side. The toilet Ghost's
+## creep rail ends exactly here (minigames/toilet_ghost.gd, blind_edge_yaw):
+## the hardest angle it can reach is the hardest angle the player can still
+## turn to, so its final approach is always catchable and never unwinnable.
+## Its *spawns* stay inside a narrower cone than this on purpose - see
+## spawn_yaw_range there.
+@export var min_camera_rotation_y: float = -135.0
+@export var max_camera_rotation_y: float = 135.0
 
 @export var min_camera_rotation_z: float = -90.0
 @export var max_camera_rotation_z: float = 90.0
 
-@export var bladder_drain_rate: float = 20.0
+## A full bladder takes 13.5 seconds of controlled flow to empty: five times
+## faster than filling. Flow starts automatically but needs 0.75 seconds to
+## build pressure, so it begins almost imperceptibly slowly.
+@export var bladder_drain_rate: float = 100.0 / 13.5
 @export_range(0.0, 1.0) var warning_drain_multiplier: float = 0.35
+@export var pee_ramp_duration: float = 0.75
+@export var pee_ramp_power: float = 4.0
 @export var center_lock_delay: float = 0.3
 @export var combo_ramp_duration: float = 2.5
 @export var max_combo_bonus: float = 0.3
@@ -110,6 +133,10 @@ var noise_cooldown: float = 0.0
 var next_tremor_time: float = 0.0
 var tremor_warning_remaining: float = 0.0
 var tremor_direction: float = 1.0
+var _flow_ramp_elapsed: float = 0.0
+## The E press that starts the toilet session is still travelling through the
+## input tree. Ignore it until released so it cannot immediately cancel itself.
+var _wait_for_interact_release: bool = false
 var _rng := RandomNumberGenerator.new()
 const TARGET_CENTER_X = 0.0
 const VISUAL_MAX_X = 0.37
@@ -129,7 +156,23 @@ func _ready() -> void:
 	stream.hide()
 	hide()
 
+	if toilet_ghost and toilet_ghost.has_signal("ghost_timed_out"):
+		toilet_ghost.ghost_timed_out.connect(_on_toilet_ghost_caught)
+
 	_load_asset()
+
+
+## Reached when the ghost's own reaction timeout fires (see
+## minigames/toilet_ghost.gd's _resolve_failure(), which emits
+## ghost_timed_out immediately before calling the player's existing
+## kill_by_ghost() - unchanged, still the same call, still the same
+## existing death flow). This only adds a brief visual "caught" beat
+## alongside it and stops the minigame right away, rather than waiting a
+## frame for the is_alive guard in _process() to notice.
+func _on_toilet_ghost_caught() -> void:
+	cancel()
+	if toilet_ghost_caught_scene:
+		add_child(toilet_ghost_caught_scene.instantiate())
 
 func _load_asset() -> void:
 	if not balance_asset: return
@@ -168,6 +211,7 @@ func start_session(p_player: Node3D, minigame_viewpoint: Marker3D) -> void:
 
 	player = p_player
 	current_state = MinigameState.PLAYING
+	_wait_for_interact_release = true
 
 	# Lock player
 	if player.has_method("set_physics_process"):
@@ -219,6 +263,7 @@ func start_session(p_player: Node3D, minigame_viewpoint: Marker3D) -> void:
 	safe_streak_time = 0.0
 	noise_cooldown = 0.0
 	tremor_warning_remaining = 0.0
+	_flow_ramp_elapsed = 0.0
 	session_start_bladder = (
 		maxf(float(player.call("get_bladder")), 0.01)
 		if player and player.has_method("get_bladder")
@@ -247,6 +292,9 @@ func start_session(p_player: Node3D, minigame_viewpoint: Marker3D) -> void:
 	hud_layer.show()
 	show()
 
+	if toilet_ghost and toilet_ghost.has_method("arm"):
+		toilet_ghost.arm()
+
 func _process(delta: float) -> void:
 	if current_state != MinigameState.PLAYING:
 		return
@@ -264,8 +312,23 @@ func _process(delta: float) -> void:
 	_evaluate_balance(delta)
 	_update_status_bars()
 
+	if toilet_ghost and toilet_ghost.has_method("update"):
+		toilet_ghost.update(delta, player, original_camera)
+
 func _unhandled_input(event: InputEvent) -> void:
 	if current_state != MinigameState.PLAYING:
+		return
+
+	if event.is_action_released("interact"):
+		_wait_for_interact_release = false
+		return
+
+	if event.is_action_pressed("interact"):
+		if _wait_for_interact_release:
+			get_viewport().set_input_as_handled()
+			return
+		get_viewport().set_input_as_handled()
+		cancel()
 		return
 
 	if event.is_action_pressed("ui_cancel"):
@@ -273,22 +336,31 @@ func _unhandled_input(event: InputEvent) -> void:
 		cancel()
 
 
-## Mouse motion is captured in the regular input phase so it can drive the
-## nozzle and be marked handled before Player's camera-look code receives the
-## same event in _unhandled_input(). A/D remains available as an accessibility
-## fallback and for headless tests.
+## Mouse motion drives the nozzle here, then continues to Player.gd's camera
+## look code. The player can therefore aim the stream and scan left, right, or
+## behind at the same time. A/D remains an accessibility fallback and helps
+## headless tests.
 func _input(event: InputEvent) -> void:
 	if current_state != MinigameState.PLAYING:
 		return
 	if event is InputEventMouseMotion \
 		and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
 		apply_mouse_motion(event.relative.x)
-		get_viewport().set_input_as_handled()
 
 
 func apply_mouse_motion(relative_x: float) -> void:
 	if current_state == MinigameState.PLAYING:
 		pending_mouse_motion += relative_x
+
+
+func _advance_flow_ramp(delta: float) -> float:
+	_flow_ramp_elapsed += maxf(delta, 0.0)
+	var ramp_progress := clampf(
+		_flow_ramp_elapsed / maxf(pee_ramp_duration, 0.001),
+		0.0,
+		1.0
+	)
+	return pow(ramp_progress, maxf(pee_ramp_power, 1.0))
 
 
 func _handle_input(delta: float) -> void:
@@ -373,6 +445,7 @@ func _evaluate_balance(delta: float) -> void:
 	var progress := _get_completion_progress()
 	var current_safe_width := lerpf(safe_zone_width, safe_zone_width_end, progress)
 	var current_warning_width := lerpf(warning_zone_width, warning_zone_width_end, progress)
+	var flow_multiplier := _advance_flow_ramp(delta)
 
 	if distance <= (current_safe_width / 2.0):
 		# CENTERED ZONE
@@ -390,12 +463,14 @@ func _evaluate_balance(delta: float) -> void:
 			var mat = stream.material_override as StandardMaterial3D
 			mat.albedo_color = Color(0.4, 0.7, 1.0, 0.8)
 		stream.show()
+		if flow_multiplier < 1.0:
+			feedback_label.text = "BUILDING PRESSURE  %d%%" % roundi(flow_multiplier * 100.0)
 		if safe_streak_time >= center_lock_delay \
 			and player and player.has_method("get_bladder"):
 			if player.get_bladder() <= 0:
 				succeed()
 			else:
-				player.reduce_bladder(bladder_drain_rate * combo * delta)
+				player.reduce_bladder(bladder_drain_rate * combo * flow_multiplier * delta)
 				if player.get_bladder() <= 0:
 					succeed()
 
@@ -409,8 +484,10 @@ func _evaluate_balance(delta: float) -> void:
 			var mat = stream.material_override as StandardMaterial3D
 			mat.albedo_color = Color(0.8, 0.8, 0.2, 0.4)
 		stream.show()
+		if flow_multiplier < 1.0:
+			feedback_label.text = "UNSTABLE — BUILDING PRESSURE  %d%%" % roundi(flow_multiplier * 100.0)
 		if player and player.has_method("get_bladder"):
-			player.reduce_bladder(bladder_drain_rate * warning_drain_multiplier * delta)
+			player.reduce_bladder(bladder_drain_rate * warning_drain_multiplier * flow_multiplier * delta)
 			if player.get_bladder() <= 0:
 				succeed()
 	else:
@@ -449,7 +526,12 @@ func _emit_danger_noise() -> void:
 	var noise_position := global_position
 	if is_instance_valid(_toilet) and _toilet is Node3D:
 		noise_position = (_toilet as Node3D).global_position
-	for ghost_group: StringName in [&"crawler_ghosts", &"hunter_ghosts"]:
+	# The toilet's own ghost hears this too: a danger-zone burst is the player
+	# audibly losing the aim half of the minigame, and it advances the stalk
+	# (minigames/toilet_ghost.gd report_noise()). That is what makes the two
+	# halves one system - bad aim brings it closer, and pushing it back costs
+	# a look, which costs aim.
+	for ghost_group: StringName in [&"crawler_ghosts", &"hunter_ghosts", &"toilet_ghosts"]:
 		get_tree().call_group(
 			ghost_group,
 			"report_noise",
@@ -538,6 +620,9 @@ func _cleanup() -> void:
 	stream.hide()
 	hide()
 
+	if toilet_ghost and toilet_ghost.has_method("reset"):
+		toilet_ghost.reset()
+
 	var was_success = (current_state == MinigameState.SUCCESS)
 
 	if camera_pivot:
@@ -570,6 +655,7 @@ func _cleanup() -> void:
 
 	# Reset state
 	current_state = MinigameState.IDLE
+	_wait_for_interact_release = false
 	player = null
 	_toilet = null
 
