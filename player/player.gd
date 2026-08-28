@@ -160,6 +160,9 @@ var _footstep_rng := RandomNumberGenerator.new()
 var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 
 func _ready() -> void:
+	# Interior doors query this group for a light physical push. Keeping the
+	# lookup on the door means player movement needs no door-specific branches.
+	add_to_group(&"players")
 	_footstep_rng.randomize()
 	current_stamina = max_stamina
 	blink_time_remaining = blink_interval
