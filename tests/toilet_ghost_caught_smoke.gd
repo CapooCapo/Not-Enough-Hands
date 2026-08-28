@@ -1,9 +1,8 @@
 extends SceneTree
 
-## ToiletGhostCaught smoke test. Verifies the standalone scene (Sprint 10)
-## in isolation - no player, no toilet minigame, no ghost - since it must be
-## instantiable and playable entirely on its own (see minigames/
-## toilet_ghost_caught.gd's own doc comment: it carries no gameplay logic).
+## ToiletGhostCaught smoke test. Verifies the standalone 3D overlay in
+## isolation - no player, no toilet minigame, no live ghost - since it must be
+## instantiable and playable entirely on its own.
 ## Integration with the real catch flow (ToiletMinigame reacting to
 ## ghost_timed_out) is covered by tests/toilet_ghost_smoke.gd instead.
 
@@ -38,8 +37,25 @@ func _run() -> void:
 		push_error("Scene is missing its required AudioStreamPlayer.")
 		quit(1)
 		return
+	if not (instance.get_node("AudioStreamPlayer") as AudioStreamPlayer).stream:
+		push_error("3D jumpscare has no impact sting assigned.")
+		quit(1)
+		return
 	if not instance.has_node("VisualRoot"):
 		push_error("Scene is missing its required VisualRoot.")
+		quit(1)
+		return
+	if not instance.has_node("VisualRoot/Viewport/World/ModelRoot/Model"):
+		push_error("Jumpscare does not contain the real 3D Toilet Ghost model.")
+		quit(1)
+		return
+	if instance.has_node("VisualRoot/Face"):
+		push_error("Legacy flat TextureRect face is still present in the jumpscare.")
+		quit(1)
+		return
+	var viewport := instance.get_node("VisualRoot/Viewport") as SubViewport
+	if not viewport or not viewport.transparent_bg:
+		push_error("3D jumpscare viewport must render over the shared death UI.")
 		quit(1)
 		return
 
@@ -75,8 +91,7 @@ func _run() -> void:
 		quit(1)
 		return
 
-	# --- The scene must still work without audio (Sprint 10 section 8: no
-	# suitable dedicated asset exists yet) - confirmed above by the whole
-	# sequence completing normally with AudioStreamPlayer.stream unset. ---
+	# The 3D rush owns one sting; DeathScreen deliberately suppresses its
+	# generic toilet cue so the two sounds cannot overlap.
 	print("Toilet ghost caught smoke test passed.")
 	quit()

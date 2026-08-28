@@ -5,6 +5,7 @@ signal killed_by_ghost(ghost: Node3D)
 signal door_minigame_started(door: Node)
 signal door_minigame_finished()
 signal hunter_trap_changed(trapped: bool)
+signal toilet_ghost_stun_changed(active: bool)
 
 @export var walk_speed: float = 4
 @export var crouch_speed: float = 1.75
@@ -63,6 +64,21 @@ var eyelid_closure: float = 0.0
 @export var mouse_sensitivity: float = 0.002
 @export var max_interaction_range: float = 10.0
 
+@export_category("Toilet Ghost Stun")
+## Getting caught by the Toilet Ghost is a severe scare, not a death. The
+## player keeps control but moves at 20% speed while the vision effect runs.
+@export var toilet_ghost_stun_duration: float = 7.0
+@export_range(0.05, 1.0) var toilet_ghost_stun_speed_multiplier: float = 0.2
+@export var toilet_ghost_stun_fade_duration: float = 0.75
+## Keep enough center light to read the room; the shortened beam and vignette
+## still make the ghost's arrival oppressive without making it pitch-black.
+@export_range(0.0, 1.0) var toilet_ghost_flashlight_energy_multiplier: float = 0.5
+@export_range(0.0, 1.0) var toilet_ghost_flashlight_range_multiplier: float = 0.55
+var toilet_ghost_stun_remaining: float = 0.0
+var _toilet_ghost_present: bool = false
+var _flashlight_base_energy: float = 0.0
+var _flashlight_base_range: float = 0.0
+
 ## Temporary look-around constraint a minigame can impose (currently only
 ## ToiletMinigame) - false/full-range outside any minigame, so normal
 ## mouse-look is unaffected. yaw is clamped via an accumulator (rotate_y()
@@ -90,6 +106,7 @@ var hunter_trap_source: Node3D
 
 @onready var camera_pivot: Node3D = $CameraPivot
 @onready var interact_ray: RayCast3D = $CameraPivot/Camera3D/InteractRay
+@onready var flashlight: SpotLight3D = $CameraPivot/Camera3D/Flashlight
 @onready var collision_shape: CollisionShape3D = $CollisionShape3D
 @onready var blink_overlay: ColorRect = $BlinkOverlay/Eyelids
 @onready var blink_bar: ProgressBar = $BlinkUI/BlinkContainer/VBoxContainer/BlinkBar
@@ -152,6 +169,16 @@ func _ready() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 	if interact_ray:
 		interact_ray.target_position = Vector3(0, 0, -max_interaction_range)
+	if flashlight:
+		_flashlight_base_energy = flashlight.light_energy
+		_flashlight_base_range = flashlight.spot_range
+
+
+## Status visuals keep ticking while a minigame temporarily disables this
+## body's physics. That makes a seven-second Toilet Ghost stun seven seconds
+## of real gameplay time, including the brief camera-release transition.
+func _process(delta: float) -> void:
+	_update_toilet_ghost_stun(delta)
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not is_alive:
@@ -365,6 +392,8 @@ func _physics_process(delta: float) -> void:
 	if dev_fast_movement:
 		current_speed *= maxf(dev_speed_multiplier, 1.0)
 		current_stamina = max_stamina
+	if is_toilet_ghost_stunned():
+		current_speed *= get_toilet_ghost_speed_multiplier()
 			
 	current_stamina = clamp(current_stamina, 0.0, max_stamina)
 
@@ -515,6 +544,78 @@ func kill_by_ghost(ghost: Node3D) -> void:
 		death_ui.visible = true
 		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	killed_by_ghost.emit(ghost)
+
+
+## Public status-effect API used by the Toilet Ghost minigame. Reapplying the
+## scare refreshes (never stacks) the duration, so the speed multiplier cannot
+## be compounded into an accidental immobilize.
+func apply_toilet_ghost_stun(duration: float = -1.0) -> bool:
+	if not is_alive or dev_invincible:
+		return false
+	var resolved_duration := (
+		toilet_ghost_stun_duration
+		if duration < 0.0
+		else duration
+	)
+	if resolved_duration <= 0.0:
+		return false
+	var was_active := is_toilet_ghost_stunned()
+	toilet_ghost_stun_remaining = maxf(toilet_ghost_stun_remaining, resolved_duration)
+	velocity.x *= get_toilet_ghost_speed_multiplier()
+	velocity.z *= get_toilet_ghost_speed_multiplier()
+	_set_toilet_ghost_stun_visual(1.0)
+	if not was_active:
+		toilet_ghost_stun_changed.emit(true)
+	return true
+
+
+func is_toilet_ghost_stunned() -> bool:
+	return toilet_ghost_stun_remaining > 0.0
+
+
+func get_toilet_ghost_speed_multiplier() -> float:
+	return clampf(toilet_ghost_stun_speed_multiplier, 0.05, 1.0)
+
+
+func _update_toilet_ghost_stun(delta: float) -> void:
+	if toilet_ghost_stun_remaining <= 0.0:
+		return
+	toilet_ghost_stun_remaining = maxf(toilet_ghost_stun_remaining - delta, 0.0)
+	var visual_strength := clampf(
+		toilet_ghost_stun_remaining / maxf(toilet_ghost_stun_fade_duration, 0.01),
+		0.0,
+		1.0
+	)
+	_set_toilet_ghost_stun_visual(visual_strength)
+	if toilet_ghost_stun_remaining <= 0.0:
+		toilet_ghost_stun_changed.emit(false)
+
+
+func _set_toilet_ghost_stun_visual(strength: float) -> void:
+	var overlay_material := horror_overlay_rect.material as ShaderMaterial
+	if overlay_material:
+		overlay_material.set_shader_parameter("stun_strength", clampf(strength, 0.0, 1.0))
+
+
+## Called by the Toilet Ghost only while its body is actually visible. The
+## narrowed, dim flashlight makes finding it a visual task; it does not reveal
+## a lurch through an audio cue.
+func set_toilet_ghost_presence(present: bool) -> void:
+	_toilet_ghost_present = present
+	if flashlight:
+		flashlight.light_energy = (
+			_flashlight_base_energy * toilet_ghost_flashlight_energy_multiplier
+			if present
+			else _flashlight_base_energy
+		)
+		flashlight.spot_range = (
+			_flashlight_base_range * toilet_ghost_flashlight_range_multiplier
+			if present
+			else _flashlight_base_range
+		)
+	var overlay_material := horror_overlay_rect.material as ShaderMaterial
+	if overlay_material:
+		overlay_material.set_shader_parameter("toilet_presence", 1.0 if present else 0.0)
 
 
 func start_door_minigame(door: Node) -> bool:

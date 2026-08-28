@@ -57,14 +57,11 @@ signal ghost_timed_out
 ## actually vanishes; DISAPPEARING is the forced blink after that.
 enum GhostPhase { IDLE, WAITING, HOLDING, MOVING, STUTTER, DISAPPEARING }
 
-## The reachable arc is sliced into zones the ghost appears in, and
-## consecutive ghosts never reuse one - which is what stops several in a row
-## appearing in the same corner. There is deliberately no FRONT zone: the
-## camera's 70-degree FOV already covers +-35 degrees, so a ghost inside
-## that band is on screen the moment it arrives and costs the player nothing
-## to find. Every zone here sits outside it (see min_spawn_offset_angle), so
-## every appearance demands a real head turn - and turning is what throws
-## the nozzle off centre.
+## The rear-left and rear-right arcs are each sliced into two zones. A spawn
+## must use the opposite side from the previous one, so the player has to
+## turn back and forth instead of camping one shoulder. There is deliberately
+## no front-facing zone: every arrival is behind the seated player and costs
+## a real turn, which also throws the nozzle off centre.
 enum SpawnZone { LEFT_OUTER, LEFT_INNER, RIGHT_INNER, RIGHT_OUTER }
 const SPAWN_ZONE_COUNT := 4
 
@@ -84,12 +81,16 @@ const THREAT_SOURCE := &"toilet_ghost"
 @export_category("Spawn Timing")
 ## The first Ghost of a session always appears at exactly this many seconds
 ## in - not randomized, unlike the repeat spawns below.
-@export var initial_spawn_delay: float = 2.0
+@export var initial_spawn_delay: float = 4.0
+## A ghost carried over from a cancelled attempt skips the suspense delay. A
+## fraction of a second remains only so the camera can finish seating the
+## player before spawn geometry is measured.
+@export var resumed_spawn_delay: float = 0.3
 ## After a Ghost is banished, the next one appears after a fresh random wait
 ## in this range - never sooner than the minimum, never later than the
 ## maximum. Re-rolled every time.
-@export var min_respawn_delay: float = 3.0
-@export var max_respawn_delay: float = 5.0
+@export var min_respawn_delay: float = 7.0
+@export var max_respawn_delay: float = 10.0
 
 @export_category("The Lurch Cycle")
 ## How long it stands still between lurches. This is the window the player is
@@ -160,26 +161,20 @@ const THREAT_SOURCE := &"toilet_ghost"
 @export var blocked_spawn_retry_delay: float = 1.0
 ## Ghost spawns are sampled within this many degrees either side of the
 ## camera's orientation at the moment the toilet minigame started (not the
-## camera's current, possibly-already-turned orientation). Must stay inside
-## ToiletMinigame's own camera yaw clamp or a spawn could land where the
-## player is unable to turn; tests/toilet_ghost_smoke.gd asserts that.
-@export var spawn_yaw_range: float = 90.0
-## Closest to dead ahead a ghost may appear. Sits outside the camera's own
-## 35-degree FOV half-angle on purpose: inside it the ghost is already on
-## screen when it arrives, so finding it costs the player nothing and the
-## encounter opens with no decision in it. Outside it, every appearance
-## has to be paid for with a head turn - and the same mouse motion that
-## turns the camera shoves the nozzle (ToiletMinigame._handle_input()).
-@export var min_spawn_offset_angle: float = 40.0
-## Consecutive spawns must differ in yaw by at least this much, on top of
-## never reusing the previous zone. Deliberately smaller than one zone's
-## width: at a full zone width no two same-side zones could ever satisfy it,
-## so every ghost would be forced to the opposite side of the one before it
-## and the player could simply alternate their checks.
+## camera's current, possibly-already-turned orientation). This is the outer
+## edge of the rear diagonal and must stay inside ToiletMinigame's yaw clamp.
+@export var spawn_yaw_range: float = 165.0
+## Inner edge of the rear diagonal. At 120 degrees, every spawn is behind
+## the player but still clearly to the left or right rather than directly at
+## six o'clock. The matching-side alternation is enforced in _next_zone_angle.
+@export var min_spawn_offset_angle: float = 120.0
+## Consecutive spawns must differ in yaw by at least this much. Alternating
+## rear sides already guarantees a large turn; this remains an extra guard
+## for customized spawn arcs.
 @export var min_spawn_angle_separation: float = 25.0
-## How many times to re-roll a zone/angle that violates the "different zone
-## and far enough away" rules before giving up and taking the best-available
-## pick (see _furthest_zone_angle()). Bounded so this can never spin.
+## How many times to re-roll a rear-opposite zone/angle that violates the
+## angle-separation rule before taking the best available pick (see
+## _furthest_zone_angle()). Bounded so this can never spin.
 @export var max_spawn_attempts: int = 10
 @export var spawn_sample_count: int = 12
 @export_flags_3d_physics var spawn_blocking_mask: int = 1
@@ -240,6 +235,10 @@ var _rng := RandomNumberGenerator.new()
 ## use any zone). Reset with the rest of the session state.
 var _last_spawn_zone: int = -1
 var _last_spawn_angle: float = 0.0
+## Advance restored from earlier cancelled sessions. It is applied only after
+## a legal rail has been found, because the rail defines what "closer" means
+## in the current bathroom.
+var _pending_start_advance: float = 0.0
 
 ## The rail the lurches travel down, captured once at spawn. The player
 ## cannot move for the rest of the session (movement is locked by the
@@ -285,10 +284,14 @@ func _ready() -> void:
 ## Called by ToiletMinigame.start_session() - arms the fixed, non-random wait
 ## before the FIRST ghost of the session may spawn. Repeat spawns after that
 ## go through _arm_respawn() instead (see _finish_blink()).
-func arm() -> void:
+func arm(
+		starting_advance: float = 0.0,
+		spawn_immediately: bool = false
+) -> void:
 	phase = GhostPhase.WAITING
-	_spawn_timer = initial_spawn_delay
+	_spawn_timer = resumed_spawn_delay if spawn_immediately else initial_spawn_delay
 	_clear_transient_state()
+	_pending_start_advance = clampf(starting_advance, 0.0, 1.0)
 	# A new session starts with no spawn history, so its first ghost may use
 	# any zone. _arm_respawn() deliberately does NOT clear this - the
 	# "different zone from last time" rule has to survive between the ghosts
@@ -310,6 +313,7 @@ func _arm_respawn() -> void:
 ## across the ghosts of a session.
 func _clear_transient_state() -> void:
 	_clear_threat()
+	_clear_presence()
 	advance = 0.0
 	step_index = 0
 	spot_count = 0
@@ -467,7 +471,6 @@ func _begin_move(step_scale: float, is_punishment: bool) -> void:
 	_move_elapsed = 0.0
 	_move_from = advance
 	_move_to = clampf(advance + step_scale / float(maxi(steps_to_reach, 1)), 0.0, 1.0)
-	_play_cue(lurch_volume_offset_db, lurch_pitch_scale)
 
 
 func _next_hold_duration() -> float:
@@ -495,6 +498,7 @@ func reset() -> void:
 	_clear_transient_state()
 	_last_spawn_zone = -1
 	_last_spawn_angle = 0.0
+	_pending_start_advance = 0.0
 	# Cancelling shortly after a lurch cue (the stinger is only ~0.5s) could
 	# otherwise leave it audibly finishing after the ghost has already gone
 	# and the minigame has moved on.
@@ -543,17 +547,18 @@ func _spawn(player: Node3D, camera: Camera3D) -> void:
 		else -player.global_transform.basis.z
 	)
 
-	advance = 0.0
-	step_index = 0
+	advance = _pending_start_advance
+	step_index = floori(advance * float(maxi(steps_to_reach, 1)))
 	spot_count = 0
 	_spotted_this_cycle = false
 	_stare_time = 0.0
 	_expressed_advance = 0.0
 	global_position = spawn_position
 	_face_player(player)
-	_apply_lean()
 	_active_player = player
+	_apply_advance(player)
 	visual.visible = true
+	_set_presence(player, true)
 	phase = GhostPhase.HOLDING
 	_hold_timer = _next_hold_duration()
 	_report_threat(player)
@@ -624,9 +629,18 @@ func _clear_threat() -> void:
 		_active_player.call("set_threat_from", THREAT_SOURCE, 0.0)
 
 
-## One cue on the shared teleport player: full volume at natural pitch for an
-## arrival, quieter and pitched down for a lurch, up for a tally or a catch.
-## Restoring both every time is what keeps one cue from detuning the next.
+func _set_presence(player: Node3D, present: bool) -> void:
+	if is_instance_valid(player) and player.has_method("set_toilet_ghost_presence"):
+		player.call("set_toilet_ghost_presence", present)
+
+
+func _clear_presence() -> void:
+	_set_presence(_active_player, false)
+
+
+## One cue on the shared teleport player: used for arrival, acknowledgement,
+## and the catch. Lurches deliberately stay silent, so sound cannot hand the
+## player a free turn cue.
 func _play_cue(volume_offset_db: float, pitch: float) -> void:
 	teleport_audio.volume_db = _teleport_base_volume_db + volume_offset_db
 	teleport_audio.pitch_scale = pitch
@@ -663,6 +677,7 @@ func _head_position() -> Vector3:
 func _disappear() -> void:
 	phase = GhostPhase.DISAPPEARING
 	visual.visible = false
+	_clear_presence()
 	visual.rotation.x = 0.0
 	visual.position = Vector3(0.0, _visual_base_y, 0.0)
 	teleport_audio.stop()
@@ -672,9 +687,8 @@ func _disappear() -> void:
 
 
 ## Reopens the eyes closed by _disappear(), ends this encounter, and arms the
-## next one - a banished ghost continues the spawn loop rather than ending it
-## (only advance reaching 1.0 - see _resolve_failure() - stops it, since the
-## player is dead by then and the minigame is about to cancel).
+## next one - a banished ghost continues the spawn loop rather than ending it.
+## Advance reaching 1.0 instead resolves into the owning minigame's stun path.
 func _finish_blink() -> void:
 	var resolved_player := _active_player
 	if is_instance_valid(resolved_player) and resolved_player.has_method("end_forced_blink"):
@@ -694,8 +708,8 @@ func _forced_blink_duration() -> float:
 
 
 ## The last lurch landed on the player: steps_to_reach cycles went by without
-## the player ever catching it. Unchanged from the original failure path -
-## the same signal, then the same existing kill_by_ghost() call.
+## the player catching it. The owning ToiletMinigame turns this signal into a
+## 3D scare plus a temporary stun; this ghost never kills the player directly.
 func _resolve_failure() -> void:
 	phase = GhostPhase.IDLE
 	visual.visible = false
@@ -703,12 +717,10 @@ func _resolve_failure() -> void:
 	visual.position = Vector3(0.0, _visual_base_y, 0.0)
 	teleport_audio.stop()
 	_clear_threat()
-	var resolved_player := _active_player
+	_clear_presence()
 	_active_player = null
 	advance = 0.0
 	ghost_timed_out.emit()
-	if is_instance_valid(resolved_player) and resolved_player.has_method("kill_by_ghost"):
-		resolved_player.call("kill_by_ghost", self)
 
 
 ## The camera's forward direction at the moment the toilet minigame started,
@@ -736,35 +748,38 @@ func _session_start_forward(camera: Camera3D, player: Node3D) -> Vector3:
 	return current_forward.rotated(Vector3.UP, -accumulated)
 
 
-## Yaw range [low, high] in degrees covered by one spawn zone. The zones
-## tile the two off-centre bands - [-spawn_yaw_range, -min_spawn_offset_angle]
-## and [min_spawn_offset_angle, spawn_yaw_range] - and deliberately leave
-## the band in front of the player empty. See the SpawnZone enum: a ghost
-## inside the camera's own FOV needs no head turn to find, so it costs the
-## player nothing, and it was where most spawns were landing.
+## Yaw range [low, high] in degrees covered by one spawn zone. The zones tile
+## the rear-left and rear-right diagonal bands
+## [-spawn_yaw_range, -min_spawn_offset_angle] and
+## [min_spawn_offset_angle, spawn_yaw_range]. Every valid angle is more than
+## 90 degrees from the session-start facing, so the ghost is always behind.
 func _zone_bounds(zone: int) -> Vector2:
 	var band := maxf(spawn_yaw_range - min_spawn_offset_angle, 1.0)
 	var width := band / float(SPAWN_ZONE_COUNT / 2)
 	var per_side := SPAWN_ZONE_COUNT / 2
 	if zone < per_side:
-		# Left band, outermost slice first, running inward toward the player.
+		# Rear-left band, outermost slice first, running inward.
 		var low := -spawn_yaw_range + width * float(zone)
 		return Vector2(low, low + width)
 	var right_low := min_spawn_offset_angle + width * float(zone - per_side)
 	return Vector2(right_low, right_low + width)
 
 
-## Picks the direction of the next spawn as {zone, angle}: a random zone
-## that isn't the previous one, at a random angle inside it that is also at
-## least min_spawn_angle_separation away from the previous angle. Both rules
-## are pure arithmetic, so they're settled here before any physics work -
-## _pick_spawn_position() then only has to retry on geometry, and can never
-## trade the variety rules away to satisfy a clearance check.
+## Picks the direction of the next spawn as {zone, angle}. After the first
+## spawn it must come from the rear side opposite the last one, forcing the
+## player to check behind both shoulders. The arithmetic is settled here
+## before physics work, so _pick_spawn_position() can never trade that rule
+## away just to satisfy a clearance check.
 func _next_zone_angle() -> Dictionary:
+	var per_side := SPAWN_ZONE_COUNT / 2
 	for attempt in max_spawn_attempts:
-		var zone := _rng.randi_range(0, SPAWN_ZONE_COUNT - 1)
-		if zone == _last_spawn_zone:
-			continue
+		var zone: int
+		if _last_spawn_zone < 0:
+			zone = _rng.randi_range(0, SPAWN_ZONE_COUNT - 1)
+		elif _last_spawn_zone < per_side:
+			zone = _rng.randi_range(per_side, SPAWN_ZONE_COUNT - 1)
+		else:
+			zone = _rng.randi_range(0, per_side - 1)
 		var bounds := _zone_bounds(zone)
 		var angle := _rng.randf_range(bounds.x, bounds.y)
 		if _last_spawn_zone >= 0 and absf(angle - _last_spawn_angle) < min_spawn_angle_separation:
@@ -773,10 +788,8 @@ func _next_zone_angle() -> Dictionary:
 	return _furthest_zone_angle()
 
 
-## Best-available pick once the random retries above are spent: the zone
-## whose far edge sits furthest from the last angle, at that far edge. Always
-## a different zone and the largest separation on offer, so it honours both
-## rules as closely as the range allows instead of spinning or giving up.
+## Best-available pick once the random retries above are spent: the allowed
+## opposite-side zone whose far edge sits furthest from the last angle.
 func _furthest_zone_angle() -> Dictionary:
 	if _last_spawn_zone < 0:
 		var any_zone := _rng.randi_range(0, SPAWN_ZONE_COUNT - 1)
@@ -786,8 +799,9 @@ func _furthest_zone_angle() -> Dictionary:
 	var best_zone := 0
 	var best_angle := 0.0
 	var best_gap := -1.0
+	var per_side := SPAWN_ZONE_COUNT / 2
 	for zone in SPAWN_ZONE_COUNT:
-		if zone == _last_spawn_zone:
+		if (_last_spawn_zone < per_side) == (zone < per_side):
 			continue
 		var bounds := _zone_bounds(zone)
 		for edge in [bounds.x, bounds.y]:
@@ -825,12 +839,10 @@ func _record_spawn(zone: int, angle_deg: float) -> void:
 ## producing ghosts that could never be seen no matter how the player aimed).
 ##
 ## Deliberately does NOT require the spawn to be inside the camera's current
-## frustum. The LEFT and RIGHT zones sit beyond the edge of a 70-degree FOV,
-## so gating on the frustum would quietly make them unreachable and collapse
-## the spawn spread back onto the three front zones - the exact clustering
-## the zone rules exist to prevent. The ghost is still always within the
-## camera's reachable yaw range, and still has to be actually looked at
-## before it counts as seen.
+## frustum. The rear-left and rear-right zones are intentionally out of view;
+## gating on the frustum would make the encounter impossible. The ghost is
+## still within the camera's reachable yaw range and must be looked at before
+## it counts as seen.
 func _pick_spawn_position(player: Node3D, camera: Camera3D) -> Dictionary:
 	var floor_y := _floor_y(player)
 	var eye_position := camera.global_position if camera else player.global_position

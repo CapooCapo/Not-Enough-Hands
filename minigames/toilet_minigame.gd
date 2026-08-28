@@ -20,6 +20,11 @@ extends Node3D
 
 enum MinigameState { IDLE, PLAYING, SUCCESS, CANCELLED }
 
+## Cancelling the toilet does not erase its ghost. The debt lives on the
+## player (rather than on one Toilet node) so changing bathrooms cannot reset
+## the encounter in maps with several toilets.
+const GHOST_ADVANCE_META := &"toilet_ghost_advance"
+
 var current_state: MinigameState = MinigameState.IDLE
 var player: Node3D
 var _toilet: Node
@@ -30,10 +35,9 @@ signal minigame_effect_requested(effect: String)
 
 # Asset Pipeline
 @export var balance_asset: PackedScene = preload("res://toilet/assets/water_nozzle.tscn")
-## Brief "caught" reaction shown alongside the existing death flow when the
-## player fails to look at the Toilet Ghost in time (Sprint 10) - see
-## _on_toilet_ghost_caught(). Purely visual/audio; the actual death still
-## goes through the existing player.kill_by_ghost() path unchanged.
+## Brief 3D "caught" reaction shown when the player fails to look at the
+## Toilet Ghost in time. Gameplay consequence is the player's seven-second
+## stun/slow; this scene is only its visual/audio impact beat.
 @export var toilet_ghost_caught_scene: PackedScene = preload("res://minigames/toilet_ghost_caught.tscn")
 var instantiated_asset: Node3D
 var left_grip: Marker3D
@@ -82,25 +86,21 @@ var liquid_origin: Marker3D
 @export var max_camera_rotation_x: float = 90.0
 
 ## The direction faced the instant the toilet minigame starts is treated as
-## 0 degrees; the player can turn up to this far either side of it - a real
-## over-the-shoulder glance, not just a look to the side. The toilet Ghost's
-## creep rail ends exactly here (minigames/toilet_ghost.gd, blind_edge_yaw):
-## the hardest angle it can reach is the hardest angle the player can still
-## turn to, so its final approach is always catchable and never unwinnable.
-## Its *spawns* stay inside a narrower cone than this on purpose - see
-## spawn_yaw_range there.
-@export var min_camera_rotation_y: float = -135.0
-@export var max_camera_rotation_y: float = 135.0
+## 0 degrees; the player can turn fully around to check either rear shoulder.
+## The toilet Ghost's rear-diagonal spawn arc stays slightly inside this
+## limit, so every appearance remains catchable and never unwinnable.
+@export var min_camera_rotation_y: float = -180.0
+@export var max_camera_rotation_y: float = 180.0
 
 @export var min_camera_rotation_z: float = -90.0
 @export var max_camera_rotation_z: float = 90.0
 
-## A full bladder takes 13.5 seconds of controlled flow to empty: five times
-## faster than filling. Flow starts automatically but needs 0.75 seconds to
-## build pressure, so it begins almost imperceptibly slowly.
+## A full bladder takes 13.5 seconds of controlled full-speed flow to empty:
+## five times faster than filling. Every entry needs 1.5 seconds to build
+## pressure again, so repeatedly entering and cancelling gains almost nothing.
 @export var bladder_drain_rate: float = 100.0 / 13.5
 @export_range(0.0, 1.0) var warning_drain_multiplier: float = 0.35
-@export var pee_ramp_duration: float = 0.75
+@export var pee_ramp_duration: float = 1.5
 @export var pee_ramp_power: float = 4.0
 @export var center_lock_delay: float = 0.3
 @export var combo_ramp_duration: float = 2.5
@@ -120,6 +120,10 @@ var liquid_origin: Marker3D
 @export var danger_noise_delay: float = 0.9
 @export var danger_noise_repeat_interval: float = 1.1
 @export_range(0.0, 1.0) var danger_noise_loudness: float = 0.85
+## Each voluntary exit moves the next Toilet Ghost one ordinary lurch closer.
+## It stops just short of contact so cancelling is dangerous, not an off-screen
+## instant death; the player always gets one final reaction window.
+@export_range(0.0, 1.0) var cancel_ghost_advance_cap: float = 0.95
 
 # Internal state
 var damage_timer: float = 0.0
@@ -162,17 +166,17 @@ func _ready() -> void:
 	_load_asset()
 
 
-## Reached when the ghost's own reaction timeout fires (see
-## minigames/toilet_ghost.gd's _resolve_failure(), which emits
-## ghost_timed_out immediately before calling the player's existing
-## kill_by_ghost() - unchanged, still the same call, still the same
-## existing death flow). This only adds a brief visual "caught" beat
-## alongside it and stops the minigame right away, rather than waiting a
-## frame for the is_alive guard in _process() to notice.
+## Reached when the ghost completes its last lurch. The toilet session ends,
+## control is returned, and the player survives with a seven-second stun.
 func _on_toilet_ghost_caught() -> void:
-	cancel()
+	cancel(false)
+	if is_instance_valid(player) and player.has_method("apply_toilet_ghost_stun"):
+		player.call("apply_toilet_ghost_stun")
 	if toilet_ghost_caught_scene:
-		add_child(toilet_ghost_caught_scene.instantiate())
+		var caught := toilet_ghost_caught_scene.instantiate()
+		# The caught scene owns a transparent 3D viewport, so it remains visible
+		# above the normal HUD while still using the real Toilet Ghost model.
+		add_child(caught)
 
 func _load_asset() -> void:
 	if not balance_asset: return
@@ -293,7 +297,12 @@ func start_session(p_player: Node3D, minigame_viewpoint: Marker3D) -> void:
 	show()
 
 	if toilet_ghost and toilet_ghost.has_method("arm"):
-		toilet_ghost.arm()
+		var saved_advance := _get_saved_ghost_advance()
+		toilet_ghost.call(
+			"arm",
+			saved_advance,
+			saved_advance > 0.0
+		)
 
 func _process(delta: float) -> void:
 	if current_state != MinigameState.PLAYING:
@@ -301,10 +310,10 @@ func _process(delta: float) -> void:
 	# Session safety: a toilet removed/freed mid-session, or a player who
 	# stopped being valid, must exit like a cancel - never as a success.
 	if not is_instance_valid(_toilet) or not _toilet.is_inside_tree():
-		cancel()
+		cancel(false)
 		return
 	if not is_instance_valid(player) or not bool(player.get("is_alive")):
-		cancel()
+		cancel(false)
 		return
 
 	_handle_input(delta)
@@ -587,6 +596,7 @@ func succeed() -> void:
 	if current_state != MinigameState.PLAYING: return
 	current_state = MinigameState.SUCCESS
 	minigame_state_changed.emit("SUCCESS")
+	_clear_saved_ghost_advance()
 
 	# Belt-and-suspenders: the drain above already brings bladder to exactly
 	# 0, but an explicit reset through the same Player API makes success
@@ -601,8 +611,10 @@ func succeed() -> void:
 
 	_cleanup()
 
-func cancel() -> void:
+func cancel(apply_ghost_penalty: bool = true) -> void:
 	if current_state != MinigameState.PLAYING: return
+	if apply_ghost_penalty:
+		_bank_cancelled_ghost_advance()
 	current_state = MinigameState.CANCELLED
 	minigame_state_changed.emit("CANCELLED")
 
@@ -612,6 +624,33 @@ func cancel() -> void:
 	await get_tree().create_timer(0.5).timeout
 
 	_cleanup()
+
+
+func _get_saved_ghost_advance() -> float:
+	if not is_instance_valid(player):
+		return 0.0
+	return clampf(float(player.get_meta(GHOST_ADVANCE_META, 0.0)), 0.0, 1.0)
+
+
+func _bank_cancelled_ghost_advance() -> void:
+	if not is_instance_valid(player):
+		return
+	var current_advance := _get_saved_ghost_advance()
+	if toilet_ghost and "advance" in toilet_ghost:
+		current_advance = maxf(current_advance, float(toilet_ghost.advance))
+	var steps := 5
+	if toilet_ghost and "steps_to_reach" in toilet_ghost:
+		steps = maxi(int(toilet_ghost.steps_to_reach), 1)
+	var cap := clampf(cancel_ghost_advance_cap, 0.0, 1.0)
+	player.set_meta(
+		GHOST_ADVANCE_META,
+		minf(current_advance + 1.0 / float(steps), cap)
+	)
+
+
+func _clear_saved_ghost_advance() -> void:
+	if is_instance_valid(player) and player.has_meta(GHOST_ADVANCE_META):
+		player.remove_meta(GHOST_ADVANCE_META)
 
 func _cleanup() -> void:
 	hud_layer.hide()

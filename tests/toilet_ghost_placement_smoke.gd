@@ -105,16 +105,13 @@ func _run() -> void:
 				trial, flat.length(), ghost.contact_distance
 			])
 			return
-		# Every appearance has to cost a head turn. A ghost inside the
-		# camera's own FOV is already on screen when it arrives, so finding
-		# it is free and the encounter opens with no decision in it - which
-		# is what most spawns used to do while the arc still had a FRONT
-		# zone in it.
+		# Every appearance has to be in a rear diagonal: outside the camera's
+		# FOV and more than 90 degrees from the seated player's facing.
 		var seat_forward: Vector3 = -camera.global_basis.z
 		seat_forward.y = 0.0
 		var offset_angle := rad_to_deg(seat_forward.normalized().angle_to(flat.normalized()))
 		if offset_angle < ghost.min_spawn_offset_angle - 1.0:
-			_fail("Trial %d spawned the ghost only %.1f degrees off the seat facing, inside the %.1f-degree minimum - no head turn needed to find it." % [
+			_fail("Trial %d spawned the ghost only %.1f degrees off the seat facing, inside the %.1f-degree rear minimum." % [
 				trial, offset_angle, ghost.min_spawn_offset_angle
 			])
 			return

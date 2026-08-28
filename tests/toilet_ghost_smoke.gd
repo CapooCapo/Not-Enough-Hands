@@ -105,15 +105,15 @@ func _run() -> void:
 	# reads these exports dynamically, so a regressed default would otherwise
 	# pass every assertion silently. ---
 	var spec := {
-		"initial_spawn_delay": 2.0,
-		"min_respawn_delay": 3.0,
-		"max_respawn_delay": 5.0,
+		"initial_spawn_delay": 4.0,
+		"min_respawn_delay": 7.0,
+		"max_respawn_delay": 10.0,
 		"hold_duration": 3.0,
 		"move_duration": 0.7,
 		"stare_tolerance": 3.0,
 		"contact_distance": 1.15,
-		"spawn_yaw_range": 90.0,
-		"min_spawn_offset_angle": 40.0,
+		"spawn_yaw_range": 165.0,
+		"min_spawn_offset_angle": 120.0,
 	}
 	for key: String in spec:
 		if not is_equal_approx(float(ghost.get(key)), float(spec[key])):
@@ -128,8 +128,8 @@ func _run() -> void:
 		push_error("steps_to_reach is %d, not the required 5." % ghost.steps_to_reach)
 		quit(1)
 		return
-	# A spawn has to land somewhere the player can physically turn to, and
-	# far enough off centre that finding it costs a head turn at all.
+	# A spawn has to land somewhere the player can physically turn to, behind
+	# the seat, and alternate rear shoulders after every appearance.
 	if ghost.spawn_yaw_range > minigame.max_camera_rotation_y:
 		push_error("spawn_yaw_range (%.1f) exceeds the minigame's camera yaw clamp (%.1f) - a spawn could be unreachable." % [
 			ghost.spawn_yaw_range, minigame.max_camera_rotation_y
@@ -142,11 +142,36 @@ func _run() -> void:
 		])
 		quit(1)
 		return
+	ghost.arm()
+	var previous_angle := 0.0
+	for spawn_index in 8:
+		var spawn_pick: Dictionary = ghost._next_zone_angle()
+		var spawn_angle: float = spawn_pick["angle"]
+		if absf(spawn_angle) <= 90.0:
+			push_error("Toilet Ghost spawned at %.1f degrees, which is not behind the player." % spawn_angle)
+			quit(1)
+			return
+		if spawn_index > 0 and signf(spawn_angle) == signf(previous_angle):
+			push_error("Toilet Ghost repeated the same rear shoulder (%.1f then %.1f) instead of forcing a turn back." % [previous_angle, spawn_angle])
+			quit(1)
+			return
+		ghost._record_spawn(int(spawn_pick["zone"]), spawn_angle)
+		previous_angle = spawn_angle
+	ghost.reset()
 	# The lurch has to be catchable at the rate the minigame actually ticks.
 	if ghost.move_duration < STEP_DELTA * 3.0:
 		push_error("move_duration %.2fs is too short to ever be caught in the act." % ghost.move_duration)
 		quit(1)
 		return
+	# A lurch must never announce itself. It is the moving silhouette, not a
+	# sound cue, that creates the player's chance to catch the ghost.
+	ghost.teleport_audio.stop()
+	ghost._begin_move(1.0, false)
+	if ghost.teleport_audio.playing:
+		push_error("Toilet Ghost lurch played an audio cue, making the event free to win by sound.")
+		quit(1)
+		return
+	ghost.reset()
 
 	# --- Initial delay, then it arrives standing still. ---
 	ghost.arm()
@@ -175,6 +200,22 @@ func _run() -> void:
 		return
 	if not ghost.visual.visible:
 		push_error("Ghost is holding but its visual is hidden.")
+		quit(1)
+		return
+	var flashlight := player.get_node("CameraPivot/Camera3D/Flashlight") as SpotLight3D
+	if not is_equal_approx(
+			flashlight.light_energy,
+			player._flashlight_base_energy * player.toilet_ghost_flashlight_energy_multiplier
+	) or not is_equal_approx(
+			flashlight.spot_range,
+			player._flashlight_base_range * player.toilet_ghost_flashlight_range_multiplier
+	):
+		push_error("A manifested Toilet Ghost did not narrow and dim the player's flashlight.")
+		quit(1)
+		return
+	var overlay_material := player.horror_overlay_rect.material as ShaderMaterial
+	if not is_equal_approx(float(overlay_material.get_shader_parameter("toilet_presence")), 1.0):
+		push_error("A manifested Toilet Ghost did not enable its reduced-vision overlay.")
 		quit(1)
 		return
 	# It starts at the far end of the room it could find, not on top of you.
@@ -538,14 +579,20 @@ func _run() -> void:
 		push_error("reset() left the ghost visible or still sounding.")
 		quit(1)
 		return
+	var reset_flashlight := player.get_node("CameraPivot/Camera3D/Flashlight") as SpotLight3D
+	if not is_equal_approx(reset_flashlight.light_energy, player._flashlight_base_energy) \
+			or not is_equal_approx(reset_flashlight.spot_range, player._flashlight_base_range):
+		push_error("reset() did not restore the player's flashlight after the Toilet Ghost vanished.")
+		quit(1)
+		return
 	if not is_zero_approx(ghost.visual.rotation.x) or not ghost.visual.position.is_equal_approx(Vector3(0, ghost._visual_base_y, 0)):
 		push_error("reset() left the ghost mid-lean or mid-stutter, so the next arrival would start askew.")
 		quit(1)
 		return
 
 	# --- Failure: steps_to_reach lurches with the player never once looking
-	# is the kill, through the same existing ghost_timed_out -> kill_by_ghost()
-	# path. Run last, because it leaves the player dead. ---
+	# fires the caught signal and cleans up, but is no longer lethal. The owning
+	# minigame converts this into a temporary player stun. ---
 	var timed_out := [0]
 	ghost.ghost_timed_out.connect(func(): timed_out[0] += 1)
 	ghost.initial_spawn_delay = 0.0
@@ -560,28 +607,24 @@ func _run() -> void:
 		if not _complete_one_lurch(ghost, player, camera):
 			break
 		lurches += 1
-		if lurches < ghost.steps_to_reach and not player.is_alive:
-			push_error("The ghost killed the player after only %d of its %d lurches." % [lurches, ghost.steps_to_reach])
-			quit(1)
-			return
 	if timed_out[0] != 1:
 		push_error("ghost_timed_out fired %d times after %d lurches, expected exactly 1." % [timed_out[0], lurches])
 		quit(1)
 		return
-	if player.is_alive:
-		push_error("The ghost completed all %d lurches without killing the player." % ghost.steps_to_reach)
+	if not player.is_alive:
+		push_error("The Toilet Ghost killed the player instead of leaving them stunned.")
 		quit(1)
 		return
 	if ghost.phase != ghost.GhostPhase.IDLE or ghost.visual.visible:
-		push_error("The ghost did not clean itself up after taking the player.")
+		push_error("The ghost did not clean itself up after catching the player.")
 		quit(1)
 		return
 	if player.threat_sources.has(ghost.THREAT_SOURCE):
-		push_error("The kill left a threat entry behind.")
+		push_error("The catch left a threat entry behind.")
 		quit(1)
 		return
 	if ghost.teleport_audio.playing:
-		push_error("Teleport audio kept playing after the kill.")
+		push_error("Teleport audio kept playing after the catch.")
 		quit(1)
 		return
 
