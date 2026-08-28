@@ -3,20 +3,45 @@ extends Node
 
 
 signal state_changed(is_on: bool)
+signal load_changed(current_load: float)
 
 
 @export_category("Power Configuration")
+## Stable identifier used by generated maps and Inspector-linked switches.
+@export var device_id: StringName
 @export_range(0.0, 100000.0, 1.0)
-var power_consumption: float = 100.0
+var power_consumption: float = 100.0:
+	set(value):
+		var sanitized_value := maxf(value, 0.0)
+		if is_equal_approx(power_consumption, sanitized_value):
+			return
+		power_consumption = sanitized_value
+		load_changed.emit(get_power_consumption())
 
 
 @export_category("Device State")
-@export var is_on: bool = true
+@export var is_on: bool = true:
+	set(value):
+		if value == is_on:
+			return
+		if value and _forced_off_by_blackout:
+			return
+		is_on = value
+		_apply_output_state()
+		state_changed.emit(is_on)
+		load_changed.emit(get_power_consumption())
+
+
+@export_category("Optional Output")
+## Leave empty when this script is attached directly to a Light3D. Assign a
+## light here when ElectricalDevice is used as a child component instead.
+@export var powered_light: Light3D
 
 
 var power_manager: PowerManager
-var _was_on_before_blackout: bool = false
+var _was_on_before_forced_off: bool = false
 var _forced_off_by_blackout: bool = false
+var _forced_off_reasons: Dictionary = {}
 
 
 func _enter_tree() -> void:
@@ -24,6 +49,7 @@ func _enter_tree() -> void:
 
 
 func _ready() -> void:
+	_apply_output_state()
 	power_manager = get_tree().get_first_node_in_group("power_manager")
 
 	if power_manager:
@@ -31,8 +57,9 @@ func _ready() -> void:
 
 		power_manager.blackout.connect(_on_blackout)
 		power_manager.power_restored.connect(_on_power_restored)
+		if power_manager.is_blackout:
+			_on_blackout()
 
-		print(name, " registered to PowerManager")
 	else:
 		push_warning(name + ": PowerManager not found")
 
@@ -55,23 +82,42 @@ func get_power_consumption() -> float:
 	return power_consumption
 
 
+func is_forced_off() -> bool:
+	return _forced_off_by_blackout
+
+
+func force_off(reason: StringName) -> void:
+	if _forced_off_reasons.has(reason):
+		return
+	if _forced_off_reasons.is_empty():
+		_was_on_before_forced_off = is_on
+	_forced_off_reasons[reason] = true
+	_forced_off_by_blackout = true
+	is_on = false
+
+
+func release_forced_off(reason: StringName) -> void:
+	_forced_off_reasons.erase(reason)
+	if not _forced_off_reasons.is_empty():
+		return
+	_forced_off_by_blackout = false
+	if _was_on_before_forced_off:
+		is_on = true
+	_was_on_before_forced_off = false
+
+
+func _apply_output_state() -> void:
+	var output: Node = powered_light if powered_light else self
+	if output is Light3D:
+		(output as Light3D).visible = is_on
+
+
 func turn_on() -> void:
-	if _forced_off_by_blackout:
-		return
-
-	if is_on:
-		return
-
 	is_on = true
-	state_changed.emit(is_on)
 
 
 func turn_off() -> void:
-	if not is_on:
-		return
-
 	is_on = false
-	state_changed.emit(is_on)
 
 
 func toggle() -> void:
@@ -82,26 +128,8 @@ func toggle() -> void:
 
 
 func _on_blackout() -> void:
-	if is_on:
-		_was_on_before_blackout = true
-	else:
-		_was_on_before_blackout = false
-
-	_forced_off_by_blackout = true
-
-	if is_on:
-		is_on = false
-		state_changed.emit(is_on)
+	force_off(&"global_blackout")
 
 
 func _on_power_restored() -> void:
-	if not _forced_off_by_blackout:
-		return
-
-	_forced_off_by_blackout = false
-
-	if _was_on_before_blackout:
-		is_on = true
-		state_changed.emit(is_on)
-
-	_was_on_before_blackout = false
+	release_forced_off(&"global_blackout")

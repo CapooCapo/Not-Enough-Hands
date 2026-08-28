@@ -5,14 +5,18 @@ extends Node
 @onready var device_a: ElectricalDevice = $DeviceA
 @onready var device_b: ElectricalDevice = $DeviceB
 
+var observed_total_load: float = -1.0
+
 
 func _ready() -> void:
+	power_manager.total_load_changed.connect(_on_total_load_changed)
 	print("========== ELECTRICAL DEVICE TEST ==========")
 
 	test_initial_state()
 	test_turn_off()
 	test_turn_on()
 	test_multiple_devices()
+	test_runtime_consumption_change()
 	test_blackout()
 
 	print("========== ELECTRICAL DEVICE TEST PASSED ==========")
@@ -77,6 +81,16 @@ func test_multiple_devices() -> void:
 	)
 
 
+func test_runtime_consumption_change() -> void:
+	observed_total_load = -1.0
+	device_a.power_consumption = 250.0
+
+	assert(
+		observed_total_load == 750.0,
+		"Changing a device's configured load should immediately update total load"
+	)
+
+
 func test_blackout() -> void:
 	device_a.turn_on()
 	device_b.turn_on()
@@ -102,6 +116,17 @@ func test_blackout() -> void:
 		"Device B should turn OFF during blackout"
 	)
 
+	assert(
+		power_manager.get_total_load() == 0.0,
+		"Blackout devices should contribute no load"
+	)
+
+	device_a.turn_on()
+	assert(
+		not device_a.is_on,
+		"A device must not turn on while blackout is forcing it off"
+	)
+
 	power_manager.restore_power()
 
 	assert(
@@ -113,3 +138,12 @@ func test_blackout() -> void:
 		device_b.is_on,
 		"Device B should restore its previous ON state"
 	)
+
+	assert(
+		power_manager.get_total_load() == 750.0,
+		"Restored devices should return their configured load"
+	)
+
+
+func _on_total_load_changed(total_load: float) -> void:
+	observed_total_load = total_load
