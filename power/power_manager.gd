@@ -4,6 +4,10 @@ extends Node
 
 signal blackout
 signal power_restored
+signal total_load_changed(total_load: float)
+signal device_registered(device: ElectricalDevice)
+signal regional_blackout_started(center: Vector3, affected_light_count: int)
+signal regional_blackout_ended
 
 
 @export_category("Power Configuration")
@@ -18,8 +22,26 @@ var current_power: float = 1000.0
 @export var enable_power_drain: bool = true
 
 
+@export_category("House Lighting")
+@export var house_light_group: StringName = &"flickering_house_lights"
+@export var auto_register_house_lights: bool = true
+@export_range(0.0, 10000.0, 1.0) var default_light_consumption: float = 60.0
+@export_range(0.5, 100.0, 0.5) var regional_radius: float = 8.0
+@export_range(0.5, 20.0, 0.5) var regional_floor_tolerance: float = 2.0
+@export_range(0.1, 300.0, 0.5) var default_regional_duration: float = 10.0
+
+
 var devices: Array[Node] = []
 var is_blackout: bool = false
+var is_regional_blackout: bool = false
+var _total_load: float = 0.0
+
+var _house_lights: Array[Light3D] = []
+var _regional_lights: Array[Light3D] = []
+var _visibility_before_outage: Dictionary = {}
+var _global_time_remaining: float = -1.0
+var _regional_time_remaining: float = -1.0
+var _rng := RandomNumberGenerator.new()
 
 
 func _enter_tree() -> void:
@@ -27,6 +49,7 @@ func _enter_tree() -> void:
 
 
 func _ready() -> void:
+	_rng.randomize()
 	current_power = clamp(current_power, 0.0, max_power)
 
 	if current_power <= 0.0:
@@ -35,9 +58,16 @@ func _ready() -> void:
 	print("PowerManager ready")
 	print("Max power: ", max_power)
 	print("Current power: ", current_power)
+	_initialize_house_lights.call_deferred()
+
+
+func _exit_tree() -> void:
+	_restore_all_house_lights()
 
 
 func _process(delta: float) -> void:
+	_update_outage_timers(delta)
+
 	if is_blackout:
 		return
 
@@ -59,26 +89,62 @@ func _process(delta: float) -> void:
 func register_device(device: Node) -> void:
 	if device == null:
 		return
+	if not device.has_method("get_power_consumption"):
+		push_warning(device.name + ": electrical device has no power-consumption contract")
+		return
 
 	if device not in devices:
 		devices.append(device)
+		if device.has_signal("load_changed"):
+			var callback := Callable(self, "_on_device_load_changed")
+			if not device.is_connected("load_changed", callback):
+				device.connect("load_changed", callback)
+		_refresh_total_load()
+		if device is ElectricalDevice:
+			device_registered.emit(device as ElectricalDevice)
 
 
 func unregister_device(device: Node) -> void:
+	if is_instance_valid(device) and device.has_signal("load_changed"):
+		var callback := Callable(self, "_on_device_load_changed")
+		if device.is_connected("load_changed", callback):
+			device.disconnect("load_changed", callback)
 	devices.erase(device)
+	_refresh_total_load()
 
 
 func get_total_load() -> float:
-	var total_load := 0.0
+	_refresh_total_load()
+	return _total_load
 
-	for device in devices:
+
+func get_device_by_id(device_id: StringName) -> ElectricalDevice:
+	if device_id.is_empty():
+		return null
+	for node: Node in devices:
+		var device := node as ElectricalDevice
+		if device and device.device_id == device_id:
+			return device
+	return null
+
+
+func _on_device_load_changed(_current_load: float) -> void:
+	_refresh_total_load()
+
+
+func _refresh_total_load() -> void:
+	var valid_devices: Array[Node] = []
+	var updated_load := 0.0
+	for device: Node in devices:
 		if not is_instance_valid(device):
 			continue
-
-		if device.has_method("get_power_consumption"):
-			total_load += device.get_power_consumption()
-
-	return total_load
+		valid_devices.append(device)
+		updated_load += maxf(float(device.get_power_consumption()), 0.0)
+	devices = valid_devices
+	if is_equal_approx(_total_load, updated_load):
+		return
+	_total_load = updated_load
+	total_load_changed.emit(_total_load)
 
 
 func get_power_percentage() -> float:
@@ -99,8 +165,72 @@ func restore_power(amount: float = -1.0) -> void:
 		)
 
 	if is_blackout and current_power > 0.0:
-		is_blackout = false
-		power_restored.emit()
+		_leave_global_blackout()
+
+
+## Turns off every authored light in this house. A negative duration keeps the
+## outage active until restore_power() is called.
+func trigger_global_blackout(duration: float = -1.0) -> void:
+	_collect_house_lights()
+	_global_time_remaining = duration
+	if is_blackout:
+		_suppress_lights(_house_lights)
+		return
+	_enter_blackout()
+
+
+## Used by the darkness entity: picks one light as the centre of an outage and
+## turns off the nearby lights on the same floor. Returns the number affected.
+func trigger_random_regional_blackout(duration: float = -1.0) -> int:
+	_collect_house_lights()
+	if _house_lights.is_empty():
+		return 0
+
+	var anchor := _house_lights[_rng.randi_range(0, _house_lights.size() - 1)]
+	return trigger_regional_blackout_at(anchor.global_position, duration)
+
+
+## Lets an entity darken the area around a known world position instead of a
+## random room. This does not change the house's global power reserve.
+func trigger_regional_blackout_at(center: Vector3, duration: float = -1.0) -> int:
+	_collect_house_lights()
+	_end_regional_blackout()
+
+	for light: Light3D in _house_lights:
+		if not is_instance_valid(light):
+			continue
+		var offset := light.global_position - center
+		if absf(offset.y) > regional_floor_tolerance:
+			continue
+		if Vector2(offset.x, offset.z).length() <= regional_radius:
+			_regional_lights.append(light)
+
+	if _regional_lights.is_empty():
+		return 0
+
+	is_regional_blackout = true
+	_regional_time_remaining = default_regional_duration if duration < 0.0 else duration
+	_suppress_lights(_regional_lights)
+	_set_regional_devices_forced_off(true)
+	regional_blackout_started.emit(center, _regional_lights.size())
+	return _regional_lights.size()
+
+
+func end_regional_blackout() -> void:
+	_end_regional_blackout()
+
+
+func get_regional_blackout_lights() -> Array[Light3D]:
+	return _regional_lights.duplicate()
+
+
+func get_house_light_count() -> int:
+	_collect_house_lights()
+	return _house_lights.size()
+
+
+func set_random_seed(value: int) -> void:
+	_rng.seed = value
 
 
 func _enter_blackout() -> void:
@@ -108,4 +238,133 @@ func _enter_blackout() -> void:
 		return
 
 	is_blackout = true
+	_collect_house_lights()
+	_suppress_lights(_house_lights)
 	blackout.emit()
+
+
+func _leave_global_blackout() -> void:
+	if not is_blackout:
+		return
+	is_blackout = false
+	_global_time_remaining = -1.0
+	for light: Light3D in _house_lights:
+		_release_light_if_powered(light)
+	power_restored.emit()
+
+
+func _initialize_house_lights() -> void:
+	_collect_house_lights()
+	if auto_register_house_lights:
+		_ensure_house_light_devices()
+	if is_blackout:
+		_suppress_lights(_house_lights)
+
+
+func _collect_house_lights() -> void:
+	_house_lights.clear()
+	var house := get_parent()
+	for node: Node in get_tree().get_nodes_in_group(house_light_group):
+		var light := node as Light3D
+		if not light:
+			continue
+		if house and not house.is_ancestor_of(light):
+			continue
+		_house_lights.append(light)
+
+
+func _ensure_house_light_devices() -> void:
+	for light: Light3D in _house_lights:
+		if not is_instance_valid(light):
+			continue
+		var direct_node: Node = light
+		if direct_node as ElectricalDevice:
+			continue
+		var device := light.get_node_or_null("ElectricalDevice") as ElectricalDevice
+		if device:
+			continue
+		device = ElectricalDevice.new()
+		device.name = "ElectricalDevice"
+		device.device_id = _light_device_id(light)
+		device.power_consumption = default_light_consumption
+		device.powered_light = light
+		light.add_child(device)
+
+
+func _light_device_id(light: Light3D) -> StringName:
+	var identifier := String(light.name)
+	if identifier.ends_with("Light"):
+		identifier = identifier.trim_suffix("Light")
+	return StringName(identifier)
+
+
+func _device_for_light(light: Light3D) -> ElectricalDevice:
+	var direct_node: Node = light
+	var direct_device := direct_node as ElectricalDevice
+	if direct_device:
+		return direct_device
+	return light.get_node_or_null("ElectricalDevice") as ElectricalDevice
+
+
+func _set_regional_devices_forced_off(forced_off: bool) -> void:
+	for light: Light3D in _regional_lights:
+		var device := _device_for_light(light)
+		if not device:
+			continue
+		if forced_off:
+			device.force_off(&"regional_blackout")
+		else:
+			device.release_forced_off(&"regional_blackout")
+
+
+func _suppress_lights(lights: Array[Light3D]) -> void:
+	for light: Light3D in lights:
+		if not is_instance_valid(light):
+			continue
+		if not _visibility_before_outage.has(light):
+			_visibility_before_outage[light] = light.visible
+		light.visible = false
+
+
+func _release_light_if_powered(light: Light3D) -> void:
+	if not is_instance_valid(light):
+		_visibility_before_outage.erase(light)
+		return
+	if is_blackout or _regional_lights.has(light):
+		return
+	if _visibility_before_outage.has(light):
+		light.visible = bool(_visibility_before_outage[light])
+		_visibility_before_outage.erase(light)
+
+
+func _end_regional_blackout() -> void:
+	if not is_regional_blackout and _regional_lights.is_empty():
+		return
+	var lights_to_restore: Array[Light3D] = _regional_lights.duplicate()
+	_set_regional_devices_forced_off(false)
+	_regional_lights.clear()
+	is_regional_blackout = false
+	_regional_time_remaining = -1.0
+	for light: Light3D in lights_to_restore:
+		_release_light_if_powered(light)
+	regional_blackout_ended.emit()
+
+
+func _update_outage_timers(delta: float) -> void:
+	if is_blackout and _global_time_remaining >= 0.0:
+		_global_time_remaining -= delta
+		if _global_time_remaining <= 0.0:
+			restore_power()
+
+	if is_regional_blackout and _regional_time_remaining >= 0.0:
+		_regional_time_remaining -= delta
+		if _regional_time_remaining <= 0.0:
+			_end_regional_blackout()
+
+
+func _restore_all_house_lights() -> void:
+	for entry: Variant in _visibility_before_outage.keys():
+		var light := entry as Light3D
+		if is_instance_valid(light):
+			light.visible = bool(_visibility_before_outage[light])
+	_visibility_before_outage.clear()
