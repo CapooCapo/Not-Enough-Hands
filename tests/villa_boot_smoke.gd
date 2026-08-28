@@ -66,6 +66,8 @@ func _run() -> void:
 	if not await _navigation_map_ready(main_scene, spawn):
 		_fail("The navigation map never came up around the player spawn.")
 		return
+	if not _crawler_can_spawn(main_scene, player):
+		return
 
 	if not _reaches("R_FOYER", "R_COAL"):
 		return
@@ -84,6 +86,36 @@ func _run() -> void:
 		+ "hall to cellar, hall to attic and library to kitchen all routable."
 	)
 	quit()
+
+
+## The crawler scene defaults to House2's small -9..9 m containment box.  The
+## villa occupies 0..80 by 0..60 m, so carrying those defaults over clamps a
+## forced spawn to (8.45, 8.45) outside the playable rooms and rejects every
+## noise made by a player in the villa.
+func _crawler_can_spawn(main_scene: Node, player: Node3D) -> bool:
+	var crawler := main_scene.get_node_or_null("CrawlerGhost") as CharacterBody3D
+	if not crawler:
+		_fail("villa_main.tscn has no crawler instance for Dev Tools to spawn.")
+		return false
+
+	for group: String in ["crawler_patrol_points", "crawler_lair"]:
+		for node: Node in get_nodes_in_group(group):
+			var marker := node as Node3D
+			if marker and not bool(crawler.call("_is_inside_containment", marker.global_position)):
+				_fail("Crawler containment excludes villa route marker %s at %s."
+					% [marker.name, marker.global_position])
+				return false
+
+	if not bool(crawler.call("dev_force_spawn", player)) \
+			or not bool(crawler.get("manifested")) \
+			or not bool(crawler.call("_is_inside_containment", crawler.global_position)):
+		_fail("Dev Tools could not manifest the crawler inside the villa.")
+		return false
+
+	# Keep the boot test about wiring and navigation after the spawn contract is
+	# established; crawler behaviour has its own focused smoke tests.
+	crawler.set_physics_process(false)
+	return true
 
 
 func _restrooms_are_furnished(house: Node3D) -> bool:

@@ -25,7 +25,7 @@ var navigation_is_ready: bool = false
 
 @onready var house: Node3D = $VillaHouse
 @onready var world_environment: WorldEnvironment = $WorldEnvironment
-@onready var moon_light: DirectionalLight3D = $DirectionalLight3D
+@onready var moon_light: DirectionalLight3D = get_node_or_null("DirectionalLight3D")
 @onready var horror_overlay: CanvasLayer = $Player/HorrorOverlay
 @onready var flashlight: SpotLight3D = $Player/CameraPivot/Camera3D/Flashlight
 
@@ -528,5 +528,6 @@ func _apply_horror_lighting() -> void:
 		sky_material.ground_bottom_color = Color(0.002, 0.003, 0.006)
 		sky_material.ground_horizon_color = Color(0.012, 0.018, 0.024)
 
-	moon_light.light_color = Color(0.34, 0.43, 0.62)
-	moon_light.light_energy = 0.3
+	if moon_light:
+		moon_light.light_color = Color(0.34, 0.43, 0.62)
+		moon_light.light_energy = 0.3

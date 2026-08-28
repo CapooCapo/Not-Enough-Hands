@@ -386,7 +386,7 @@ sit on.
 the junctions, open the door cells, repaint the light shaft solid on the floor
 above it, and cut the entrances into the outer wall. `villa_house.gd` then turns
 that cell grid into geometry — greedy-rectangle floor slabs, wall runs merged
-along each straight face, doorways, ramps, railings and lights — and publishes
+along each straight face, doorways, ramps and railings — and publishes
 room, junction, entrance, spawn and ghost-route markers.
 
 Four compact 4 × 4 m WCs are cut into the outer room bands: two on the ground
@@ -401,7 +401,7 @@ Open the scene the parts should live in - `house3/villa_main.tscn` is the one
 that is played, and it is where the current bake sits - select its `VillaHouse`
 node, and use the **Villa Authoring** controls in the Inspector:
 
-1. Set detail, furniture and lighting to the version you want to edit.
+1. Set detail and furniture to the version you want to edit.
 2. Press **Bake Editable Parts**, then save the scene.
 3. Expand `Generated/Level_*/Architecture`. Walls, floor slabs, ceilings and
    railings are now separate 2 m modules. Moving a body moves both its visual

@@ -13,7 +13,6 @@
 [ext_resource type="PackedScene" path="res://door/door.tscn" id="9_lld2x"]
 [ext_resource type="PackedScene" path="res://ui/night_clock.tscn" id="9_night_clock"]
 [ext_resource type="PackedScene" path="res://ui/dev_tools.tscn" id="10_dev_tools"]
-[ext_resource type="PackedScene" uid="uid://8frhiebrih3j" path="res://assets/map/Furniture/FBX/Separated/Ceiling Lamp 2.fbx" id="11_a67k0"]
 [ext_resource type="PackedScene" path="res://ghosts/hunter_ghost.tscn" id="11_hunter"]
 [ext_resource type="PackedScene" uid="uid://c41hprcca1ssk" path="res://assets/map/Furniture/FBX/Separated/Ladder 1.fbx" id="12_b5twh"]
 [ext_resource type="PackedScene" uid="uid://b2n18ricosqm3" path="res://assets/map/Furniture/FBX/Separated/TrashBin.fbx" id="13_risa2"]
@@ -36,7 +35,6 @@
 [ext_resource type="PackedScene" uid="uid://c0qxhxr5xha3d" path="res://assets/map/Furniture/FBX/Separated/Puff.fbx" id="30_ryq2d"]
 [ext_resource type="PackedScene" uid="uid://dr7kj0rywob3r" path="res://assets/map/Furniture/FBX/Separated/Painting.fbx" id="31_i3mty"]
 [ext_resource type="PackedScene" uid="uid://cm7jjfpddnnx2" path="res://assets/map/Furniture/FBX/Separated/Drawer 1.fbx" id="32_3exuq"]
-[ext_resource type="PackedScene" uid="uid://c1iwolhpp0ou8" path="res://assets/map/Furniture/FBX/Separated/Lamp 2.fbx" id="33_vutq6"]
 [ext_resource type="PackedScene" uid="uid://4hlnhe5r54m4" path="res://assets/map/Furniture/FBX/Separated/Plant Deco 1.fbx" id="34_lqp4q"]
 [ext_resource type="PackedScene" uid="uid://d4kkyp3h41i3" path="res://assets/map/Furniture/FBX/Separated/Coffee Table.fbx" id="35_gvyju"]
 [ext_resource type="PackedScene" uid="uid://1e55ju1w61ni" path="res://assets/map/Furniture/FBX/Separated/Mirror.fbx" id="36_kp36d"]
@@ -46,7 +44,6 @@
 [ext_resource type="PackedScene" path="res://toilet/toilet.tscn" id="39_p1pwr"]
 [ext_resource type="PackedScene" uid="uid://cst6imr4efc21" path="res://assets/map/Furniture/FBX/Separated/Round Table.fbx" id="40_igvmr"]
 [ext_resource type="PackedScene" uid="uid://cva4qek1c25x5" path="res://assets/map/Furniture/FBX/Separated/Chair 3.fbx" id="41_40s2u"]
-[ext_resource type="PackedScene" uid="uid://dobpckm0hoov5" path="res://assets/map/Furniture/FBX/Separated/Lamp 3.fbx" id="42_3rjml"]
 [ext_resource type="PackedScene" uid="uid://dn87esa7qsi6s" path="res://assets/map/Furniture/FBX/Separated/Chair 2.fbx" id="43_b57m4"]
 [ext_resource type="PackedScene" uid="uid://l0jf8vnnadtr" path="res://assets/map/Furniture/FBX/Separated/Vase 2.fbx" id="44_1duhs"]
 [ext_resource type="PackedScene" uid="uid://dhl5cnaegwwqn" path="res://assets/map/Furniture/FBX/Separated/Table Curved.fbx" id="45_nt2la"]
@@ -61,7 +58,6 @@
 [ext_resource type="PackedScene" uid="uid://bf2sgdaxkl3f4" path="res://assets/map/Furniture/FBX/Separated/Bush.fbx" id="54_5psih"]
 [ext_resource type="PackedScene" uid="uid://d3wtqa0vptx8w" path="res://assets/map/Furniture/FBX/Separated/Flower Pot Ac.fbx" id="55_e8rmg"]
 [ext_resource type="PackedScene" uid="uid://ioaopsma0fcv" path="res://assets/map/Furniture/FBX/Separated/Chair Outside.fbx" id="56_e17ii"]
-[ext_resource type="PackedScene" uid="uid://bpxot5rkeoe0v" path="res://assets/map/Furniture/FBX/Separated/Lamp 1.fbx" id="57_7bueu"]
 [ext_resource type="PackedScene" uid="uid://vgemjm1eck35" path="res://assets/map/Furniture/FBX/Separated/Dining Table.fbx" id="58_836ly"]
 [ext_resource type="PackedScene" uid="uid://b56rf3g4c4nbx" path="res://assets/map/Furniture/FBX/Separated/Chair.fbx" id="59_xbq4v"]
 [ext_resource type="PackedScene" uid="uid://cfy1bann5runi" path="res://assets/map/retro_modular_house/retro_modular_house/models/railings/railing_balcony_02.fbx" id="60_glho4"]
@@ -23426,12 +23422,6 @@ environment = SubResource("Environment_villa")
 
 [node name="DevTools" parent="." unique_id=278020789 instance=ExtResource("10_dev_tools")]
 
-[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=1814393551]
-transform = Transform3D(0.81915206, 0.46984634, -0.32898995, 0, 0.57357645, 0.81915206, 0.57357645, -0.6710101, 0.46984634, 0, 0, 0)
-light_color = Color(1, 0.96, 0.88, 1)
-light_energy = 1.1
-light_angular_distance = 1.5
-shadow_enabled = true
 
 [node name="VillaHouse" parent="." unique_id=292533536 instance=ExtResource("1_villa")]
 authoring_granularity = 1
@@ -28249,59 +28239,11 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 50, -3.5, 44)
 metadata/junction_id = "B1"
 metadata/degree = 4
 
-[node name="Lighting" type="Node3D" parent="VillaHouse/Generated/Level_F_B1" unique_id=1049263476]
 
-[node name="R_COALLight" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_B1/Lighting" unique_id=777876108 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 43, -0.7, 36)
-light_color = Color(0.62, 0.47, 0.29, 1)
-light_energy = 0.55
-omni_range = 6.0
-omni_attenuation = 1.35
 
-[node name="CeilingFixture_0895" parent="VillaHouse/Generated/Level_F_B1/Lighting" unique_id=1186697257 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("11_a67k0")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 43, -0.28, 36)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Ceiling Lamp 2.fbx"
 
-[node name="R_WINELight" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_B1/Lighting" unique_id=683001726 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 43, -0.7, 50)
-light_color = Color(0.62, 0.47, 0.29, 1)
-light_energy = 0.55
-omni_range = 6.0
-omni_attenuation = 1.35
 
-[node name="CeilingFixture_0896" parent="VillaHouse/Generated/Level_F_B1/Lighting" unique_id=1747628658 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("11_a67k0")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 43, -0.28, 50)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Ceiling Lamp 2.fbx"
 
-[node name="R_BOILERLight" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_B1/Lighting" unique_id=2084489516 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 65, -0.7, 36)
-light_color = Color(0.62, 0.47, 0.29, 1)
-light_energy = 0.55
-omni_range = 10.8
-omni_attenuation = 1.35
-
-[node name="CeilingFixture_0897" parent="VillaHouse/Generated/Level_F_B1/Lighting" unique_id=2121220645 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("11_a67k0")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 65, -0.28, 36)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Ceiling Lamp 2.fbx"
-
-[node name="R_TUNNELLight" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_B1/Lighting" unique_id=1826767109 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 65, -0.7, 50)
-light_color = Color(0.62, 0.47, 0.29, 1)
-light_energy = 0.55
-omni_range = 10.8
-omni_attenuation = 1.35
-
-[node name="CeilingFixture_0898" parent="VillaHouse/Generated/Level_F_B1/Lighting" unique_id=1650267403 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("11_a67k0")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 65, -0.28, 50)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Ceiling Lamp 2.fbx"
-
-[node name="B1Light" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_B1/Lighting" unique_id=1540613942 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 50, -0.7, 44)
-light_color = Color(0.55, 0.44, 0.32, 1)
-light_energy = 0.5
-shadow_enabled = true
-omni_range = 8.0
-omni_attenuation = 1.35
 
 [node name="Props" type="Node3D" parent="VillaHouse/Generated/Level_F_B1" unique_id=1373798581]
 
@@ -48551,255 +48493,31 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 64, 0, 46)
 metadata/junction_id = "J9"
 metadata/degree = 2
 
-[node name="Lighting" type="Node3D" parent="VillaHouse/Generated/Level_F_00" unique_id=222155918]
 
-[node name="R_PARLORLight" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_00/Lighting" unique_id=1166580574 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 12, 2.8, 6)
-light_color = Color(0.62, 0.47, 0.29, 1)
-light_energy = 0.55
-omni_range = 7.2
-omni_attenuation = 1.35
 
-[node name="CeilingFixture_4608" parent="VillaHouse/Generated/Level_F_00/Lighting" unique_id=1426074347 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("11_a67k0")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 12, 3.22, 6)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Ceiling Lamp 2.fbx"
 
-[node name="R_WC_GROUND_NORTHLight" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_00/Lighting" unique_id=361966983 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 26, 2.8, 8)
-light_color = Color(0.62, 0.47, 0.29, 1)
-light_energy = 0.55
-omni_range = 6.0
-omni_attenuation = 1.35
 
-[node name="CeilingFixture_4609" parent="VillaHouse/Generated/Level_F_00/Lighting" unique_id=1195233033 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("11_a67k0")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 26, 3.22, 8)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Ceiling Lamp 2.fbx"
 
-[node name="R_FOYERLight" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_00/Lighting" unique_id=897814000 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 40, 2.8, 6)
-light_color = Color(0.62, 0.47, 0.29, 1)
-light_energy = 0.55
-omni_range = 7.2
-omni_attenuation = 1.35
 
-[node name="CeilingFixture_4610" parent="VillaHouse/Generated/Level_F_00/Lighting" unique_id=485258044 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("11_a67k0")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 40, 3.22, 6)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Ceiling Lamp 2.fbx"
 
-[node name="R_STUDYLight" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_00/Lighting" unique_id=232028121 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 65, 2.8, 6)
-light_color = Color(0.62, 0.47, 0.29, 1)
-light_energy = 0.55
-omni_range = 7.2
-omni_attenuation = 1.35
 
-[node name="CeilingFixture_4611" parent="VillaHouse/Generated/Level_F_00/Lighting" unique_id=664305469 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("11_a67k0")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 65, 3.22, 6)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Ceiling Lamp 2.fbx"
 
-[node name="R_LIVINGLight" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_00/Lighting" unique_id=710008233 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7, 2.8, 21)
-light_color = Color(0.62, 0.47, 0.29, 1)
-light_energy = 0.55
-omni_range = 9.0
-omni_attenuation = 1.35
 
-[node name="CeilingFixture_4612" parent="VillaHouse/Generated/Level_F_00/Lighting" unique_id=415160311 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("11_a67k0")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7, 3.22, 21)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Ceiling Lamp 2.fbx"
 
-[node name="R_LIBRARYLight" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_00/Lighting" unique_id=1478886293 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7, 2.8, 40)
-light_color = Color(0.62, 0.47, 0.29, 1)
-light_energy = 0.55
-omni_range = 9.0
-omni_attenuation = 1.35
 
-[node name="CeilingFixture_4613" parent="VillaHouse/Generated/Level_F_00/Lighting" unique_id=2100876336 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("11_a67k0")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7, 3.22, 40)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Ceiling Lamp 2.fbx"
 
-[node name="R_KITCHENLight" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_00/Lighting" unique_id=1174067795 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 73, 2.8, 21)
-light_color = Color(0.62, 0.47, 0.29, 1)
-light_energy = 0.55
-omni_range = 9.0
-omni_attenuation = 1.35
 
-[node name="CeilingFixture_4614" parent="VillaHouse/Generated/Level_F_00/Lighting" unique_id=1629677136 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("11_a67k0")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 73, 3.22, 21)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Ceiling Lamp 2.fbx"
 
-[node name="R_PANTRYLight" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_00/Lighting" unique_id=1172285358 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 73, 2.8, 40)
-light_color = Color(0.62, 0.47, 0.29, 1)
-light_energy = 0.55
-omni_range = 9.0
-omni_attenuation = 1.35
 
-[node name="CeilingFixture_4615" parent="VillaHouse/Generated/Level_F_00/Lighting" unique_id=1984680435 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("11_a67k0")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 73, 3.22, 40)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Ceiling Lamp 2.fbx"
 
-[node name="R_GALLERYLight" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_00/Lighting" unique_id=1841838160 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 28, 2.8, 22)
-light_color = Color(0.62, 0.47, 0.29, 1)
-light_energy = 0.55
-omni_range = 7.2
-omni_attenuation = 1.35
 
-[node name="CeilingFixture_4616" parent="VillaHouse/Generated/Level_F_00/Lighting" unique_id=2144702136 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("11_a67k0")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 28, 3.22, 22)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Ceiling Lamp 2.fbx"
 
-[node name="R_ATRIUMLight" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_00/Lighting" unique_id=704896677 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 52, 2.8, 22)
-light_color = Color(0.62, 0.47, 0.29, 1)
-light_energy = 0.55
-omni_range = 7.2
-omni_attenuation = 1.35
 
-[node name="CeilingFixture_4617" parent="VillaHouse/Generated/Level_F_00/Lighting" unique_id=107405615 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("11_a67k0")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 52, 3.22, 22)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Ceiling Lamp 2.fbx"
 
-[node name="R_BILLIARDLight" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_00/Lighting" unique_id=1879778755 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 28, 2.8, 38)
-light_color = Color(0.62, 0.47, 0.29, 1)
-light_energy = 0.55
-omni_range = 7.2
-omni_attenuation = 1.35
 
-[node name="CeilingFixture_4618" parent="VillaHouse/Generated/Level_F_00/Lighting" unique_id=275136639 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("11_a67k0")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 28, 3.22, 38)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Ceiling Lamp 2.fbx"
 
-[node name="R_CHAPELLight" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_00/Lighting" unique_id=74167300 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 52, 2.8, 38)
-light_color = Color(0.62, 0.47, 0.29, 1)
-light_energy = 0.55
-omni_range = 7.2
-omni_attenuation = 1.35
 
-[node name="CeilingFixture_4619" parent="VillaHouse/Generated/Level_F_00/Lighting" unique_id=1062071334 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("11_a67k0")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 52, 3.22, 38)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Ceiling Lamp 2.fbx"
 
-[node name="R_WC_GROUND_SOUTHLight" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_00/Lighting" unique_id=1026213141 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4, 2.8, 52)
-light_color = Color(0.62, 0.47, 0.29, 1)
-light_energy = 0.55
-omni_range = 6.0
-omni_attenuation = 1.35
-
-[node name="CeilingFixture_4620" parent="VillaHouse/Generated/Level_F_00/Lighting" unique_id=1812679975 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("11_a67k0")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4, 3.22, 52)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Ceiling Lamp 2.fbx"
-
-[node name="R_DININGLight" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_00/Lighting" unique_id=1445946521 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 18, 2.8, 54)
-light_color = Color(0.62, 0.47, 0.29, 1)
-light_energy = 0.55
-omni_range = 7.2
-omni_attenuation = 1.35
-
-[node name="CeilingFixture_4621" parent="VillaHouse/Generated/Level_F_00/Lighting" unique_id=669795551 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("11_a67k0")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 18, 3.22, 54)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Ceiling Lamp 2.fbx"
-
-[node name="R_BALLROOMLight" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_00/Lighting" unique_id=1894504062 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 40, 2.8, 54)
-light_color = Color(0.62, 0.47, 0.29, 1)
-light_energy = 0.55
-omni_range = 7.2
-omni_attenuation = 1.35
-
-[node name="CeilingFixture_4622" parent="VillaHouse/Generated/Level_F_00/Lighting" unique_id=1966556978 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("11_a67k0")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 40, 3.22, 54)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Ceiling Lamp 2.fbx"
-
-[node name="R_UTILITYLight" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_00/Lighting" unique_id=1960122984 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 65, 2.8, 54)
-light_color = Color(0.62, 0.47, 0.29, 1)
-light_energy = 0.55
-omni_range = 7.2
-omni_attenuation = 1.35
-
-[node name="CeilingFixture_4623" parent="VillaHouse/Generated/Level_F_00/Lighting" unique_id=774878903 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("11_a67k0")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 65, 3.22, 54)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Ceiling Lamp 2.fbx"
-
-[node name="J1Light" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_00/Lighting" unique_id=2099256207 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 16, 2.8, 14)
-light_color = Color(0.55, 0.44, 0.32, 1)
-light_energy = 0.5
-shadow_enabled = true
-omni_range = 8.0
-omni_attenuation = 1.35
-
-[node name="J2Light" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_00/Lighting" unique_id=416986675 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 40, 2.8, 14)
-light_color = Color(0.55, 0.44, 0.32, 1)
-light_energy = 0.5
-shadow_enabled = true
-omni_range = 8.0
-omni_attenuation = 1.35
-
-[node name="J3Light" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_00/Lighting" unique_id=976937890 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 64, 2.8, 14)
-light_color = Color(0.55, 0.44, 0.32, 1)
-light_energy = 0.5
-shadow_enabled = true
-omni_range = 8.0
-omni_attenuation = 1.35
-
-[node name="J4Light" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_00/Lighting" unique_id=656963726 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 16, 2.8, 30)
-light_color = Color(0.55, 0.44, 0.32, 1)
-light_energy = 0.5
-shadow_enabled = true
-omni_range = 8.0
-omni_attenuation = 1.35
-
-[node name="J5Light" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_00/Lighting" unique_id=1893681953 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 40, 2.8, 30)
-light_color = Color(0.55, 0.44, 0.32, 1)
-light_energy = 0.5
-shadow_enabled = true
-omni_range = 8.0
-omni_attenuation = 1.35
-
-[node name="J6Light" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_00/Lighting" unique_id=254055927 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 64, 2.8, 30)
-light_color = Color(0.55, 0.44, 0.32, 1)
-light_energy = 0.5
-shadow_enabled = true
-omni_range = 8.0
-omni_attenuation = 1.35
-
-[node name="J7Light" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_00/Lighting" unique_id=1326111994 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 16, 2.8, 46)
-light_color = Color(0.55, 0.44, 0.32, 1)
-light_energy = 0.5
-shadow_enabled = true
-omni_range = 8.0
-omni_attenuation = 1.35
-
-[node name="J8Light" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_00/Lighting" unique_id=819510154 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 40, 2.8, 46)
-light_color = Color(0.55, 0.44, 0.32, 1)
-light_energy = 0.5
-shadow_enabled = true
-omni_range = 8.0
-omni_attenuation = 1.35
-
-[node name="J9Light" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_00/Lighting" unique_id=444333312 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 64, 2.8, 46)
-light_color = Color(0.55, 0.44, 0.32, 1)
-light_energy = 0.5
-shadow_enabled = true
-omni_range = 8.0
-omni_attenuation = 1.35
 
 [node name="Props" type="Node3D" parent="VillaHouse/Generated/Level_F_00" unique_id=299129767]
 
@@ -48836,10 +48554,6 @@ metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Modern Shelves
 [node name="Drawer 1_4631" parent="VillaHouse/Generated/Level_F_00/Props/R_PARLORProps" unique_id=1639801241 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("32_3exuq")]
 transform = Transform3D(-1, 0, -8.742278e-08, 0, 1, 0, 8.742278e-08, 0, -1, 17, 0, 2.55)
 metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Drawer 1.fbx"
-
-[node name="Lamp 2_4632" parent="VillaHouse/Generated/Level_F_00/Props/R_PARLORProps" unique_id=406245870 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("33_vutq6")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 19, 0, 9.45)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Lamp 2.fbx"
 
 [node name="Drawer-Cabinet_4633" parent="VillaHouse/Generated/Level_F_00/Props/R_PARLORProps" unique_id=1133219213 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("29_u8mx8")]
 transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 21.45, 0, 5)
@@ -48966,10 +48680,6 @@ metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Modern Shelves
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 59, 0, 9.45)
 metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Simple Shelf.fbx"
 
-[node name="Lamp 3_4663" parent="VillaHouse/Generated/Level_F_00/Props/R_STUDYProps" unique_id=684218274 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("42_3rjml")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 61, 0, 9.45)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Lamp 3.fbx"
-
 [node name="Drawer 1_4664" parent="VillaHouse/Generated/Level_F_00/Props/R_STUDYProps" unique_id=134606218 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("32_3exuq")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 63, 0, 9.45)
 metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Drawer 1.fbx"
@@ -49056,10 +48766,6 @@ metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Modern Shelves
 transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 11.45, 0, 13)
 metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Drawer 1.fbx"
 
-[node name="Lamp 2_4685" parent="VillaHouse/Generated/Level_F_00/Props/R_LIVINGProps" unique_id=2011581610 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("33_vutq6")]
-transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 11.45, 0, 17)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Lamp 2.fbx"
-
 [node name="Puff_4686" parent="VillaHouse/Generated/Level_F_00/Props/R_LIVINGProps" unique_id=1141117756 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("30_ryq2d")]
 transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 11.45, 0, 23)
 metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Puff.fbx"
@@ -49101,10 +48807,6 @@ metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Simple Shelf.f
 [node name="Modern Shelves_4695" parent="VillaHouse/Generated/Level_F_00/Props/R_LIBRARYProps" unique_id=527721853 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("18_vhc4g")]
 transform = Transform3D(-1, 0, -8.742278e-08, 0, 1, 0, 8.742278e-08, 0, -1, 5, 0, 32.55)
 metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Modern Shelves.fbx"
-
-[node name="Lamp 3_4696" parent="VillaHouse/Generated/Level_F_00/Props/R_LIBRARYProps" unique_id=1507819782 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("42_3rjml")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7, 0, 47.45)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Lamp 3.fbx"
 
 [node name="Drawer 1_4697" parent="VillaHouse/Generated/Level_F_00/Props/R_LIBRARYProps" unique_id=521828080 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("32_3exuq")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 9, 0, 47.45)
@@ -49394,10 +49096,6 @@ metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Modern Shelves
 transform = Transform3D(-4.371139e-08, 0, -1, 0, 1, 0, 1, 0, -4.371139e-08, 44.55, 0, 39)
 metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Chair 3.fbx"
 
-[node name="Lamp 1_4766" parent="VillaHouse/Generated/Level_F_00/Props/R_CHAPELProps" unique_id=461388761 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("57_7bueu")]
-transform = Transform3D(-1, 0, -8.742278e-08, 0, 1, 0, 8.742278e-08, 0, -1, 47, 0, 34.55)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Lamp 1.fbx"
-
 [node name="Chair 3_4767" parent="VillaHouse/Generated/Level_F_00/Props/R_CHAPELProps" unique_id=21778208 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("41_40s2u")]
 transform = Transform3D(-1, 0, -8.742278e-08, 0, 1, 0, 8.742278e-08, 0, -1, 49, 0, 34.55)
 metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Chair 3.fbx"
@@ -49480,10 +49178,6 @@ metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Drawer-Cabinet
 [node name="Modern Shelves_4786" parent="VillaHouse/Generated/Level_F_00/Props/R_DININGProps" unique_id=1983282208 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("18_vhc4g")]
 transform = Transform3D(-1, 0, -8.742278e-08, 0, 1, 0, 8.742278e-08, 0, -1, 15, 0, 50.55)
 metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Modern Shelves.fbx"
-
-[node name="Lamp 2_4787" parent="VillaHouse/Generated/Level_F_00/Props/R_DININGProps" unique_id=1198096828 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("33_vutq6")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 17, 0, 57.45)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Lamp 2.fbx"
 
 [node name="Drawer 1_4788" parent="VillaHouse/Generated/Level_F_00/Props/R_DININGProps" unique_id=19535421 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("32_3exuq")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 19, 0, 57.45)
@@ -49574,10 +49268,6 @@ metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Modern Shelves
 [node name="Stool_4809" parent="VillaHouse/Generated/Level_F_00/Props/R_BALLROOMProps" unique_id=2147316592 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("37_p0m6j")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 45, 0, 57.45)
 metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Stool.fbx"
-
-[node name="Lamp 3_4810" parent="VillaHouse/Generated/Level_F_00/Props/R_BALLROOMProps" unique_id=1262768650 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("42_3rjml")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 47, 0, 57.45)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Lamp 3.fbx"
 
 [node name="Puff_4811" parent="VillaHouse/Generated/Level_F_00/Props/R_BALLROOMProps" unique_id=1871976336 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("30_ryq2d")]
 transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 49.45, 0, 55)
@@ -74484,255 +74174,31 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 64, 3.5, 46)
 metadata/junction_id = "K9"
 metadata/degree = 2
 
-[node name="Lighting" type="Node3D" parent="VillaHouse/Generated/Level_F_01" unique_id=1090394928]
 
-[node name="R_BED_1Light" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_01/Lighting" unique_id=145665479 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 15, 6.3, 6)
-light_color = Color(0.62, 0.47, 0.29, 1)
-light_energy = 0.55
-omni_range = 7.2
-omni_attenuation = 1.35
 
-[node name="CeilingFixture_8931" parent="VillaHouse/Generated/Level_F_01/Lighting" unique_id=1031460227 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("11_a67k0")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 15, 6.72, 6)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Ceiling Lamp 2.fbx"
 
-[node name="R_UP_HALLLight" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_01/Lighting" unique_id=624254950 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 40, 6.3, 6)
-light_color = Color(0.62, 0.47, 0.29, 1)
-light_energy = 0.55
-omni_range = 7.2
-omni_attenuation = 1.35
 
-[node name="CeilingFixture_8932" parent="VillaHouse/Generated/Level_F_01/Lighting" unique_id=753624122 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("11_a67k0")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 40, 6.72, 6)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Ceiling Lamp 2.fbx"
 
-[node name="R_WC_UP_NORTHLight" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_01/Lighting" unique_id=806148557 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 54, 6.3, 8)
-light_color = Color(0.62, 0.47, 0.29, 1)
-light_energy = 0.55
-omni_range = 6.0
-omni_attenuation = 1.35
 
-[node name="CeilingFixture_8933" parent="VillaHouse/Generated/Level_F_01/Lighting" unique_id=1141452279 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("11_a67k0")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 54, 6.72, 8)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Ceiling Lamp 2.fbx"
 
-[node name="R_BED_2Light" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_01/Lighting" unique_id=1363911473 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 68, 6.3, 6)
-light_color = Color(0.62, 0.47, 0.29, 1)
-light_energy = 0.55
-omni_range = 7.2
-omni_attenuation = 1.35
 
-[node name="CeilingFixture_8934" parent="VillaHouse/Generated/Level_F_01/Lighting" unique_id=1607130975 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("11_a67k0")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 68, 6.72, 6)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Ceiling Lamp 2.fbx"
 
-[node name="R_MASTERLight" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_01/Lighting" unique_id=1392773255 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7, 6.3, 21)
-light_color = Color(0.62, 0.47, 0.29, 1)
-light_energy = 0.55
-omni_range = 9.0
-omni_attenuation = 1.35
 
-[node name="CeilingFixture_8935" parent="VillaHouse/Generated/Level_F_01/Lighting" unique_id=324245840 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("11_a67k0")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7, 6.72, 21)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Ceiling Lamp 2.fbx"
 
-[node name="R_NURSERYLight" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_01/Lighting" unique_id=359571496 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7, 6.3, 37)
-light_color = Color(0.62, 0.47, 0.29, 1)
-light_energy = 0.55
-omni_range = 9.0
-omni_attenuation = 1.35
 
-[node name="CeilingFixture_8936" parent="VillaHouse/Generated/Level_F_01/Lighting" unique_id=1815604925 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("11_a67k0")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7, 6.72, 37)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Ceiling Lamp 2.fbx"
 
-[node name="R_WC_UP_SOUTHLight" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_01/Lighting" unique_id=788689142 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 6.3, 46)
-light_color = Color(0.62, 0.47, 0.29, 1)
-light_energy = 0.55
-omni_range = 6.0
-omni_attenuation = 1.35
 
-[node name="CeilingFixture_8937" parent="VillaHouse/Generated/Level_F_01/Lighting" unique_id=1722031438 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("11_a67k0")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 6.72, 46)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Ceiling Lamp 2.fbx"
 
-[node name="R_BED_3Light" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_01/Lighting" unique_id=1204492838 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 73, 6.3, 21)
-light_color = Color(0.62, 0.47, 0.29, 1)
-light_energy = 0.55
-omni_range = 9.0
-omni_attenuation = 1.35
 
-[node name="CeilingFixture_8938" parent="VillaHouse/Generated/Level_F_01/Lighting" unique_id=1183247903 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("11_a67k0")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 73, 6.72, 21)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Ceiling Lamp 2.fbx"
 
-[node name="R_BATH_MAINLight" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_01/Lighting" unique_id=1232928491 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 72, 6.3, 40)
-light_color = Color(0.62, 0.47, 0.29, 1)
-light_energy = 0.55
-omni_range = 7.2
-omni_attenuation = 1.35
 
-[node name="CeilingFixture_8939" parent="VillaHouse/Generated/Level_F_01/Lighting" unique_id=1778500434 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("11_a67k0")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 72, 6.72, 40)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Ceiling Lamp 2.fbx"
 
-[node name="R_STUDY_UPLight" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_01/Lighting" unique_id=1778966950 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 28, 6.3, 22)
-light_color = Color(0.62, 0.47, 0.29, 1)
-light_energy = 0.55
-omni_range = 7.2
-omni_attenuation = 1.35
 
-[node name="CeilingFixture_8940" parent="VillaHouse/Generated/Level_F_01/Lighting" unique_id=1216914459 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("11_a67k0")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 28, 6.72, 22)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Ceiling Lamp 2.fbx"
 
-[node name="R_LINENLight" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_01/Lighting" unique_id=1345732348 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 28, 6.3, 38)
-light_color = Color(0.62, 0.47, 0.29, 1)
-light_energy = 0.55
-omni_range = 7.2
-omni_attenuation = 1.35
 
-[node name="CeilingFixture_8941" parent="VillaHouse/Generated/Level_F_01/Lighting" unique_id=34013591 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("11_a67k0")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 28, 6.72, 38)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Ceiling Lamp 2.fbx"
 
-[node name="R_SERVANTLight" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_01/Lighting" unique_id=1729687186 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 52, 6.3, 38)
-light_color = Color(0.62, 0.47, 0.29, 1)
-light_energy = 0.55
-omni_range = 7.2
-omni_attenuation = 1.35
 
-[node name="CeilingFixture_8942" parent="VillaHouse/Generated/Level_F_01/Lighting" unique_id=1686733806 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("11_a67k0")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 52, 6.72, 38)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Ceiling Lamp 2.fbx"
 
-[node name="R_STORAGELight" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_01/Lighting" unique_id=1516247367 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 15, 6.3, 54)
-light_color = Color(0.62, 0.47, 0.29, 1)
-light_energy = 0.55
-omni_range = 7.2
-omni_attenuation = 1.35
-
-[node name="CeilingFixture_8943" parent="VillaHouse/Generated/Level_F_01/Lighting" unique_id=1100980970 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("11_a67k0")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 15, 6.72, 54)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Ceiling Lamp 2.fbx"
-
-[node name="R_GALLERY_UPLight" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_01/Lighting" unique_id=1056015840 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 40, 6.3, 54)
-light_color = Color(0.62, 0.47, 0.29, 1)
-light_energy = 0.55
-omni_range = 7.2
-omni_attenuation = 1.35
-
-[node name="CeilingFixture_8944" parent="VillaHouse/Generated/Level_F_01/Lighting" unique_id=1777587841 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("11_a67k0")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 40, 6.72, 54)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Ceiling Lamp 2.fbx"
-
-[node name="R_SERVICE_UPLight" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_01/Lighting" unique_id=478702230 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 65, 6.3, 54)
-light_color = Color(0.62, 0.47, 0.29, 1)
-light_energy = 0.55
-omni_range = 7.2
-omni_attenuation = 1.35
-
-[node name="CeilingFixture_8945" parent="VillaHouse/Generated/Level_F_01/Lighting" unique_id=1318921682 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("11_a67k0")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 65, 6.72, 54)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Ceiling Lamp 2.fbx"
-
-[node name="R_ATRIUM_BALCONYLight" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_01/Lighting" unique_id=1423175138 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 43, 6.3, 22)
-light_color = Color(0.62, 0.47, 0.29, 1)
-light_energy = 0.55
-omni_range = 6.0
-omni_attenuation = 1.35
-
-[node name="CeilingFixture_8946" parent="VillaHouse/Generated/Level_F_01/Lighting" unique_id=287496936 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("11_a67k0")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 43, 6.72, 22)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Ceiling Lamp 2.fbx"
-
-[node name="K1Light" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_01/Lighting" unique_id=1746513115 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 16, 6.3, 14)
-light_color = Color(0.55, 0.44, 0.32, 1)
-light_energy = 0.5
-shadow_enabled = true
-omni_range = 8.0
-omni_attenuation = 1.35
-
-[node name="K2Light" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_01/Lighting" unique_id=986350434 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 40, 6.3, 14)
-light_color = Color(0.55, 0.44, 0.32, 1)
-light_energy = 0.5
-shadow_enabled = true
-omni_range = 8.0
-omni_attenuation = 1.35
-
-[node name="K3Light" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_01/Lighting" unique_id=1777306122 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 64, 6.3, 14)
-light_color = Color(0.55, 0.44, 0.32, 1)
-light_energy = 0.5
-shadow_enabled = true
-omni_range = 8.0
-omni_attenuation = 1.35
-
-[node name="K4Light" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_01/Lighting" unique_id=161306723 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 16, 6.3, 30)
-light_color = Color(0.55, 0.44, 0.32, 1)
-light_energy = 0.5
-shadow_enabled = true
-omni_range = 8.0
-omni_attenuation = 1.35
-
-[node name="K5Light" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_01/Lighting" unique_id=1997523116 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 40, 6.3, 30)
-light_color = Color(0.55, 0.44, 0.32, 1)
-light_energy = 0.5
-shadow_enabled = true
-omni_range = 8.0
-omni_attenuation = 1.35
-
-[node name="K6Light" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_01/Lighting" unique_id=421713840 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 64, 6.3, 30)
-light_color = Color(0.55, 0.44, 0.32, 1)
-light_energy = 0.5
-shadow_enabled = true
-omni_range = 8.0
-omni_attenuation = 1.35
-
-[node name="K7Light" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_01/Lighting" unique_id=508026723 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 16, 6.3, 46)
-light_color = Color(0.55, 0.44, 0.32, 1)
-light_energy = 0.5
-shadow_enabled = true
-omni_range = 8.0
-omni_attenuation = 1.35
-
-[node name="K8Light" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_01/Lighting" unique_id=1257161314 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 40, 6.3, 46)
-light_color = Color(0.55, 0.44, 0.32, 1)
-light_energy = 0.5
-shadow_enabled = true
-omni_range = 8.0
-omni_attenuation = 1.35
-
-[node name="K9Light" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_01/Lighting" unique_id=30282274 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 64, 6.3, 46)
-light_color = Color(0.55, 0.44, 0.32, 1)
-light_energy = 0.5
-shadow_enabled = true
-omni_range = 8.0
-omni_attenuation = 1.35
 
 [node name="Props" type="Node3D" parent="VillaHouse/Generated/Level_F_01" unique_id=410611948]
 
@@ -74761,10 +74227,6 @@ metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Chair 2.fbx"
 [node name="Drawer 1_8952" parent="VillaHouse/Generated/Level_F_01/Props/R_BED_1Props" unique_id=1131768075 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("32_3exuq")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 9, 3.5, 9.45)
 metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Drawer 1.fbx"
-
-[node name="Lamp 1_8953" parent="VillaHouse/Generated/Level_F_01/Props/R_BED_1Props" unique_id=1453947651 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("57_7bueu")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 11, 3.5, 9.45)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Lamp 1.fbx"
 
 [node name="Drawer-Cabinet_8954" parent="VillaHouse/Generated/Level_F_01/Props/R_BED_1Props" unique_id=1983729685 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("29_u8mx8")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 13, 3.5, 9.45)
@@ -74931,10 +74393,6 @@ metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Drawer 1.fbx"
 transform = Transform3D(-1, 0, -8.742278e-08, 0, 1, 0, 8.742278e-08, 0, -1, 73, 3.5, 2.55)
 metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Chair 2.fbx"
 
-[node name="Lamp 1_8994" parent="VillaHouse/Generated/Level_F_01/Props/R_BED_2Props" unique_id=381865186 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("57_7bueu")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 75, 3.5, 9.45)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Lamp 1.fbx"
-
 [node name="Drawer-Cabinet_8995" parent="VillaHouse/Generated/Level_F_01/Props/R_BED_2Props" unique_id=287716931 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("29_u8mx8")]
 transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 77.45, 3.5, 5)
 metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Drawer-Cabinet.fbx"
@@ -74988,10 +74446,6 @@ metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Drawer 1.fbx"
 [node name="Drawer-Cabinet_9007" parent="VillaHouse/Generated/Level_F_01/Props/R_MASTERProps" unique_id=1233307919 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("29_u8mx8")]
 transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 11.45, 3.5, 13)
 metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Drawer-Cabinet.fbx"
-
-[node name="Lamp 2_9008" parent="VillaHouse/Generated/Level_F_01/Props/R_MASTERProps" unique_id=1101150554 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("33_vutq6")]
-transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 11.45, 3.5, 17)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Lamp 2.fbx"
 
 [node name="Sofa 2_9009" parent="VillaHouse/Generated/Level_F_01/Props/R_MASTERProps" unique_id=2055202850 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("28_y1wf7")]
 transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 11.45, 3.5, 23)
@@ -79835,18 +79289,7 @@ mesh = SubResource("BoxMesh_2tapq")
 
 [node name="Junctions" type="Node3D" parent="VillaHouse/Generated/Level_F_02" unique_id=405298925]
 
-[node name="Lighting" type="Node3D" parent="VillaHouse/Generated/Level_F_02" unique_id=7487764]
 
-[node name="R_ATTICLight" type="OmniLight3D" parent="VillaHouse/Generated/Level_F_02/Lighting" unique_id=1849991770 groups=["flickering_house_lights"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 30, 9.8, 30)
-light_color = Color(0.62, 0.47, 0.29, 1)
-light_energy = 0.55
-omni_range = 21.6
-omni_attenuation = 1.35
-
-[node name="CeilingFixture_9813" parent="VillaHouse/Generated/Level_F_02/Lighting" unique_id=1892168702 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("11_a67k0")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 30, 10.22, 30)
-metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Ceiling Lamp 2.fbx"
 
 [node name="Props" type="Node3D" parent="VillaHouse/Generated/Level_F_02" unique_id=204552493]
 
@@ -80706,6 +80149,8 @@ night_aggression = 0.15
 [node name="CrawlerGhost" parent="." unique_id=1032407792 instance=ExtResource("8_crawler")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 29, 7.4, 29)
 containment_enabled = true
+containment_min = Vector3(0.35, -3.2, 0.35)
+containment_max = Vector3(79.65, 10.2, 59.65)
 patrol_point_timeout = 26.0
 
 [node name="HunterGhost" parent="." unique_id=149705737 instance=ExtResource("11_hunter")]
