@@ -34,6 +34,10 @@ func _run() -> void:
 	player_b.global_position = Vector3(50.0, 1.0, 50.0)
 	var full_fill_time: float = player.bladder.bladder_max / player.bladder.bladder_fill_rate
 	var full_drain_time: float = player.bladder.bladder_max / minigame.bladder_drain_rate
+	if not is_equal_approx(minigame.pee_ramp_duration, 1.5):
+		push_error("Every toilet entry must rebuild flow over 1.5 seconds.")
+		quit(1)
+		return
 	if not is_equal_approx(full_fill_time, full_drain_time * 5.0):
 		push_error(
 			"A full bladder should take five times longer to fill than to drain "
@@ -114,8 +118,8 @@ func _run() -> void:
 		push_error("yaw_clamp_active was not enabled while the toilet minigame is playing.")
 		quit(1)
 		return
-	if not is_equal_approx(player.yaw_clamp_max - player.yaw_clamp_min, deg_to_rad(270.0)):
-		push_error("Yaw clamp range is not a believable +-135-degree over-the-shoulder glance.")
+	if not is_equal_approx(player.yaw_clamp_max - player.yaw_clamp_min, TAU):
+		push_error("Yaw clamp range is not a full turn for checking both rear shoulders.")
 		quit(1)
 		return
 	if not is_equal_approx(player.pitch_clamp_max - player.pitch_clamp_min, deg_to_rad(180.0)):
@@ -296,6 +300,14 @@ func _run() -> void:
 		push_error("Cancel changed the bladder value; it must stay untouched (got %f)." % player.bladder.current_value)
 		quit(1)
 		return
+	var saved_ghost_advance := float(player.get_meta(ToiletMinigame.GHOST_ADVANCE_META, 0.0))
+	var expected_cancel_step := 1.0 / float(minigame.toilet_ghost.steps_to_reach)
+	if not is_equal_approx(saved_ghost_advance, expected_cancel_step):
+		push_error("Cancel saved ghost advance %.3f, expected one step (%.3f)." % [
+			saved_ghost_advance, expected_cancel_step
+		])
+		quit(1)
+		return
 	if player.is_toilet_minigame_active() or player.is_door_minigame_active():
 		push_error("Player minigame-lock flag did not clear after cancel.")
 		quit(1)
@@ -320,6 +332,14 @@ func _run() -> void:
 		push_error("Toilet did not accept a new session after the previous one was cancelled.")
 		quit(1)
 		return
+	if not is_equal_approx(minigame.toilet_ghost._pending_start_advance, expected_cancel_step):
+		push_error("The next session did not restore the cancelled ghost's advance.")
+		quit(1)
+		return
+	if minigame.toilet_ghost._spawn_timer > minigame.toilet_ghost.resumed_spawn_delay + 0.001:
+		push_error("A carried-over ghost used the normal initial spawn delay.")
+		quit(1)
+		return
 
 	# --- Success: drive bladder to 0 while parked in the safe zone. ---
 	player.bladder.current_value = 5.0 # small on purpose - fast, deterministic drain
@@ -342,6 +362,10 @@ func _run() -> void:
 		push_error("Success did not leave the interacting player's bladder at 0.")
 		quit(1)
 		return
+	if player.has_meta(ToiletMinigame.GHOST_ADVANCE_META):
+		push_error("Success did not clear the player's Toilet Ghost advance debt.")
+		quit(1)
+		return
 	if player_b.bladder.current_value != 42.0:
 		push_error("player_b's bladder was touched by player's success.")
 		quit(1)
@@ -362,6 +386,58 @@ func _run() -> void:
 		push_error("Player minigame-lock flag did not clear after success.")
 		quit(1)
 		return
+
+	# --- Toilet Ghost catch consequence: alive, 80% slower, blurred/flickering
+	# overlay for exactly seven seconds, then a complete automatic recovery. ---
+	var stun_started := [0]
+	var stun_finished := [0]
+	player.toilet_ghost_stun_changed.connect(func(active: bool) -> void:
+		if active:
+			stun_started[0] += 1
+		else:
+			stun_finished[0] += 1
+	)
+	await physics_frame
+	player.call("_try_interact")
+	if minigame.current_state != ToiletMinigame.MinigameState.PLAYING:
+		push_error("Could not start a session for the Toilet Ghost catch integration check.")
+		quit(1)
+		return
+	minigame._on_toilet_ghost_caught()
+	if minigame.current_state != ToiletMinigame.MinigameState.CANCELLED:
+		push_error("Toilet Ghost catch did not cancel and release its minigame.")
+		quit(1)
+		return
+	if not player.is_alive or not player.is_toilet_ghost_stunned():
+		push_error("Toilet Ghost stun killed the player or failed to become active.")
+		quit(1)
+		return
+	if not is_equal_approx(player.toilet_ghost_stun_remaining, 7.0) \
+			or not is_equal_approx(player.get_toilet_ghost_speed_multiplier(), 0.2):
+		push_error("Toilet Ghost stun is not seven seconds at 20% movement speed.")
+		quit(1)
+		return
+	var player_overlay := player.horror_overlay_rect.material as ShaderMaterial
+	var player_b_overlay := player_b.horror_overlay_rect.material as ShaderMaterial
+	if not is_equal_approx(float(player_overlay.get_shader_parameter("stun_strength")), 1.0):
+		push_error("Toilet Ghost stun did not enable the concussion overlay.")
+		quit(1)
+		return
+	if not is_zero_approx(float(player_b_overlay.get_shader_parameter("stun_strength"))):
+		push_error("One player's stun leaked into another player's overlay material.")
+		quit(1)
+		return
+	player._update_toilet_ghost_stun(7.0)
+	if player.is_toilet_ghost_stunned() \
+			or not is_zero_approx(float(player_overlay.get_shader_parameter("stun_strength"))):
+		push_error("Toilet Ghost stun did not fully clear after seven seconds.")
+		quit(1)
+		return
+	if stun_started[0] != 1 or stun_finished[0] != 1:
+		push_error("Toilet Ghost stun lifecycle signals were not emitted exactly once.")
+		quit(1)
+		return
+	await create_timer(1.4).timeout # cancel cleanup + 3D caught overlay cleanup
 
 	# --- Player invalidation mid-session (e.g. death): safe cleanup via
 	# cancel, no success, no bladder change.

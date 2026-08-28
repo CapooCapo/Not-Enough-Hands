@@ -386,7 +386,7 @@ sit on.
 the junctions, open the door cells, repaint the light shaft solid on the floor
 above it, and cut the entrances into the outer wall. `villa_house.gd` then turns
 that cell grid into geometry — greedy-rectangle floor slabs, wall runs merged
-along each straight face, doorways, ramps, railings and lights — and publishes
+along each straight face, doorways, ramps and railings — and publishes
 room, junction, entrance, spawn and ghost-route markers.
 
 Four compact 4 × 4 m WCs are cut into the outer room bands: two on the ground
@@ -401,7 +401,7 @@ Open the scene the parts should live in - `house3/villa_main.tscn` is the one
 that is played, and it is where the current bake sits - select its `VillaHouse`
 node, and use the **Villa Authoring** controls in the Inspector:
 
-1. Set detail, furniture and lighting to the version you want to edit.
+1. Set detail and furniture to the version you want to edit.
 2. Press **Bake Editable Parts**, then save the scene.
 3. Expand `Generated/Level_*/Architecture`. Walls, floor slabs, ceilings and
    railings are now separate 2 m modules. Moving a body moves both its visual
@@ -605,6 +605,15 @@ stands on, that every chain the builder made is still reachable from the
 animation (a limb that exists but stopped moving is the one bug a screenshot
 will not show), and that the gaze light is still inside the crown the player can
 see scanning the corridor.
+`crawler_locomotion_smoke.gd` covers how the crawler gets about, as opposed to
+what it wants: that it works its way round an obstruction instead of shoving at
+the face of it, and picks the side the obstruction actually ends on; that
+holding still on purpose is not mistaken for being wedged; that a player who
+keeps moving cannot stop it noticing it is wedged, which is what used to pin it
+on a ceiling indefinitely; that its search sweeps pick points on its own side of
+a wall; and that with a navigation mesh baked under it, a patrol still leaves the
+floor for the wall - the navmesh used to suppress the climb entirely, so in both
+shipping houses the wall-crawling never actually happened.
 `house_hunter_sweep_smoke.gd` then drops it into House2 itself, in three stages:
 it must search real rooms across the baked navmesh instead of grinding into the
 first wall; it must find a player standing perfectly still two floors above it;

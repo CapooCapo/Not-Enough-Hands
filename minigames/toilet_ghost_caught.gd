@@ -1,11 +1,9 @@
 class_name ToiletGhostCaught
 extends CanvasLayer
 
-## Brief "you got caught" beat shown alongside the existing death flow (see
-## ToiletMinigame._on_toilet_ghost_caught() - Sprint 10) - not a replacement
-## for it. Purely a visual/audio reaction: no HP, no death logic, no ghost
-## or minigame control. Self-contained: plays its own animation, notifies
-## the caller when done, and removes itself.
+## Brief 3D "you got caught" beat shown above the existing death flow. The
+## transparent SubViewport renders the real Toilet Ghost model rather than a
+## flat screen-space photo. It still owns no death/gameplay logic.
 
 signal sequence_finished
 

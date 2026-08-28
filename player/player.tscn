@@ -18,6 +18,7 @@
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_horror_overlay"]
+resource_local_to_scene = true
 shader = ExtResource("2_horror_overlay")
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_blink_overlay"]
