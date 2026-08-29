@@ -108,6 +108,35 @@ one in-game minute, including the midnight rollover. Reaching **6:00 AM** stops
 the threats, pauses the world, and displays the dawn victory screen. The clock
 is hidden while the door-ghost flashlight minigame owns the screen.
 
+## Going down, and being picked back up
+
+Being caught by a ghost is only the end of the run when nobody is left to come
+back for you. With at least one teammate still on their feet, a kill puts you on
+the floor instead:
+
+- **Downed.** You cannot move, interact, or use an item. You can still look
+  around from where you are lying, and ghosts stop treating you as a target the
+  moment you go down — they will not finish a body on the floor, and they lose
+  interest until somebody lifts you.
+- **The budget is a whole run, not one death.** Every player has **180 seconds**
+  of total floor time. Each death takes a flat **60 seconds** off that budget up
+  front, and the rest drains in real time while you lie there. It never refills,
+  so a rescue is a reprieve, not a reset, and three deaths is normally the limit.
+- **The ring is the clock.** Downed players show as a ring drawn straight onto
+  every teammate's HUD, so it reads through walls, and it stays pinned to the
+  screen edge when the body is behind you. The outer sweep is the time left, the
+  inner sweep is how far the rescue has got. Deliberately no numbers.
+- **Ten seconds, held.** A teammate stands next to the body and holds **E** for
+  ten uninterrupted seconds. The bleed-out clock is **frozen** for the whole
+  rescue, so being reached in time is what matters, not being reached quickly.
+  Letting go unwinds the progress at double speed.
+- **Spectator.** When the budget reaches zero — bled out, or spent by a death
+  with under 60 seconds left — the player becomes a spectator: no collision, no
+  body, free flight, and no ghost will ever look at them again.
+
+Alone, none of this applies. A kill with no teammate left standing runs the
+original jumpscare and game-over screen exactly as before.
+
 ## House2 layout
 
 - Basement: boiler and storage room; cellar exit 06 opens into a sunken exterior
@@ -159,11 +188,11 @@ nothing about surviving the others.
 | | Statue (`ghosts/statue_ghost.gd`) | Crawler (`ghosts/crawler_ghost.gd`) | Huntsman (`ghosts/hunter_ghost.gd`) |
 |---|---|---|---|
 | Senses | Sight — it freezes while any player can see it | Sound — it is blind, and hears movement | Tracks the floor you walked on, then sees you — in every direction at once |
-| Counterplay | Keep looking at it; do not blink | Go quiet: crouch, or stop moving entirely | Keep a wall between you for five whole seconds — then it walks away from you, not toward you |
+| Counterplay | Keep looking at it, do not blink, and never let it inside 2 m | Go quiet: crouch, or stop moving entirely | Keep a wall between you for five whole seconds — then it walks away from you, not toward you |
 | Space | Floors and stairs, on the navmesh | Floors, walls and ceilings; travels overhead | Every room on every floor, on foot, room by room |
 | Arrival | Teleports into a scripted ambush, then vanishes | Announces itself with a fly-past, then sweeps the house | Walks in through a door it has already broken |
 | Presence | Gone the moment you look away | Gone between hunts | Never teleports, never vanishes while inside |
-| Kill | Grabs you during a blink or a look-away; distant statues surge much farther per blink | Leaps 13 m at 21 m/s, or mauls what it touches | Roars for 2.5 s, then charges a shade faster than a sprint and grabs |
+| Kill | Grabs you during a blink or a look-away; distant statues surge much farther per blink, and a blink inside `blink_kill_distance` (2 m) kills outright with no wind-up | Leaps 13 m at 21 m/s, or mauls what it touches | Roars for 2.5 s, then charges a shade faster than a sprint and grabs |
 
 Standing still is the correct answer to the crawler, staring is the correct
 answer to the statue, and neither does anything at all to the huntsman. That is
@@ -643,6 +672,15 @@ on a ceiling indefinitely; that its search sweeps pick points on its own side of
 a wall; and that with a navigation mesh baked under it, a patrol still leaves the
 floor for the wall - the navmesh used to suppress the climb entirely, so in both
 shipping houses the wall-crawling never actually happened.
+`downed_revive_smoke.gd` covers the co-op downed contract above: that a kill with
+a teammate still standing puts a player on the floor rather than ending their
+run, that no ghost will target them there and will again once they are up, that
+each death charges exactly 60 seconds of the 180-second budget, that the
+bleed-out clock is genuinely frozen for all ten seconds of a rescue and the
+budget is not refilled by one, that a teammate out of range cannot start a
+rescue, that spending the last of the budget goes straight to spectator with no
+collision left in the world, and that a kill with nobody left standing still
+shows the original death screen.
 `house_hunter_sweep_smoke.gd` then drops it into House2 itself, in three stages:
 it must search real rooms across the baked navmesh instead of grinding into the
 first wall; it must find a player standing perfectly still two floors above it;
