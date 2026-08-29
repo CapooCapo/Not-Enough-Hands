@@ -30,6 +30,10 @@ window/stretch/aspect="expand"
 
 project/assembly_name="Not-Enough-Hands"
 
+[filesystem]
+
+import/blender/enabled=false
+
 [input]
 
 move_forward={

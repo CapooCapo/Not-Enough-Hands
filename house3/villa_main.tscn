@@ -43,6 +43,8 @@
 [ext_resource type="Script" uid="uid://d0iyxxqhm2veh" path="res://power/power_manager.gd" id="74_power_manager"]
 [ext_resource type="Script" uid="uid://b2gaybbyughv4" path="res://power/electrical_zone.gd" id="75_electrical_zone"]
 [ext_resource type="Script" uid="uid://bvjhdlrovelh0" path="res://power/electrical_zone_controller.gd" id="77_zone_controller"]
+[ext_resource type="Script" uid="uid://01w221wpws42" path="res://house3/villa_windows.gd" id="79_villa_windows"]
+[ext_resource type="Script" uid="uid://jn7ag6n0ntnt" path="res://house3/villa_exterior.gd" id="80_villa_exterior"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_villa"]
 sky_top_color = Color(0.22, 0.38, 0.58, 1)
@@ -23390,12 +23392,27 @@ automatic_waves = true
 [node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=875346206]
 environment = SubResource("Environment_villa")
 
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+rotation_degrees = Vector3(-48, -28, 0)
+light_color = Color(0.34, 0.43, 0.62, 1)
+light_energy = 0.3
+light_specular = 0.18
+light_volumetric_fog_energy = 0.55
+shadow_enabled = true
+directional_shadow_max_distance = 96.0
+
 [node name="NightClock" parent="." unique_id=1746481526 instance=ExtResource("9_night_clock")]
 
 [node name="DevTools" parent="." unique_id=278020789 instance=ExtResource("10_dev_tools")]
 
 [node name="VillaHouse" parent="." unique_id=292533536 instance=ExtResource("1_villa")]
 authoring_granularity = 1
+
+[node name="VillaWindows" type="Node3D" parent="."]
+script = ExtResource("79_villa_windows")
+
+[node name="VillaExterior" type="Node3D" parent="."]
+script = ExtResource("80_villa_exterior")
 
 [node name="Generated" type="Node3D" parent="VillaHouse" unique_id=973196854 groups=["house2_geometry", "villa_geometry"]]
 
