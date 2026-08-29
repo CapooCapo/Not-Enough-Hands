@@ -16,6 +16,7 @@
 [ext_resource type="Script" path="res://ui/bladder_bar.gd" id="15_bladder_bar"]
 [ext_resource type="PackedScene" path="res://player/player_visual.tscn" id="16_player_visual"]
 [ext_resource type="Script" path="res://ui/downed_indicators.gd" id="17_downed_indicators"]
+[ext_resource type="Script" path="res://jumpscare/jumpscare_controller.gd" id="18_jumpscare"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
 
@@ -500,6 +501,10 @@ script = ExtResource("17_downed_indicators")
 player_path = NodePath("../..")
 
 [node name="DoorGhostMinigame" parent="." instance=ExtResource("6_door_minigame")]
+
+[node name="Jumpscare" type="Node" parent="."]
+process_mode = 3
+script = ExtResource("18_jumpscare")
 
 [node name="DeathUI" type="CanvasLayer" parent="."]
 visible = false

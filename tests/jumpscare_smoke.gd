@@ -94,6 +94,10 @@ func _run() -> void:
 	if visual == null:
 		_fail("Controller did not instance its visual.")
 		return
+	var background := visual.get_node_or_null("Background") as ColorRect
+	if background == null or background.color != Color.BLACK:
+		_fail("Hunter jumpscare must cover gameplay with an opaque black background.")
+		return
 	var camera := visual.get_node_or_null("VisualRoot/Viewport/World/Camera3D") as Camera3D
 	var anchor := visual.get_node_or_null("VisualRoot/Viewport/World/GhostAnchor") as Node3D
 	var ghost := visual.get_node_or_null(

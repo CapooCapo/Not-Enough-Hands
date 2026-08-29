@@ -140,6 +140,7 @@ var hunter_trap_source: Node3D
 @onready var blink_bar: ProgressBar = $BlinkUI/BlinkContainer/VBoxContainer/BlinkBar
 @onready var horror_overlay_rect: ColorRect = $HorrorOverlay/VignetteAndGrain
 @onready var death_ui: CanvasLayer = $DeathUI
+@onready var jumpscare: JumpscareController = $Jumpscare
 @onready var footstep_players: Array[AudioStreamPlayer3D] = [$FootstepA, $FootstepB]
 @onready var door_minigame: Node3D = get_node_or_null("DoorGhostMinigame") as Node3D
 @onready var equipment: PlayerEquipment = $Equipment
@@ -153,6 +154,7 @@ var _active_toilet_minigame: Node = null
 
 ## Same arrangement for BreakerMinigame, which lives per-breaker.
 var _active_breaker_minigame: Node = null
+var _pending_hunter_killer: Node3D = null
 
 var _minigame_ghost_safety_locks: int = 0
 var _minigame_ghost_release_remaining: float = 0.0
@@ -232,6 +234,10 @@ func _ready() -> void:
 	if flashlight:
 		_flashlight_base_energy = flashlight.light_energy
 		_flashlight_base_range = flashlight.spot_range
+	if door_minigame and door_minigame.has_signal("minigame_completed"):
+		door_minigame.connect("minigame_completed", _on_door_ghost_repelled)
+	if jumpscare:
+		jumpscare.jumpscare_finished.connect(_on_hunter_jumpscare_finished)
 
 
 ## Status visuals keep ticking while a minigame temporarily disables this
@@ -957,12 +963,44 @@ func kill_by_ghost(ghost: Node3D) -> void:
 	# With a teammate left standing it becomes a rescue window instead.
 	if _has_available_rescuer():
 		_enter_downed()
+	elif _start_hunter_jumpscare(ghost):
+		pass
 	elif death_ui.has_method("show_jumpscare"):
 		death_ui.call("show_jumpscare", ghost)
 	else:
 		death_ui.visible = true
 		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	killed_by_ghost.emit(ghost)
+
+
+func _start_hunter_jumpscare(ghost: Node3D) -> bool:
+	if not is_instance_valid(ghost) or not jumpscare:
+		return false
+	if not ghost.is_in_group("hunter_ghosts") \
+			and "hunter" not in ghost.name.to_lower():
+		return false
+	_pending_hunter_killer = ghost
+	if not jumpscare.play_jumpscare(self):
+		_pending_hunter_killer = null
+		return false
+	var active_scene := get_tree().current_scene
+	if active_scene and active_scene.is_ancestor_of(self):
+		get_tree().paused = true
+	return true
+
+
+func _on_hunter_jumpscare_finished() -> void:
+	var killer := _pending_hunter_killer
+	_pending_hunter_killer = null
+	if death_ui.has_method("show_game_over"):
+		death_ui.call("show_game_over", killer)
+	elif death_ui.has_method("show_jumpscare"):
+		death_ui.call("show_jumpscare", killer)
+
+
+func _on_door_ghost_repelled(_door: Node) -> void:
+	if jumpscare and is_alive and not jumpscare.is_playing():
+		jumpscare.play_jumpscare(self)
 
 
 ## A rescuer has to be able to walk over here: anyone already on the floor or

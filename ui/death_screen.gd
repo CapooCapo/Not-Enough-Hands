@@ -12,7 +12,7 @@ enum Phase {
 
 const STATUE_STING = preload("res://assets/audio/statue_spotted_jumpscare.mp3")
 const CRAWLER_STING = preload("res://assets/audio/crawler_scream.ogg")
-const HUNTER_STING = preload("res://assets/audio/creature_reveal.mp3")
+const DARKNESS_STING = preload("res://assets/audio/minigame/door_minigame_jumpscare.mp3")
 ## No dedicated toilet-ghost jumpscare sting exists yet (Sprint 10) - reusing
 ## its own established appearance cue rather than leaving it silently
 ## mislabeled as the statue (see _identify_killer()).
@@ -53,6 +53,11 @@ func show_jumpscare(ghost: Node3D) -> void:
 		return
 
 	killer_variant = _identify_killer(ghost)
+	if killer_variant == &"hunter":
+		# Hunter is presented by JumpscareController. A direct legacy call may
+		# only reveal its result card; it must never resurrect the vector scare.
+		show_game_over(ghost)
+		return
 	phase = Phase.IMPACT
 	phase_elapsed = 0.0
 	restarting = false
@@ -70,9 +75,11 @@ func show_jumpscare(ghost: Node3D) -> void:
 		&"crawler":
 			scare_audio.stream = CRAWLER_STING
 			scare_audio.pitch_scale = 0.92
-		&"hunter":
-			scare_audio.stream = HUNTER_STING
-			scare_audio.pitch_scale = 0.68
+		&"darkness":
+			scare_audio.stream = DARKNESS_STING
+			scare_audio.pitch_scale = 0.58
+			impact_flash.color = Color(0.34, 0.56, 0.82, 1.0)
+			backdrop.color = Color(0.0, 0.004, 0.018, 1.0)
 		&"toilet":
 			scare_audio.stream = TOILET_STING
 			scare_audio.pitch_scale = 0.85
@@ -87,6 +94,28 @@ func show_jumpscare(ghost: Node3D) -> void:
 	var active_scene := get_tree().current_scene
 	if active_scene and active_scene.is_ancestor_of(self):
 		get_tree().paused = true
+
+
+## Hunter owns its 3D attack in JumpscareController. Once that overlay has
+## finished, reveal only the Game Over card; never replay this screen's legacy
+## drawn portrait underneath it.
+func show_game_over(ghost: Node3D) -> void:
+	if phase != Phase.IDLE:
+		return
+	killer_variant = _identify_killer(ghost)
+	phase = Phase.GAME_OVER
+	phase_elapsed = 0.0
+	restarting = false
+	visible = true
+	backdrop.color = Color.BLACK
+	impact_flash.color = Color.BLACK
+	visage.visible = false
+	game_over.visible = true
+	game_over.modulate.a = 0.0
+	card.scale = Vector2(0.94, 0.94)
+	_configure_copy()
+	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+	restart_button.grab_focus()
 
 
 func _process(delta: float) -> void:
@@ -123,10 +152,18 @@ func _update_jumpscare() -> void:
 	# Several extremely short black frames make the rush feel discontinuous and
 	# harder to visually predict than a conventional scale-up tween.
 	var frame := int(phase_elapsed * 30.0)
-	var cut_to_black := frame == 4 or frame == 11 or frame == 24
+	var cut_to_black := (
+		frame in [2, 6, 7, 14, 15, 23, 29]
+		if killer_variant == &"darkness"
+		else frame in [4, 11, 24]
+	)
 	visage.visible = not cut_to_black
-	var red_flicker := 0.025 + (sin(phase_elapsed * 73.0) * 0.5 + 0.5) * 0.055
-	backdrop.color = Color(red_flicker, 0.0, 0.002, 1.0)
+	if killer_variant == &"darkness":
+		var cold_flicker := (sin(phase_elapsed * 53.0) * 0.5 + 0.5) * 0.022
+		backdrop.color = Color(0.0, cold_flicker * 0.55, cold_flicker, 1.0)
+	else:
+		var red_flicker := 0.025 + (sin(phase_elapsed * 73.0) * 0.5 + 0.5) * 0.055
+		backdrop.color = Color(red_flicker, 0.0, 0.002, 1.0)
 	impact_flash.color.a = maxf(sin(phase_elapsed * 91.0), 0.0) * progress * 0.12
 
 	if phase_elapsed >= jumpscare_duration:
@@ -159,6 +196,9 @@ func _update_game_over() -> void:
 
 func _identify_killer(ghost: Node3D) -> StringName:
 	if is_instance_valid(ghost):
+		if ghost.is_in_group("darkness_ghosts") \
+			or "darkness" in ghost.name.to_lower():
+			return &"darkness"
 		if ghost.is_in_group("crawler_ghosts") \
 			or "crawler" in ghost.name.to_lower():
 			return &"crawler"
@@ -178,6 +218,9 @@ func _configure_copy() -> void:
 		&"hunter":
 			cause_label.text = "THỢ SĂN ĐÃ TÓM ĐƯỢC BẠN"
 			tip_label.text = "Nó lần theo dấu chân bạn để lại. Đừng quay về lối cũ, và đừng bao giờ đứng yên trong vệt đèn của nó."
+		&"darkness":
+			cause_label.text = "MA BÓNG TỐI ĐÃ NUỐT CHỬNG BẠN"
+			tip_label.text = "Khôi phục điện cho từng khu vực. Trong bóng tối, nó luôn biết bạn đang ở đâu."
 		&"toilet":
 			cause_label.text = "CON MA NHÀ VỆ SINH ĐÃ BẮT ĐƯỢC BẠN"
 			tip_label.text = "Nó xuất hiện bất ngờ quanh bạn. Hãy quay lại nhìn thẳng vào nó trước khi hết thời gian."
