@@ -73,10 +73,10 @@ brazier of its own, gets one dropped at the room nearest the player spawn.
 Items are a live population, not a one-off scatter: a restock pass every two
 seconds tops both groups back up to one per player still in the run (carried
 items count, so burning is what puts the next one on the map, not picking one
-up), and a drop point must be at least `min_spawn_distance` (70 m) from every
-player. No map here is that big, so `_pick_far_room()` falls back to a random
-pick from the farthest quarter of the rooms - the rule degrades to "the farthest
-there is", never to "underfoot".
+up), and a drop point must be at least `min_spawn_distance` (40 m) from every
+player. Where no room clears that bar - House2 is 18 x 12 m - `_pick_far_room()`
+falls back to a random pick from the farthest quarter of the rooms, so the rule
+degrades to "the farthest there is", never to "underfoot".
 
 The 4:00 AM ceiling lives in `NightClock.skip_minutes()` (group `night_clock`),
 not in the ritual: it grants only the minutes left below `skip_limit_hour` and

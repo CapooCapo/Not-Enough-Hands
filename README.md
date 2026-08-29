@@ -134,14 +134,13 @@ Four rules make it a job rather than a button:
   `NGHI LỄ ĐÃ HOÀN TẤT`. Dawn is still 6:00 AM; the ritual only ever shortens
   the two hours before it.
 
-Every drop point has to be **at least 70 m from every player**, chosen at random
-among the rooms that qualify. Neither map is really that big - House2 is
-18 x 12 m, and the villa's farthest room is about 57 m from the player spawn -
-so in practice the rule falls back to picking at random from the farthest
-quarter of the rooms. It degrades to "as far away as this map gets", never to
-"next to the player". `min_spawn_distance` on the `TotemRitual` node is the
-knob; drop it to ~40 m if you want the villa to use the literal rule instead of
-the fallback.
+Every drop point has to be **at least 40 m from every player**
+(`min_spawn_distance` on the `TotemRitual` node), chosen at random among the
+rooms that qualify - 16 of the villa's 37 rooms do, so an item lands 40-55 m
+away and somewhere different every time. House2 is 18 x 12 m and cannot honour
+any such rule, so there the pick falls back to a random room out of the farthest
+quarter. It degrades to "as far away as this map gets", never to "next to the
+player".
 
 Totems and firewood **glow only while you can actually see them**: inside the
 camera frustum, within 22 m (16 m for firewood), and with nothing solid in the

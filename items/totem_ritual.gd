@@ -33,11 +33,12 @@ const BRAZIER_SCENE: PackedScene = preload("res://items/totem_brazier.tscn")
 @export_range(0, 8, 1) var items_per_player: int = 1
 @export_range(0, 240, 5) var minutes_per_totem: int = 30
 ## How far a fresh item has to be from every player. Treated as a hard rule
-## wherever the map can honour it; where it cannot - House2 is 18 x 12 m, so
-## nothing in it is ever 70 m from anyone - the rooms that are as far away as
-## that map gets are used instead. The rule degrades to "the farthest there is",
-## never back to "next to the player".
-@export_range(0.0, 200.0, 1.0) var min_spawn_distance: float = 70.0
+## wherever the map can honour it: 40 m clears most of the villa, whose farthest
+## room is about 57 m from the player spawn. Where a map cannot honour it at all
+## - House2 is 18 x 12 m, so nothing in it is ever 40 m from anyone - the rooms
+## as far away as that map gets are used instead. The rule degrades to "the
+## farthest there is", never back to "next to the player".
+@export_range(0.0, 200.0, 1.0) var min_spawn_distance: float = 40.0
 ## Marker group the drop points come from. Both maps publish their rooms into
 ## `house2_rooms`; the villa adds its own markers to it as well.
 @export var spawn_room_group: StringName = &"house2_rooms"
