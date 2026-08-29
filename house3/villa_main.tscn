@@ -23422,7 +23422,6 @@ environment = SubResource("Environment_villa")
 
 [node name="DevTools" parent="." unique_id=278020789 instance=ExtResource("10_dev_tools")]
 
-
 [node name="VillaHouse" parent="." unique_id=292533536 instance=ExtResource("1_villa")]
 authoring_granularity = 1
 
@@ -28238,12 +28237,6 @@ transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 53, 
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 50, -3.5, 44)
 metadata/junction_id = "B1"
 metadata/degree = 4
-
-
-
-
-
-
 
 [node name="Props" type="Node3D" parent="VillaHouse/Generated/Level_F_B1" unique_id=1373798581]
 
@@ -48493,32 +48486,6 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 64, 0, 46)
 metadata/junction_id = "J9"
 metadata/degree = 2
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 [node name="Props" type="Node3D" parent="VillaHouse/Generated/Level_F_00" unique_id=299129767]
 
 [node name="R_PARLORProps" type="Node3D" parent="VillaHouse/Generated/Level_F_00/Props" unique_id=780761754]
@@ -49147,7 +49114,7 @@ transform = Transform3D(0.07037118, -0.0049022078, 0.9975089, 0.0051094973, 0.99
 metadata/source_asset = "res://assets/map/Furniture/FBX/Separated/Toilet.fbx"
 
 [node name="ToiletInteractable_4779" parent="VillaHouse/Generated/Level_F_00/Props/R_WC_GROUND_SOUTHProps" unique_id=1116739427 groups=["villa_toilets"] instance=ExtResource("39_p1pwr")]
-transform = Transform3D(-4.371139e-08, 0, -1, 0, 1, 0, 1, 0, -4.371139e-08, 3.8549104, 0, 51)
+transform = Transform3D(-0.0068768375, 0, 0.99997634, 0, 1, 0, -0.99997634, 0, -0.0068768375, 2.330945, 0, 51)
 
 [node name="Sink_4780" parent="VillaHouse/Generated/Level_F_00/Props/R_WC_GROUND_SOUTHProps" unique_id=2035164247 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("21_4p7f4")]
 transform = Transform3D(-4.371139e-08, 0, -1, 0, 1, 0, 1, 0, -4.371139e-08, 2.55, 0, 53)
@@ -74174,32 +74141,6 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 64, 3.5, 46)
 metadata/junction_id = "K9"
 metadata/degree = 2
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 [node name="Props" type="Node3D" parent="VillaHouse/Generated/Level_F_01" unique_id=410611948]
 
 [node name="R_BED_1Props" type="Node3D" parent="VillaHouse/Generated/Level_F_01/Props" unique_id=1168854765]
@@ -79288,8 +79229,6 @@ mesh = SubResource("BoxMesh_2tapq")
 [node name="Doors" type="Node3D" parent="VillaHouse/Generated/Level_F_02" unique_id=575739467]
 
 [node name="Junctions" type="Node3D" parent="VillaHouse/Generated/Level_F_02" unique_id=405298925]
-
-
 
 [node name="Props" type="Node3D" parent="VillaHouse/Generated/Level_F_02" unique_id=204552493]
 
