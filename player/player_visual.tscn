@@ -1,0 +1,11 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://player/player_visual.gd" id="1_visual_script"]
+[ext_resource type="PackedScene" path="res://assets/player/Model/characterMedium.fbx" id="2_character"]
+[ext_resource type="Texture2D" path="res://assets/player/Skins/criminalMaleA.png" id="3_skin"]
+
+[node name="PlayerVisual" type="Node3D"]
+script = ExtResource("1_visual_script")
+skin = ExtResource("3_skin")
+
+[node name="Character" parent="." instance=ExtResource("2_character")]

@@ -14,6 +14,7 @@
 [ext_resource type="Script" path="res://ui/equipment_slot.gd" id="12_equipment_slot"]
 [ext_resource type="Script" path="res://player/player_bladder.gd" id="13_player_bladder"]
 [ext_resource type="Script" path="res://ui/bladder_bar.gd" id="15_bladder_bar"]
+[ext_resource type="PackedScene" path="res://player/player_visual.tscn" id="16_player_visual"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
 
@@ -186,6 +187,8 @@ script = ExtResource("1_script")
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=1709885884]
 shape = SubResource("CapsuleShape3D_player")
+
+[node name="PlayerVisual" parent="." instance=ExtResource("16_player_visual")]
 
 [node name="Equipment" type="Node" parent="."]
 script = ExtResource("10_player_equipment")

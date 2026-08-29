@@ -7,8 +7,8 @@ signal door_minigame_finished()
 signal hunter_trap_changed(trapped: bool)
 signal toilet_ghost_stun_changed(active: bool)
 
-@export var walk_speed: float = 4
-@export var crouch_speed: float = 1.75
+@export var walk_speed: float = 6
+@export var crouch_speed: float = 2.75
 @export var sprint_speed_multiplier: float = 2.5
 @export var jump_velocity: float = 4.2
 @export var player_radius: float = 0.32
