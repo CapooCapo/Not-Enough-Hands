@@ -107,8 +107,8 @@ var _toilet_ghost_present: bool = false
 var _flashlight_base_energy: float = 0.0
 var _flashlight_base_range: float = 0.0
 
-## Temporary look-around constraint a minigame can impose (currently only
-## ToiletMinigame) - false/full-range outside any minigame, so normal
+## Temporary look-around constraint a minigame can impose (ToiletMinigame and
+## DoorGhostMinigame) - false/full-range outside any minigame, so normal
 ## mouse-look is unaffected. yaw is clamped via an accumulator (rotate_y()
 ## itself has no absolute angle to read back) while pitch is clamped
 ## directly on camera_pivot.rotation.x like the un-constrained case already
@@ -141,7 +141,7 @@ var hunter_trap_source: Node3D
 @onready var horror_overlay_rect: ColorRect = $HorrorOverlay/VignetteAndGrain
 @onready var death_ui: CanvasLayer = $DeathUI
 @onready var footstep_players: Array[AudioStreamPlayer3D] = [$FootstepA, $FootstepB]
-@onready var door_minigame: CanvasLayer = get_node_or_null("DoorGhostMinigame") as CanvasLayer
+@onready var door_minigame: Node3D = get_node_or_null("DoorGhostMinigame") as Node3D
 @onready var equipment: PlayerEquipment = $Equipment
 @onready var bladder: PlayerBladder = $Bladder
 
@@ -249,9 +249,6 @@ func _unhandled_input(event: InputEvent) -> void:
 		toggle_mouse_capture()
 		get_viewport().set_input_as_handled()
 		return
-	if is_door_minigame_active():
-		return
-
 	if event is InputEventMouseMotion and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
 		# Rotate player horizontally - clamped to a limited look-around
 		# window while yaw_clamp_active (e.g. ToiletMinigame), full range
@@ -919,6 +916,16 @@ func set_threat_from(source: StringName, amount: float) -> void:
 	var overlay_material := horror_overlay_rect.material as ShaderMaterial
 	if overlay_material:
 		overlay_material.set_shader_parameter('threat_strength', statue_threat)
+
+
+## Drives the post-process grade in ui/horror_overlay.gdshader between the
+## house as it normally plays (0) and something about to reach the player (1).
+## Owned here for the same reason threat is: the overlay belongs to the player,
+## and whatever is frightening them reports in rather than reaching for it.
+func set_danger_intensity(amount: float) -> void:
+	var overlay_material := horror_overlay_rect.material as ShaderMaterial
+	if overlay_material:
+		overlay_material.set_shader_parameter("danger_intensity", clampf(amount, 0.0, 1.0))
 
 
 func kill_by_ghost(ghost: Node3D) -> void:

@@ -1,7 +1,7 @@
 [gd_scene format=3]
 
 [ext_resource type="Script" path="res://ghosts/hunter_ghost.gd" id="1_hunter"]
-[ext_resource type="Script" path="res://ghosts/stalker_rig.gd" id="2_rig"]
+[ext_resource type="PackedScene" path="res://ghosts/jeff_ghost_visual.tscn" id="2_rig"]
 [ext_resource type="AudioStream" path="res://assets/audio/freesound_community-concrete-footsteps-6752.mp3" id="3_boots"]
 [ext_resource type="AudioStream" path="res://assets/audio/417537__danthaiwang__scratching-with-fingernails.wav" id="4_hook"]
 [ext_resource type="AudioStream" path="res://assets/audio/crawler_breath.ogg" id="5_breath"]
@@ -86,5 +86,4 @@ pitch_scale = 0.45
 unit_size = 7.0
 max_distance = 40.0
 
-[node name="VisualRoot" type="Node3D" parent="."]
-script = ExtResource("2_rig")
+[node name="VisualRoot" parent="." instance=ExtResource("2_rig")]
