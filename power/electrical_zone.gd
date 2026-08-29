@@ -6,6 +6,7 @@ extends Node
 ## reason so restoring one source never accidentally restores another.
 
 signal power_changed(is_powered: bool)
+signal switch_restore_required_changed(required: bool)
 
 @export_category("Zone Configuration")
 @export var zone_id: StringName
@@ -21,6 +22,10 @@ signal power_changed(is_powered: bool)
 
 var _power_manager: PowerManager
 var _devices: Dictionary = {}
+## A DarknessGhost outage is not a timed effect: it stays down until a player
+## reaches one of this zone's switches and resets the circuit.
+var requires_switch_restore := false
+var _switch_reset_device_ids: Dictionary = {}
 
 
 func _enter_tree() -> void:
@@ -52,7 +57,37 @@ func toggle_power() -> void:
 
 
 func set_powered(value: bool) -> void:
+	if value:
+		_set_switch_restore_required(false)
 	is_powered = value
+
+
+func begin_switch_restore_outage() -> bool:
+	if not is_powered:
+		return false
+	_switch_reset_device_ids.clear()
+	_set_switch_restore_required(true)
+	is_powered = false
+	return true
+
+
+## Releases only the device operated by this switch. The rest of the zone
+## remains dark until their own switches are used as well.
+func restore_device_from_switch(device: ElectricalDevice) -> bool:
+	if not requires_switch_restore or not device or not contains_device_id(device.device_id):
+		return false
+	if not device.is_forced_off_for(_force_reason()):
+		return false
+	device.release_forced_off(_force_reason())
+	_switch_reset_device_ids[device.device_id] = true
+	if _all_devices_reset_by_switch():
+		_set_switch_restore_required(false)
+		is_powered = true
+	return true
+
+
+func is_device_waiting_for_switch(device: ElectricalDevice) -> bool:
+	return requires_switch_restore and device != null and device.is_forced_off_for(_force_reason())
 
 
 func contains_device_id(device_id: StringName) -> bool:
@@ -104,3 +139,22 @@ func _apply_to_device(device: ElectricalDevice) -> void:
 
 func _force_reason() -> StringName:
 	return StringName("zone:" + String(zone_id))
+
+
+func _set_switch_restore_required(value: bool) -> void:
+	if requires_switch_restore == value:
+		return
+	requires_switch_restore = value
+	if not value:
+		_switch_reset_device_ids.clear()
+	switch_restore_required_changed.emit(value)
+
+
+func _all_devices_reset_by_switch() -> bool:
+	if _devices.is_empty():
+		return false
+	for device_value: Variant in _devices.values():
+		var device := device_value as ElectricalDevice
+		if device and not _switch_reset_device_ids.has(device.device_id):
+			return false
+	return true

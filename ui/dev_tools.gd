@@ -7,6 +7,7 @@ signal panel_toggled(open: bool)
 @export var statue_path: NodePath = NodePath("../StatueGhost")
 @export var crawler_path: NodePath = NodePath("../CrawlerGhost")
 @export var hunter_path: NodePath = NodePath("../HunterGhost")
+@export var darkness_ghost_path: NodePath = NodePath("../DarknessGhost")
 @export var door_director_path: NodePath = NodePath("../DoorAttackDirector")
 @export var world_environment_path: NodePath = NodePath("../WorldEnvironment")
 @export var electrical_zones_path: NodePath = NodePath("../ElectricalZones")
@@ -15,6 +16,8 @@ signal panel_toggled(open: bool)
 ## the horror grade, transparent enough not to hide the door behind it.
 const XRAY_TINT := Color(0.15, 1.0, 0.72, 0.85)
 const XRAY_MARKER_NAME := "DevEntranceXray"
+const GHOST_BOX_TINT := Color(1.0, 0.22, 0.68, 0.95)
+const GHOST_BOX_MARKER_NAME := "DevGhostCollisionBox"
 
 var panel_open: bool = false
 var entrance_xray: bool = false
@@ -22,6 +25,7 @@ var bright_vision: bool = false
 var _environment_before_bright: Environment
 var _mouse_mode_before_open: Input.MouseMode = Input.MOUSE_MODE_CAPTURED
 var _zone_buttons: Dictionary = {}
+var ghost_box_enabled := false
 
 @onready var panel: PanelContainer = $Panel
 @onready var invincible_toggle: CheckButton = $Panel/Margin/Scroll/Content/Invincible
@@ -34,23 +38,36 @@ var _zone_buttons: Dictionary = {}
 @onready var entrance_picker: OptionButton = $Panel/Margin/Scroll/Content/DoorRow/Entrance
 @onready var status_label: Label = $Panel/Margin/Scroll/Content/Status
 @onready var zone_controls: VBoxContainer = $Panel/Margin/Scroll/Content/ZoneControls
+@onready var power_readout: Label = $Panel/Margin/Scroll/Content/PowerReadout
+@onready var ghost_box_picker: OptionButton = $Panel/Margin/Scroll/Content/GhostBoxRow/Ghost
+@onready var ghost_box_toggle: CheckButton = $Panel/Margin/Scroll/Content/GhostBoxRow/ShowBox
+@onready var teleport_to_ghost_button: Button = $Panel/Margin/Scroll/Content/TeleportToGhost
 
 
 func _ready() -> void:
 	for entrance_id: int in range(1, 8):
 		entrance_picker.add_item("Cửa %02d" % entrance_id, entrance_id)
+	ghost_box_picker.add_item("Ma Bóng Tối")
+	ghost_box_picker.add_item("Statue")
+	ghost_box_picker.add_item("Crawler")
+	ghost_box_picker.add_item("Thợ Săn")
 	invincible_toggle.toggled.connect(set_invincibility_enabled)
 	fast_toggle.toggled.connect(set_fast_movement_enabled)
 	noclip_toggle.toggled.connect(set_noclip_enabled)
 	xray_toggle.toggled.connect(set_entrance_xray_enabled)
 	bright_toggle.toggled.connect(set_bright_vision_enabled)
+	ghost_box_picker.item_selected.connect(_on_ghost_box_selected)
+	ghost_box_toggle.toggled.connect(set_ghost_box_enabled)
+	teleport_to_ghost_button.pressed.connect(teleport_to_selected_ghost)
 	bladder_slider.value_changed.connect(set_bladder_level)
 	$Panel/Margin/Scroll/Content/SpawnStatue.pressed.connect(spawn_statue)
 	$Panel/Margin/Scroll/Content/SpawnCrawler.pressed.connect(spawn_crawler)
 	$Panel/Margin/Scroll/Content/SpawnHunter.pressed.connect(spawn_hunter)
+	$Panel/Margin/Scroll/Content/SpawnDarknessGhost.pressed.connect(spawn_darkness_ghost)
 	$Panel/Margin/Scroll/Content/DoorRow/AttackDoor.pressed.connect(force_selected_door_attack)
 	$Panel/Margin/Scroll/Content/AllZonesOn.pressed.connect(func() -> void: set_all_zones_powered(true))
 	$Panel/Margin/Scroll/Content/AllZonesOff.pressed.connect(func() -> void: set_all_zones_powered(false))
+	$Panel/Margin/Scroll/Content/RechargePower.pressed.connect(recharge_house_power)
 	$Panel/Margin/Scroll/Content/Close.pressed.connect(func() -> void: set_panel_open(false))
 	_bind_bladder_slider()
 	_build_zone_controls.call_deferred()
@@ -77,6 +94,7 @@ func set_panel_open(open: bool) -> void:
 		_bind_bladder_slider()
 		_sync_bladder_from_player()
 		refresh_power_zone_controls()
+		_refresh_power_readout()
 		status_label.text = "Sẵn sàng. Các thay đổi chỉ dành cho dev."
 	else:
 		Input.set_mouse_mode(_mouse_mode_before_open)
@@ -264,6 +282,8 @@ func _build_xray_marker(entrance_id: int) -> Node3D:
 ## Keeps the range on each tag current, so the panel answers "which door is
 ## nearest" without walking the ring.
 func _process(_delta: float) -> void:
+	if panel_open:
+		_refresh_power_readout()
 	if not entrance_xray:
 		return
 	var player := _player() as Node3D
@@ -277,6 +297,178 @@ func _process(_delta: float) -> void:
 				int(door.get("entrance_id")),
 				roundi(player.global_position.distance_to(door.global_position)),
 			]
+
+
+## Draws a through-wall wire box around the selected ghost's real
+## CollisionShape3D. This is deliberately a hitbox marker, rather than a box
+## around the imported model, so designers can verify actual player contact.
+func set_ghost_box_enabled(enabled: bool) -> void:
+	ghost_box_enabled = enabled
+	_clear_ghost_box_markers()
+	if not enabled:
+		status_label.text = "Đã ẩn khung va chạm của ma."
+		return
+	var ghost := _selected_ghost_for_box()
+	if not ghost or not _add_ghost_box_marker(ghost):
+		status_label.text = "Không tìm thấy CollisionShape3D của ma đã chọn."
+		ghost_box_toggle.set_pressed_no_signal(false)
+		ghost_box_enabled = false
+		return
+	status_label.text = "Đang đánh dấu hitbox của %s." % ghost_box_picker.get_item_text(ghost_box_picker.selected)
+
+
+func _on_ghost_box_selected(_index: int) -> void:
+	if ghost_box_enabled:
+		set_ghost_box_enabled(true)
+
+
+## Places the player beside the chosen entity, never inside its collision
+## shape. This shares the selector used for the hitbox marker so a developer
+## can first find a ghost through the map, then immediately travel to it.
+func teleport_to_selected_ghost() -> bool:
+	var player := _player() as CharacterBody3D
+	var ghost := _selected_ghost_for_box()
+	if not player or not ghost:
+		status_label.text = "Không tìm thấy Player hoặc thực thể đã chọn."
+		return false
+	var direction := player.global_position - ghost.global_position
+	direction.y = 0.0
+	if direction.length_squared() <= 0.001:
+		direction = ghost.global_basis.z
+	direction.y = 0.0
+	if direction.length_squared() <= 0.001:
+		direction = Vector3.FORWARD
+	direction = direction.normalized()
+	# Player's root is roughly one metre above the floor, whereas the ghosts'
+	# roots sit on their floor. Keep a two-metre horizontal gap for safety.
+	player.global_position = ghost.global_position + direction * 2.4 + Vector3.UP * 0.95
+	player.velocity = Vector3.ZERO
+	status_label.text = "Đã dịch chuyển đến gần %s." % ghost_box_picker.get_item_text(ghost_box_picker.selected)
+	return true
+
+
+func _selected_ghost_for_box() -> Node3D:
+	var target_path := darkness_ghost_path
+	match ghost_box_picker.selected:
+		1:
+			target_path = statue_path
+		2:
+			target_path = crawler_path
+		3:
+			target_path = hunter_path
+	return get_node_or_null(target_path) as Node3D
+
+
+func _ghosts_with_box_targets() -> Array[Node3D]:
+	var result: Array[Node3D] = []
+	for target_path: NodePath in [darkness_ghost_path, statue_path, crawler_path, hunter_path]:
+		var ghost := get_node_or_null(target_path) as Node3D
+		if ghost and ghost not in result:
+			result.append(ghost)
+	return result
+
+
+func _clear_ghost_box_markers() -> void:
+	for ghost: Node3D in _ghosts_with_box_targets():
+		var marker := ghost.get_node_or_null(GHOST_BOX_MARKER_NAME)
+		if marker:
+			marker.queue_free()
+
+
+func _add_ghost_box_marker(ghost: Node3D) -> bool:
+	var collision := ghost.find_child("CollisionShape3D", true, false) as CollisionShape3D
+	if not collision or not collision.shape:
+		return false
+	var debug_mesh := collision.shape.get_debug_mesh()
+	if not debug_mesh:
+		return false
+	var bounds := debug_mesh.get_aabb()
+	if bounds.size.length_squared() <= 0.0001:
+		return false
+
+	var marker := Node3D.new()
+	marker.name = GHOST_BOX_MARKER_NAME
+	# CollisionShape3D can be hidden at runtime. Parent the visual marker to the
+	# ghost itself, then copy the collider's local transform; it follows the
+	# exact hitbox without inheriting a hidden collision-node visibility state.
+	ghost.add_child(marker)
+	marker.global_transform = collision.global_transform
+	marker.visible = true
+
+	var line_mesh := ImmediateMesh.new()
+	line_mesh.surface_begin(Mesh.PRIMITIVE_LINES)
+	var start := bounds.position
+	var end := bounds.end
+	var corners: Array[Vector3] = [
+		Vector3(start.x, start.y, start.z), Vector3(end.x, start.y, start.z),
+		Vector3(end.x, start.y, end.z), Vector3(start.x, start.y, end.z),
+		Vector3(start.x, end.y, start.z), Vector3(end.x, end.y, start.z),
+		Vector3(end.x, end.y, end.z), Vector3(start.x, end.y, end.z),
+	]
+	for edge: Vector2i in [
+		Vector2i(0, 1), Vector2i(1, 2), Vector2i(2, 3), Vector2i(3, 0),
+		Vector2i(4, 5), Vector2i(5, 6), Vector2i(6, 7), Vector2i(7, 4),
+		Vector2i(0, 4), Vector2i(1, 5), Vector2i(2, 6), Vector2i(3, 7),
+	]:
+		line_mesh.surface_add_vertex(corners[edge.x])
+		line_mesh.surface_add_vertex(corners[edge.y])
+	line_mesh.surface_end()
+
+	var material := StandardMaterial3D.new()
+	material.albedo_color = GHOST_BOX_TINT
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	material.no_depth_test = true
+	material.render_priority = 110
+	var lines := MeshInstance3D.new()
+	lines.mesh = line_mesh
+	lines.material_override = material
+	# Keep the X-ray marker alive even when the real ghost is behind a wall or
+	# at the far side of the villa. no_depth_test draws above the map; the large
+	# cull margin prevents the tiny collision box from being discarded early.
+	lines.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	lines.extra_cull_margin = 1000.0
+	lines.ignore_occlusion_culling = true
+	marker.add_child(lines)
+
+	var label := Label3D.new()
+	label.text = "%s HITBOX" % ghost.name.to_upper()
+	label.position = Vector3(0.0, end.y + 0.18, 0.0)
+	label.font_size = 40
+	label.pixel_size = 0.003
+	label.modulate = GHOST_BOX_TINT
+	label.outline_modulate = Color(0.0, 0.0, 0.0, 0.95)
+	label.outline_size = 6
+	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	label.no_depth_test = true
+	label.render_priority = 111
+	label.fixed_size = true
+	marker.add_child(label)
+	return true
+
+
+func recharge_house_power() -> void:
+	var manager := get_tree().get_first_node_in_group("power_manager") as PowerManager
+	if not manager:
+		status_label.text = "Map hiện tại không có PowerManager."
+		return
+	manager.restore_power()
+	_refresh_power_readout()
+	status_label.text = "Đã nạp đầy điện tổng của căn nhà."
+
+
+func _refresh_power_readout() -> void:
+	var manager := get_tree().get_first_node_in_group("power_manager") as PowerManager
+	if not manager:
+		power_readout.text = "ĐIỆN TỔNG: không có PowerManager"
+		return
+	power_readout.text = "ĐIỆN TỔNG: %d / %d  (%d%%)\nTải hiện tại: %.0f / giây" % [
+		roundi(manager.current_power),
+		roundi(manager.max_power),
+		roundi(manager.get_power_percentage() * 100.0),
+		manager.get_total_load(),
+	]
 
 
 func spawn_statue() -> bool:
@@ -309,6 +501,23 @@ func spawn_hunter() -> bool:
 		and hunter.has_method("dev_force_spawn") \
 		and bool(hunter.call("dev_force_spawn", player))
 	status_label.text = "Thợ Săn đã vào nhà." if spawned else "Không thể gọi Thợ Săn."
+	return spawned
+
+
+func spawn_darkness_ghost() -> bool:
+	var ghost := get_node_or_null(darkness_ghost_path)
+	var spawned := ghost != null and ghost.has_method("manifest_for_dev") \
+		and bool(ghost.call("manifest_for_dev"))
+	var zone_name := ""
+	if spawned and ghost.has_node("DarknessEntityPowerEffect"):
+		var effect := ghost.get_node("DarknessEntityPowerEffect") as DarknessEntityPowerEffect
+		if effect.active_zone:
+			zone_name = " (%s)" % effect.active_zone.display_name
+	status_label.text = (
+		"Ma Bóng Tối đã làm tối zone gần bạn%s và bắt đầu săn đuổi." % zone_name
+		if spawned
+		else "Không thể gọi Ma Bóng Tối (không còn zone đang có điện hoặc nó đã xuất hiện)."
+	)
 	return spawned
 
 
