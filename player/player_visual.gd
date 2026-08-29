@@ -22,6 +22,12 @@ const LOCAL_BODY_VISUAL_LAYER := 20
 @export_range(0.4, 1.0) var crouch_height_ratio: float = 0.64
 @export var crouch_visual_speed: float = 8.0
 @export var show_local_body: bool = false
+## Lobby previews reuse this exact rig without instancing the full gameplay
+## Player (camera, collision, HUD, equipment, etc.).
+@export var lobby_preview: bool = false
+@export var preview_display_name: String = "Player"
+@export var preview_ready: bool = false
+@export var preview_slot_index: int = 0
 ## Capsules only hold two players 64 cm apart, but this rig's shoulders are
 ## much wider than that - and a jump puts one camera at another body's head
 ## height. Inside this radius the rig stops rendering, so a camera can never
@@ -41,6 +47,8 @@ var _is_local_rig: bool = true
 var _rig_hidden: bool = true
 var _spectating: bool = false
 var _downed_pose: float = 0.0
+var _preview_time: float = 0.0
+var _preview_state_tag: Label3D
 
 
 func _ready() -> void:
@@ -49,18 +57,79 @@ func _ready() -> void:
 	_build_animation_player()
 	_align_to_player_capsule()
 	_collect_rig_geometry()
-	_update_local_render_mode()
+	if lobby_preview:
+		_setup_lobby_preview()
+	else:
+		_update_local_render_mode()
 	_update_name_tag()
 	_play_animation(&"idle")
+	if lobby_preview and _animation_player:
+		_animation_player.speed_scale = 0.92 + float(preview_slot_index) * 0.035
+		var idle := _animation_player.get_animation(&"idle")
+		if idle and idle.length > 0.0:
+			_animation_player.seek(fmod(float(preview_slot_index) * 0.73, idle.length), true)
 
 
 func _physics_process(delta: float) -> void:
+	if lobby_preview:
+		_update_lobby_preview(delta)
+		return
 	if not is_instance_valid(_player):
 		return
 	_update_crouch_visual(delta)
 	_update_downed_pose(delta)
 	_update_locomotion_animation()
 	_update_render_mode()
+
+
+func configure_lobby_preview(
+	player_name: String,
+	player_skin: Texture2D,
+	is_ready: bool,
+	slot_index: int
+) -> void:
+	lobby_preview = true
+	preview_display_name = player_name
+	preview_ready = is_ready
+	preview_slot_index = slot_index
+	skin = player_skin
+
+
+func _setup_lobby_preview() -> void:
+	_is_local_rig = false
+	_rig_hidden = false
+	_spectating = false
+	_apply_rig_render_mode()
+	_preview_time = float(preview_slot_index) * 1.37
+	if not name_tag:
+		return
+	# Keep long user-entered names inside their own slot when all four players
+	# are present. Short names retain the large lobby type.
+	name_tag.font_size = clampi(
+		int(280.0 / float(maxi(preview_display_name.length(), 1))),
+		14,
+		34
+	)
+	name_tag.outline_size = 8
+	_preview_state_tag = name_tag.duplicate() as Label3D
+	_preview_state_tag.name = "ReadyTag"
+	_preview_state_tag.position.y += 0.7
+	_preview_state_tag.font_size = 20
+	_preview_state_tag.outline_size = 6
+	_preview_state_tag.text = "READY" if preview_ready else "NOT READY"
+	_preview_state_tag.modulate = (
+		Color(0.38, 1.0, 0.56) if preview_ready else Color(1.0, 0.3, 0.2)
+	)
+	add_child(_preview_state_tag)
+
+
+## The imported idle animation moves the whole skeleton. A very small,
+## differently phased weight shift keeps a four-person lineup from looking
+## synchronised or mannequin-stiff without affecting the gameplay rig.
+func _update_lobby_preview(delta: float) -> void:
+	_preview_time += delta
+	var base_yaw := deg_to_rad(model_forward_yaw_degrees)
+	character.rotation.y = base_yaw + sin(_preview_time * 0.55) * deg_to_rad(1.8)
 
 
 func _apply_skin() -> void:
@@ -206,7 +275,13 @@ func _is_camera_inside_body() -> bool:
 
 
 func _update_name_tag() -> void:
-	if not name_tag or not is_instance_valid(_player):
+	if not name_tag:
+		return
+	if lobby_preview:
+		name_tag.text = preview_display_name
+		name_tag.visible = true
+		return
+	if not is_instance_valid(_player):
 		return
 	name_tag.text = str(_player.get("display_name"))
 	name_tag.visible = not _is_local_rig and not _rig_hidden

@@ -1,8 +1,18 @@
 extends Control
 
-@onready var player_grid: GridContainer = %PlayerGrid
+const PLAYER_VISUAL_SCENE: PackedScene = preload("res://player/player_visual.tscn")
+const PLAYER_SKINS: Array[Texture2D] = [
+	preload("res://assets/player/Skins/criminalMaleA.png"),
+	preload("res://assets/player/Skins/skaterFemaleA.png"),
+	preload("res://assets/player/Skins/cyborgFemaleA.png"),
+	preload("res://assets/player/Skins/skaterMaleA.png"),
+]
+
+@onready var lineup: Node3D = %Lineup
+@onready var lineup_camera: Camera3D = %LineupCamera
 @onready var room_label: Label = %RoomLabel
 @onready var ready_count_label: Label = %ReadyCountLabel
+@onready var empty_slots_label: Label = %EmptySlotsLabel
 @onready var hint_label: Label = %HintLabel
 @onready var status_label: Label = %StatusLabel
 @onready var ready_button: Button = %ReadyButton
@@ -19,11 +29,7 @@ func _ready() -> void:
 	ready_button.pressed.connect(_on_ready_pressed)
 	start_button.pressed.connect(_on_start_pressed)
 	leave_button.pressed.connect(_on_leave_pressed)
-	room_label.text = "UDP %d  ·  %d/%d NGƯỜI" % [
-		NetworkManager.session_port,
-		NetworkManager.players.size(),
-		NetworkManager.MAX_PLAYERS,
-	]
+	lineup_camera.look_at(Vector3(0.0, 1.05, 0.0), Vector3.UP)
 	_parse_automation_arguments()
 	_render_roster()
 	if _should_auto_ready():
@@ -53,18 +59,21 @@ func _on_leave_pressed() -> void:
 
 
 func _render_roster() -> void:
-	for old_card: Node in player_grid.get_children():
-		player_grid.remove_child(old_card)
-		old_card.queue_free()
+	for old_avatar: Node in lineup.get_children():
+		lineup.remove_child(old_avatar)
+		old_avatar.queue_free()
 
 	var peer_ids: Array = NetworkManager.players.keys()
 	peer_ids.sort()
-	for slot_index: int in NetworkManager.MAX_PLAYERS:
-		if slot_index < peer_ids.size():
-			var peer_id := int(peer_ids[slot_index])
-			player_grid.add_child(_create_player_card(slot_index, peer_id))
-		else:
-			player_grid.add_child(_create_empty_card(slot_index))
+	var positions := _lineup_positions(peer_ids.size())
+	for slot_index: int in peer_ids.size():
+		var peer_id := int(peer_ids[slot_index])
+		_add_lobby_avatar(
+			slot_index,
+			NetworkManager.get_player_name(peer_id),
+			NetworkManager.is_player_ready(peer_id),
+			positions[slot_index]
+		)
 
 	var ready_count := 0
 	for peer_id: int in NetworkManager.players:
@@ -76,6 +85,10 @@ func _render_roster() -> void:
 		NetworkManager.players.size(),
 		NetworkManager.MAX_PLAYERS,
 	]
+	var empty_slots := maxi(NetworkManager.MAX_PLAYERS - NetworkManager.players.size(), 0)
+	empty_slots_label.text = (
+		"PHÒNG ĐÃ ĐẦY" if empty_slots == 0 else "CÒN %d CHỖ TRỐNG" % empty_slots
+	)
 
 	var local_peer_id := multiplayer.get_unique_id()
 	var local_ready := NetworkManager.is_player_ready(local_peer_id)
@@ -92,90 +105,50 @@ func _render_roster() -> void:
 		hint_label.text = "Đang chờ chủ phòng bắt đầu trận đấu."
 
 
-func _create_player_card(slot_index: int, peer_id: int) -> PanelContainer:
-	var ready := NetworkManager.is_player_ready(peer_id)
-	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(330, 190)
-	panel.add_theme_stylebox_override("panel", _card_style(ready))
+func _add_lobby_avatar(
+	slot_index: int,
+	player_name: String,
+	is_ready: bool,
+	lineup_position: Vector3
+) -> void:
+	# PlayerVisual aligns itself around a gameplay capsule centre. This anchor
+	# raises that centre so the preview model's feet land on the lobby floor.
+	var anchor := Node3D.new()
+	anchor.name = "LobbyPlayer%d" % (slot_index + 1)
+	anchor.position = lineup_position + Vector3.UP * 0.875
+	lineup.add_child(anchor)
 
-	var margin := MarginContainer.new()
-	margin.add_theme_constant_override("margin_left", 22)
-	margin.add_theme_constant_override("margin_top", 18)
-	margin.add_theme_constant_override("margin_right", 22)
-	margin.add_theme_constant_override("margin_bottom", 18)
-	panel.add_child(margin)
-
-	var content := VBoxContainer.new()
-	content.add_theme_constant_override("separation", 9)
-	margin.add_child(content)
-
-	var slot_label := Label.new()
-	slot_label.text = "NGƯỜI CHƠI %d" % (slot_index + 1)
-	slot_label.add_theme_font_size_override("font_size", 14)
-	slot_label.add_theme_color_override("font_color", Color(0.45, 0.56, 0.58))
-	content.add_child(slot_label)
-
-	var avatar := Label.new()
-	avatar.text = "◆"
-	avatar.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	avatar.add_theme_font_size_override("font_size", 44)
-	avatar.add_theme_color_override(
-		"font_color", Color(0.3, 0.9, 0.77) if ready else Color(0.44, 0.51, 0.53)
+	var visual := PLAYER_VISUAL_SCENE.instantiate()
+	visual.call(
+		"configure_lobby_preview",
+		player_name,
+		PLAYER_SKINS[slot_index % PLAYER_SKINS.size()],
+		is_ready,
+		slot_index
 	)
-	content.add_child(avatar)
-
-	var name_label := Label.new()
-	name_label.text = NetworkManager.get_player_name(peer_id)
-	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	name_label.add_theme_font_size_override("font_size", 24)
-	name_label.add_theme_color_override("font_color", Color(0.86, 0.92, 0.92))
-	content.add_child(name_label)
-
-	var state_label := Label.new()
-	state_label.text = "SẴN SÀNG" if ready else "CHƯA SẴN SÀNG"
-	if peer_id == NetworkManager.lobby_host_peer_id:
-		state_label.text += "  ·  CHỦ PHÒNG"
-	state_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	state_label.add_theme_font_size_override("font_size", 15)
-	state_label.add_theme_color_override(
-		"font_color", Color(0.34, 0.95, 0.6) if ready else Color(0.95, 0.35, 0.28)
-	)
-	content.add_child(state_label)
-	return panel
+	anchor.add_child(visual)
 
 
-func _create_empty_card(slot_index: int) -> PanelContainer:
-	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(330, 190)
-	panel.add_theme_stylebox_override("panel", _card_style(false, true))
-	var label := Label.new()
-	label.text = "VỊ TRÍ %d\n\nĐANG CHỜ NGƯỜI CHƠI…" % (slot_index + 1)
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", 17)
-	label.add_theme_color_override("font_color", Color(0.3, 0.38, 0.4))
-	panel.add_child(label)
-	return panel
-
-
-func _card_style(ready: bool, empty: bool = false) -> StyleBoxFlat:
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.018, 0.029, 0.034, 0.72 if not empty else 0.4)
-	style.border_width_left = 1
-	style.border_width_top = 1
-	style.border_width_right = 1
-	style.border_width_bottom = 1
-	style.border_color = (
-		Color(0.18, 0.64, 0.49, 0.85)
-		if ready
-		else Color(0.16, 0.25, 0.28, 0.65)
-	)
-	style.corner_radius_top_left = 8
-	style.corner_radius_top_right = 8
-	style.corner_radius_bottom_left = 8
-	style.corner_radius_bottom_right = 8
-	return style
+func _lineup_positions(player_count: int) -> Array[Vector3]:
+	match player_count:
+		1:
+			return [Vector3.ZERO]
+		2:
+			return [Vector3(-1.05, 0.0, 0.0), Vector3(1.05, 0.0, 0.0)]
+		3:
+			return [
+				Vector3(-1.65, 0.0, 0.08),
+				Vector3(0.0, 0.0, -0.08),
+				Vector3(1.65, 0.0, 0.08),
+			]
+		4:
+			return [
+				Vector3(-2.25, 0.0, 0.16),
+				Vector3(-0.75, 0.0, -0.08),
+				Vector3(0.75, 0.0, -0.08),
+				Vector3(2.25, 0.0, 0.16),
+			]
+	return []
 
 
 func _parse_automation_arguments() -> void:
