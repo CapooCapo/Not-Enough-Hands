@@ -288,6 +288,12 @@ func _run() -> void:
 	if minigame.get_phase_index() != 0 or not bool(player.yaw_clamp_active):
 		_fail("The peephole phase did not clamp the player's look direction.")
 		return
+	var initial_camera := player.get_node("CameraPivot/Camera3D") as Camera3D
+	var exterior_forward := -initial_camera.global_basis.z
+	exterior_forward.y = 0.0
+	if exterior_forward.normalized().dot(minigame.outward) < 0.999:
+		_fail("Door minigame camera did not initially face the exterior environment.")
+		return
 	if lit_lamp.visible or dark_lamp.visible:
 		_fail("The encounter did not put the house lights out.")
 		return

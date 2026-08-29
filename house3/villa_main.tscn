@@ -45,6 +45,7 @@
 [ext_resource type="Script" uid="uid://bvjhdlrovelh0" path="res://power/electrical_zone_controller.gd" id="77_zone_controller"]
 [ext_resource type="Script" uid="uid://01w221wpws42" path="res://house3/villa_windows.gd" id="79_villa_windows"]
 [ext_resource type="Script" uid="uid://jn7ag6n0ntnt" path="res://house3/villa_exterior.gd" id="80_villa_exterior"]
+[ext_resource type="PackedScene" path="res://power/main_breaker.tscn" id="81_main_breaker"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_villa"]
 sky_top_color = Color(0.22, 0.38, 0.58, 1)
@@ -1793,7 +1794,7 @@ size = Vector3(2, 0.3, 2)
 
 [sub_resource type="BoxMesh" id="BoxMesh_dnp88"]
 material = SubResource("StandardMaterial3D_b57m4")
-size = Vector3(2, 0.3, 2)
+size = Vector3(2, 0.04990235, 1.906311)
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_4o56m"]
 size = Vector3(2, 0.3, 2)
@@ -28124,6 +28125,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 75, -0.15, 49)
 shape = SubResource("BoxShape3D_qv3wh")
 
 [node name="Mesh" type="MeshInstance3D" parent="VillaHouse/Generated/Level_F_B1/Architecture/Ceiling/CeilingSlab_0880" unique_id=67401943]
+transform = Transform3D(1, 0, 0, 0, -23.570549, 0, 0, 0, 0.746039, 0, 0.86207426, -0.046844482)
 mesh = SubResource("BoxMesh_dnp88")
 
 [node name="CeilingSlab_0881" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_B1/Architecture/Ceiling" unique_id=44834640]
@@ -38718,7 +38720,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 75, 1.75, 49.85)
 shape = SubResource("BoxShape3D_2scrk")
 
 [node name="InteriorWallModule_3022" parent="VillaHouse/Generated/Level_F_00/Architecture/InteriorWall_3021" unique_id=1208218286 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("8_f1ptq")]
-transform = Transform3D(1, 0, 0, 0, 1.1666666, 0, 0, 0, 1, 0, -1.75, 0.15000153)
+transform = Transform3D(1, 0, 0, 0, 1.061721, 0, 0, 0, 1, 0, -0.82699203, 0.15000153)
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="InteriorWall_3023" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_00/Architecture" unique_id=1308595203]
@@ -79214,9 +79216,12 @@ controlled_device_id = &"K9"
 metadata/generated_switch_position = Vector3(65.84, 4.85, 47)
 metadata/generated_switch_yaw = -3.1415925
 
+[node name="MainBreaker" parent="VillaElectrical" unique_id=597044694 instance=ExtResource("81_main_breaker")]
+transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 77.85689, 1.25, 53)
+
 [node name="PowerManager" type="Node" parent="." unique_id=801129011]
 script = ExtResource("74_power_manager")
-enable_power_drain = false
+enable_power_drain = true
 auto_register_house_lights = false
 
 [node name="ElectricalZones" type="Node" parent="." unique_id=1796181142]

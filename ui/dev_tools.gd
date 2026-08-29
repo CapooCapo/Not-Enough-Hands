@@ -25,6 +25,11 @@ var bright_vision: bool = false
 var _environment_before_bright: Environment
 var _mouse_mode_before_open: Input.MouseMode = Input.MOUSE_MODE_CAPTURED
 var _zone_buttons: Dictionary = {}
+## drain_house_power() switches the manager's drain on to empty the reserve.
+## Remembered here so recharging puts the map's own setting back - otherwise a
+## recharged house silently drains to black again a second later.
+var _forced_power_drain: bool = false
+var _power_drain_before_force: bool = false
 var ghost_box_enabled := false
 
 @onready var panel: PanelContainer = $Panel
@@ -68,6 +73,7 @@ func _ready() -> void:
 	$Panel/Margin/Scroll/Content/AllZonesOn.pressed.connect(func() -> void: set_all_zones_powered(true))
 	$Panel/Margin/Scroll/Content/AllZonesOff.pressed.connect(func() -> void: set_all_zones_powered(false))
 	$Panel/Margin/Scroll/Content/RechargePower.pressed.connect(recharge_house_power)
+	$Panel/Margin/Scroll/Content/DrainPower.pressed.connect(drain_house_power)
 	$Panel/Margin/Scroll/Content/Close.pressed.connect(func() -> void: set_panel_open(false))
 	_bind_bladder_slider()
 	_build_zone_controls.call_deferred()
@@ -454,8 +460,37 @@ func recharge_house_power() -> void:
 		status_label.text = "Map hiện tại không có PowerManager."
 		return
 	manager.restore_power()
+	if _forced_power_drain:
+		manager.enable_power_drain = _power_drain_before_force
+		_forced_power_drain = false
 	_refresh_power_readout()
 	status_label.text = "Đã nạp đầy điện tổng của căn nhà."
+
+
+## Empties the house battery instead of forcing an outage flag, so the blackout
+## arrives down PowerManager's own drain path (`current_power` hits zero ->
+## `_enter_blackout()`), exactly as it would in a real long night. Both maps
+## ship `enable_power_drain = false`, so the reserve would otherwise just sit at
+## 1 forever - switching drain on is what makes this reach zero.
+func drain_house_power() -> void:
+	var manager := get_tree().get_first_node_in_group("power_manager") as PowerManager
+	if not manager:
+		status_label.text = "Map hiện tại không có PowerManager."
+		return
+	if not _forced_power_drain:
+		_power_drain_before_force = manager.enable_power_drain
+		_forced_power_drain = true
+	manager.enable_power_drain = true
+	manager.current_power = 1.0
+	if is_zero_approx(manager.get_total_load()):
+		# Nothing is drawing power, so the reserve would never actually empty.
+		manager.current_power = 0.0
+		manager.trigger_global_blackout()
+		_refresh_power_readout()
+		status_label.text = "Không có thiết bị nào tiêu thụ điện — đã cắt điện trực tiếp."
+		return
+	_refresh_power_readout()
+	status_label.text = "Điện tổng còn 1. Đang xả — nhà sẽ tối trong tích tắc."
 
 
 func _refresh_power_readout() -> void:
@@ -463,10 +498,14 @@ func _refresh_power_readout() -> void:
 	if not manager:
 		power_readout.text = "ĐIỆN TỔNG: không có PowerManager"
 		return
-	power_readout.text = "ĐIỆN TỔNG: %d / %d  (%d%%)\nTải hiện tại: %.0f / giây" % [
+	# Raw wattage says nothing about when the lights go out - the remaining
+	# seconds do, so the panel leads with those.
+	var remaining := manager.get_seconds_until_blackout()
+	power_readout.text = "ĐIỆN TỔNG: %d / %d  (%d%%)\nCòn sáng: %s   ·   Tải: %.0f W" % [
 		roundi(manager.current_power),
 		roundi(manager.max_power),
 		roundi(manager.get_power_percentage() * 100.0),
+		"đang tắt" if remaining < 0.0 else "%d:%02d" % [int(remaining) / 60, int(remaining) % 60],
 		manager.get_total_load(),
 	]
 
@@ -583,7 +622,22 @@ func toggle_electrical_zone(zone: ElectricalZone) -> void:
 func set_all_zones_powered(powered: bool) -> void:
 	var zones := _electrical_zones()
 	if zones.is_empty():
-		status_label.text = "Map hiện tại không có electrical zone để test."
+		# House2 ships no ElectricalZones at all, so on the default map this
+		# button used to report "no zones" and do nothing - leaving that map
+		# with no way to cut the power, and the main breaker's blackout state
+		# impossible to reach. Fall back to the manager's own global outage.
+		var manager := get_tree().get_first_node_in_group("power_manager") as PowerManager
+		if not manager:
+			status_label.text = "Map hiện tại không có PowerManager."
+			return
+		if powered:
+			manager.restore_power()
+		else:
+			manager.trigger_global_blackout()
+		_refresh_power_readout()
+		status_label.text = "Map không có zone — đã %s điện toàn nhà qua PowerManager." % [
+			"khôi phục" if powered else "cắt",
+		]
 		return
 	for zone: ElectricalZone in zones:
 		zone.set_powered(powered)

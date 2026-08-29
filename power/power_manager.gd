@@ -21,6 +21,19 @@ var current_power: float = 1000.0
 @export_category("Debug")
 @export var enable_power_drain: bool = true
 
+## How long a full reserve lasts with the whole house lit, in real seconds.
+##
+## Device wattages are art-side flavour - House2's lights alone come to ~2900 a
+## second, which against any readable `max_power` empties the battery instantly.
+## So the reserve is spent against *this* number instead: a full battery always
+## lasts this long at the house's peak load, whatever that load happens to be,
+## and proportionally longer once players switch rooms off.
+##
+## One night is 547.5 real seconds (23:55 -> 06:00 at 1.5 s per game minute), so
+## 220 puts two outages in a fully-lit night - at roughly 3:40 and 7:20 in - and
+## fewer if the house is run dark on purpose.
+@export_range(10.0, 3600.0, 5.0) var full_load_reserve_seconds: float = 220.0
+
 
 @export_category("House Lighting")
 @export var house_light_group: StringName = &"flickering_house_lights"
@@ -35,6 +48,8 @@ var devices: Array[Node] = []
 var is_blackout: bool = false
 var is_regional_blackout: bool = false
 var _total_load: float = 0.0
+## Peak total load ever observed - the stand-in for "the whole house is on".
+var _reference_load: float = 0.0
 
 var _house_lights: Array[Light3D] = []
 var _regional_lights: Array[Light3D] = []
@@ -81,7 +96,7 @@ func _process(delta: float) -> void:
 	if total_load <= 0.0:
 		return
 
-	current_power -= total_load * delta
+	current_power -= get_drain_per_second() * delta
 	current_power = clamp(current_power, 0.0, max_power)
 
 	if current_power <= 0.0:
@@ -118,6 +133,31 @@ func unregister_device(device: Node) -> void:
 func get_total_load() -> float:
 	_refresh_total_load()
 	return _total_load
+
+
+## Reserve units spent per second at the current load. The peak load ever seen
+## is the reference for "the whole house is on", so this is simply the fraction
+## of the house that is lit, spread over `full_load_reserve_seconds`. Devices
+## can register late (the villa builds its lights at runtime), which is why the
+## reference is tracked as a running peak rather than sampled once.
+func get_drain_per_second() -> float:
+	var total_load := get_total_load()
+	_reference_load = maxf(_reference_load, total_load)
+	if full_load_reserve_seconds <= 0.0 or _reference_load <= 0.0:
+		return total_load
+	return max_power / full_load_reserve_seconds * (total_load / _reference_load)
+
+
+## Real seconds of light left at the current load, or -1 when nothing is
+## draining. Used by the dev readout so the panel states the number that
+## actually matters instead of a raw wattage.
+func get_seconds_until_blackout() -> float:
+	if is_blackout:
+		return 0.0
+	var drain := get_drain_per_second()
+	if not enable_power_drain or drain <= 0.0:
+		return -1.0
+	return current_power / drain
 
 
 func get_device_by_id(device_id: StringName) -> ElectricalDevice:

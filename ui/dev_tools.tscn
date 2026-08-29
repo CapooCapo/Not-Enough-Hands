@@ -123,6 +123,11 @@ custom_minimum_size = Vector2(0, 34)
 layout_mode = 2
 text = "NẠP ĐẦY ĐIỆN TỔNG"
 
+[node name="DrainPower" type="Button" parent="Panel/Margin/Scroll/Content"]
+custom_minimum_size = Vector2(0, 34)
+layout_mode = 2
+text = "CẠN ĐIỆN TỔNG (CÒN 1)"
+
 [node name="PowerActions" type="HBoxContainer" parent="Panel/Margin/Scroll/Content"]
 layout_mode = 2
 theme_override_constants/separation = 8

@@ -926,10 +926,7 @@ func _apply_phase(index: int, animate: bool) -> void:
 		)
 	else:
 		owning_player.global_position = target
-		owning_player.rotation = Vector3(0.0, atan2(-outward.x, -outward.z), 0.0)
-		_camera_pivot.rotation = Vector3.ZERO
-		if "accumulated_yaw" in owning_player:
-			owning_player.set("accumulated_yaw", 0.0)
+		_orient_camera_to_exterior()
 	_apply_look_limits()
 	_swing_leaf(phase_leaf_swing[phase_index], animate)
 	encounter_phase_changed.emit(phase_index)
@@ -954,6 +951,21 @@ func _view_position(offset: float) -> Vector3:
 		+ outward * offset
 		+ Vector3.UP * (eye_height - pivot_height)
 	)
+
+
+## The encounter renders through the player's real camera, not a flat overlay.
+## Lock its initial forward vector to the outside normal so the camera sees the
+## level's exterior (garden, road, fog and props) beyond this door in both maps.
+## Subsequent mouse movement is still constrained by the phase look limits.
+func _orient_camera_to_exterior() -> void:
+	if not is_instance_valid(owning_player):
+		return
+	var exterior_yaw := atan2(-outward.x, -outward.z)
+	owning_player.rotation = Vector3(0.0, exterior_yaw, 0.0)
+	if is_instance_valid(_camera_pivot):
+		_camera_pivot.rotation = Vector3.ZERO
+	if "accumulated_yaw" in owning_player:
+		owning_player.set("accumulated_yaw", 0.0)
 
 
 ## Cosmetic only: the leaf assembly's transforms, never its collider, its

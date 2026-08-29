@@ -151,6 +151,9 @@ var hunter_trap_source: Node3D
 ## player at a time.
 var _active_toilet_minigame: Node = null
 
+## Same arrangement for BreakerMinigame, which lives per-breaker.
+var _active_breaker_minigame: Node = null
+
 var _minigame_ghost_safety_locks: int = 0
 var _minigame_ghost_release_remaining: float = 0.0
 
@@ -1192,8 +1195,31 @@ func is_toilet_minigame_active() -> bool:
 		and bool(_active_toilet_minigame.call("is_running"))
 
 
+## Called by MainBreaker's own script when its Interactable fires - the same
+## per-object arrangement as start_toilet_minigame(), since BreakerMinigame is
+## a child of the cabinet rather than a fixed child of Player.
+func start_breaker_minigame(breaker: Node) -> bool:
+	if not is_alive or _is_any_minigame_active() or not is_instance_valid(breaker):
+		return false
+	var minigame: Node = breaker.get_node_or_null("BreakerMinigame")
+	if not minigame or not minigame.has_method("start"):
+		return false
+	if not bool(minigame.call("start", self, breaker)):
+		return false
+	_active_breaker_minigame = minigame
+	return true
+
+
+func is_breaker_minigame_active() -> bool:
+	return is_instance_valid(_active_breaker_minigame) \
+		and _active_breaker_minigame.has_method("is_running") \
+		and bool(_active_breaker_minigame.call("is_running"))
+
+
 func _is_any_minigame_active() -> bool:
-	return is_door_minigame_active() or is_toilet_minigame_active()
+	return is_door_minigame_active() \
+		or is_toilet_minigame_active() \
+		or is_breaker_minigame_active()
 
 
 ## Thin delegation to this player's own Bladder component - other systems
