@@ -281,7 +281,15 @@ func _interior_door_shapes() -> Array[CollisionShape3D]:
 func _link_stairs_when_navigation_is_ready(region: NavigationRegion3D) -> void:
 	var map := region.get_navigation_map()
 	var probe := region.navigation_mesh.get_vertices()[0]
+	# The region was added this frame, but NavigationServer only folds it into
+	# the map on its next sync. Never query closest_point against iteration 0:
+	# Godot reports that as an error, even though the map is expected to be
+	# temporarily empty while it is being registered.
+	await get_tree().physics_frame
 	for _attempt: int in 120:
+		if NavigationServer3D.map_get_iteration_id(map) == 0:
+			await get_tree().physics_frame
+			continue
 		if NavigationServer3D.map_get_closest_point(map, probe).distance_to(probe) < 2.0:
 			_add_stair_navigation_links(map)
 			await _stair_links_registered(map)

@@ -36,6 +36,10 @@ var power_consumption: float = 100.0:
 ## Leave empty when this script is attached directly to a Light3D. Assign a
 ## light here when ElectricalDevice is used as a child component instead.
 @export var powered_light: Light3D
+## Optional visible bulb/glow associated with powered_light. The fixture mesh
+## itself stays visible when electricity is off; only this emissive detail and
+## the actual Light3D switch state change.
+@export var powered_emission: GeometryInstance3D
 
 
 var power_manager: PowerManager
@@ -93,6 +97,8 @@ func force_off(reason: StringName) -> void:
 		_was_on_before_forced_off = is_on
 	_forced_off_reasons[reason] = true
 	_forced_off_by_blackout = true
+	# Use the property setter so output visibility, load and switch prompts update
+	# immediately when an individual electrical zone loses power.
 	is_on = false
 
 
@@ -101,15 +107,20 @@ func release_forced_off(reason: StringName) -> void:
 	if not _forced_off_reasons.is_empty():
 		return
 	_forced_off_by_blackout = false
-	if _was_on_before_forced_off:
-		is_on = true
+	var restore_requested := _was_on_before_forced_off
 	_was_on_before_forced_off = false
+	if restore_requested:
+		is_on = true
+	else:
+		_apply_output_state()
 
 
 func _apply_output_state() -> void:
 	var output: Node = powered_light if powered_light else self
 	if output is Light3D:
 		(output as Light3D).visible = is_on
+	if powered_emission:
+		powered_emission.visible = is_on
 
 
 func turn_on() -> void:

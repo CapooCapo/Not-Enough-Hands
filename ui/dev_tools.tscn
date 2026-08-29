@@ -102,6 +102,38 @@ horizontal_alignment = 2
 [node name="SeparatorB" type="HSeparator" parent="Panel/Margin/Scroll/Content"]
 layout_mode = 2
 
+[node name="PowerTitle" type="Label" parent="Panel/Margin/Scroll/Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.42, 1, 0.82, 1)
+text = "ĐIỆN THEO ZONE"
+
+[node name="PowerHint" type="Label" parent="Panel/Margin/Scroll/Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.65, 0.72, 0.78, 1)
+text = "Bật/tắt độc lập từng zone để test blackout."
+autowrap_mode = 2
+
+[node name="PowerActions" type="HBoxContainer" parent="Panel/Margin/Scroll/Content"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="AllZonesOn" type="Button" parent="Panel/Margin/Scroll/Content"]
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+text = "BẬT TẤT CẢ ZONE"
+
+[node name="AllZonesOff" type="Button" parent="Panel/Margin/Scroll/Content"]
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+text = "TẮT TẤT CẢ (BLACKOUT)"
+
+[node name="ZoneControls" type="VBoxContainer" parent="Panel/Margin/Scroll/Content"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="SeparatorPower" type="HSeparator" parent="Panel/Margin/Scroll/Content"]
+layout_mode = 2
+
 [node name="SpawnStatue" type="Button" parent="Panel/Margin/Scroll/Content"]
 custom_minimum_size = Vector2(0, 44)
 layout_mode = 2

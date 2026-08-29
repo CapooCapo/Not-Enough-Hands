@@ -6,6 +6,9 @@ extends StaticBody3D
 @export_node_path("Node") var controlled_device: NodePath
 ## Preferred for generated maps: stable across rebuilds (for example R_LIVING).
 @export var controlled_device_id: StringName
+## Enable after manually moving this switch to prevent VillaElectricalSetup
+## from replacing its generated wall placement on a later rebuild.
+@export var keep_authored_transform := false
 
 var interactable: Interactable
 var _controlled_device: ElectricalDevice
