@@ -26,11 +26,15 @@ var navigation_is_ready: bool = false
 @onready var house: Node3D = $VillaHouse
 @onready var world_environment: WorldEnvironment = $WorldEnvironment
 @onready var moon_light: DirectionalLight3D = get_node_or_null("DirectionalLight3D")
-@onready var horror_overlay: CanvasLayer = $Player/HorrorOverlay
-@onready var flashlight: SpotLight3D = $Player/CameraPivot/Camera3D/Flashlight
-
 const DEFENSE_DOOR: PackedScene = preload("res://door/defense_door.tscn")
 const HUNTER_GHOST: PackedScene = preload("res://ghosts/hunter_ghost.tscn")
+const PLAYER_SCENE: PackedScene = preload("res://player/player.tscn")
+const PLAYER_SPAWN_OFFSETS: Array[Vector3] = [
+	Vector3.ZERO,
+	Vector3(1.1, 0.0, 0.0),
+	Vector3(-1.1, 0.0, 0.0),
+	Vector3(0.0, 0.0, 1.1),
+]
 
 ## The stock defense door is built for House2's 3 m storey and 2.2 m opening.
 ## A villa entrance is two 2 m cells wide in a 3.5 m wall.
@@ -58,15 +62,12 @@ var _breach_hunters: Array[CharacterBody3D] = []
 
 func _ready() -> void:
 	navigation_ready.connect(_activate_waiting_hunters)
-	if development_lighting:
-		horror_overlay.visible = false
-		flashlight.visible = false
-	else:
+	if not development_lighting:
 		_apply_horror_lighting()
 
 	_place_defense_doors()
 	_watch_breached_entrances()
-	_place_player()
+	_setup_player_replication()
 	_place_ghosts()
 
 	for node: Node in house.find_children("*", "MeshInstance3D", true, false):
@@ -185,13 +186,151 @@ func _activate_waiting_hunters() -> void:
 	_hunters_waiting_for_navigation.clear()
 
 
-func _place_player() -> void:
-	var spawns := get_tree().get_nodes_in_group("villa_spawn_points")
-	if spawns.is_empty():
+func _setup_player_replication() -> void:
+	if NetworkManager.session_active:
+		NetworkManager.player_spawn_requested.connect(_spawn_player_replica)
+		NetworkManager.player_left.connect(_remove_network_player)
+		if multiplayer.is_server():
+			NetworkManager.player_world_ready.connect(_synchronize_room_players)
+			for ready_peer: int in NetworkManager.world_ready_peers:
+				_synchronize_room_players(ready_peer)
+		NetworkManager.notify_world_ready()
+	else:
+		# F6 and the existing villa smoke tests retain a root node called Player.
+		var offline_player := _build_player_from_spawn_data({
+			"peer_id": 1,
+			"display_name": "Player",
+			"spawn_index": 0,
+		})
+		add_child(offline_player)
+
+
+func _on_replicated_player_spawned(node: Node) -> void:
+	var player := node as CharacterBody3D
+	if not player or player.owner_peer_id != multiplayer.get_unique_id():
 		return
-	var player := get_node_or_null("Player") as Node3D
+	print(
+		"NETWORK_LOCAL_PLAYER_SPAWNED peer=%d name=%s"
+		% [player.owner_peer_id, player.display_name]
+	)
+	NetworkManager.notify_replication_ready()
+	if "--network-smoke" in OS.get_cmdline_user_args():
+		_finish_network_smoke.call_deferred()
+
+
+func _finish_network_smoke() -> void:
+	# Give the reliable roster messages time to add players that were already in
+	# the room before this client finished loading the Villa.
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var replicated_players := get_tree().get_nodes_in_group(&"players").size()
+	var roster_players := NetworkManager.players.size()
+	if replicated_players < roster_players:
+		push_error(
+			"Network smoke expected %d player(s), but only %d replicated."
+			% [roster_players, replicated_players]
+		)
+		get_tree().quit(1)
+		return
+	print("NETWORK_ROSTER_REPLICATED count=%d" % replicated_players)
+	get_tree().quit()
+
+
+func _synchronize_room_players(_newly_ready_peer_id: int) -> void:
+	if not multiplayer.is_server():
+		return
+	var peer_ids: Array = NetworkManager.players.keys()
+	peer_ids.sort()
+	for peer_id: int in peer_ids:
+		_spawn_player_replica(
+			peer_id,
+			NetworkManager.get_player_name(peer_id),
+			maxi(peer_ids.find(peer_id), 0)
+		)
+	# At four players a full idempotent roster sync is cheap, and it guarantees
+	# that every ready client also receives players who joined before it.
+	for target_peer_id: int in NetworkManager.world_ready_peers:
+		if target_peer_id == NetworkManager.SERVER_PEER_ID:
+			continue
+		for player_peer_id: int in peer_ids:
+			NetworkManager.send_player_spawn(
+				target_peer_id,
+				player_peer_id,
+				NetworkManager.get_player_name(player_peer_id),
+				maxi(peer_ids.find(player_peer_id), 0)
+			)
+
+
+func _spawn_player_replica(peer_id: int, player_name: String, spawn_index: int) -> void:
+	if _get_player_for_peer(peer_id):
+		return
+	var player := _build_player_from_spawn_data({
+		"peer_id": peer_id,
+		"display_name": player_name,
+		"spawn_index": spawn_index,
+	}) as CharacterBody3D
+	add_child(player)
+	_on_replicated_player_spawned(player)
+
+
+func _build_player_from_spawn_data(data: Variant) -> Node:
+	var spawn_data: Dictionary = data
+	var peer_id := int(spawn_data.get("peer_id", 1))
+	var player := PLAYER_SCENE.instantiate() as CharacterBody3D
+	player.name = "Player" if peer_id == 1 else "Player_%d" % peer_id
+	player.owner_peer_id = peer_id
+	player.display_name = str(spawn_data.get("display_name", "Player"))
+	# VillaMain has an identity transform, so this world-space marker position
+	# is also the direct-child local position. The spawner has not added the
+	# returned player to the tree yet, so assigning global_position here would
+	# query an invalid global transform.
+	player.position = _player_spawn_position(int(spawn_data.get("spawn_index", 0)))
+	player.walk_speed = 2.6
+	player.crouch_speed = 1.45
+	player.sprint_speed_multiplier = 1.35
+	player.forced_blink_duration = 0.25
+	_configure_player_lighting.call_deferred(player)
+	return player
+
+
+func _player_spawn_position(spawn_index: int) -> Vector3:
+	var spawn_nodes := get_tree().get_nodes_in_group("villa_spawn_points")
+	var base_position := Vector3(33.0, 0.0, 7.0)
+	if not spawn_nodes.is_empty():
+		base_position = (spawn_nodes[spawn_index % spawn_nodes.size()] as Node3D).global_position
+	var offset := PLAYER_SPAWN_OFFSETS[spawn_index % PLAYER_SPAWN_OFFSETS.size()]
+	return base_position + offset + Vector3.UP
+
+
+func _remove_network_player(peer_id: int) -> void:
+	var player := _get_player_for_peer(peer_id)
 	if player:
-		player.global_position = (spawns[0] as Node3D).global_position + Vector3(0, 1.0, 0)
+		player.queue_free()
+
+
+func _get_player_for_peer(peer_id: int) -> CharacterBody3D:
+	for node: Node in get_tree().get_nodes_in_group(&"players"):
+		var player := node as CharacterBody3D
+		if player and player.owner_peer_id == peer_id:
+			return player
+	return null
+
+
+func get_local_player() -> CharacterBody3D:
+	var local_peer_id := multiplayer.get_unique_id() if NetworkManager.session_active else 1
+	return _get_player_for_peer(local_peer_id)
+
+
+func _configure_player_lighting(player: CharacterBody3D) -> void:
+	if not development_lighting or not is_instance_valid(player) or not player.is_inside_tree():
+		return
+	if player.is_local_player():
+		var horror_overlay := player.get_node_or_null("HorrorOverlay") as CanvasLayer
+		var flashlight := player.get_node_or_null("CameraPivot/Camera3D/Flashlight") as SpotLight3D
+		if horror_overlay:
+			horror_overlay.visible = false
+		if flashlight:
+			flashlight.visible = false
 
 
 func _place_ghosts() -> void:

@@ -1,0 +1,197 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://network/multiplayer_lobby.gd" id="1_lobby"]
+
+[sub_resource type="Gradient" id="Gradient_background"]
+colors = PackedColorArray(0.003, 0.006, 0.009, 1, 0.015, 0.04, 0.046, 1)
+
+[sub_resource type="GradientTexture2D" id="GradientTexture_background"]
+gradient = SubResource("Gradient_background")
+width = 1280
+height = 720
+fill_from = Vector2(0.15, 0.1)
+fill_to = Vector2(0.9, 1)
+
+[sub_resource type="StyleBoxFlat" id="Style_panel"]
+bg_color = Color(0.006, 0.012, 0.016, 0.88)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.16, 0.34, 0.37, 0.75)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+
+[sub_resource type="StyleBoxFlat" id="Style_ready_button"]
+bg_color = Color(0.08, 0.3, 0.28, 1)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+
+[node name="MultiplayerLobby" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_lobby")
+
+[node name="Background" type="TextureRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+texture = SubResource("GradientTexture_background")
+expand_mode = 1
+
+[node name="Shade" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0, 0, 0, 0.28)
+
+[node name="PageMargin" type="MarginContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 56
+theme_override_constants/margin_top = 38
+theme_override_constants/margin_right = 56
+theme_override_constants/margin_bottom = 40
+
+[node name="Page" type="VBoxContainer" parent="PageMargin"]
+layout_mode = 2
+theme_override_constants/separation = 22
+
+[node name="Header" type="HBoxContainer" parent="PageMargin/Page"]
+layout_mode = 2
+
+[node name="Titles" type="VBoxContainer" parent="PageMargin/Page/Header"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Title" type="Label" parent="PageMargin/Page/Header/Titles"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.77, 0.91, 0.91, 1)
+theme_override_font_sizes/font_size = 38
+text = "PHÒNG CHỜ"
+
+[node name="RoomLabel" type="Label" parent="PageMargin/Page/Header/Titles"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.38, 0.58, 0.6, 1)
+theme_override_font_sizes/font_size = 15
+text = "UDP 7777  ·  1/4 NGƯỜI"
+
+[node name="LeaveButton" type="Button" parent="PageMargin/Page/Header"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(130, 42)
+layout_mode = 2
+text = "RỜI PHÒNG"
+
+[node name="Main" type="HBoxContainer" parent="PageMargin/Page"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 24
+
+[node name="Players" type="VBoxContainer" parent="PageMargin/Page/Main"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 12
+
+[node name="PlayersTitle" type="Label" parent="PageMargin/Page/Main/Players"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.56, 0.7, 0.71, 1)
+theme_override_font_sizes/font_size = 18
+text = "ĐỘI CỦA BẠN"
+
+[node name="PlayerGrid" type="GridContainer" parent="PageMargin/Page/Main/Players"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/h_separation = 14
+theme_override_constants/v_separation = 14
+columns = 2
+
+[node name="ControlPanel" type="PanelContainer" parent="PageMargin/Page/Main"]
+custom_minimum_size = Vector2(350, 0)
+layout_mode = 2
+theme_override_styles/panel = SubResource("Style_panel")
+
+[node name="Margin" type="MarginContainer" parent="PageMargin/Page/Main/ControlPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 30
+theme_override_constants/margin_top = 30
+theme_override_constants/margin_right = 30
+theme_override_constants/margin_bottom = 30
+
+[node name="Content" type="VBoxContainer" parent="PageMargin/Page/Main/ControlPanel/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 18
+
+[node name="Heading" type="Label" parent="PageMargin/Page/Main/ControlPanel/Margin/Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.78, 0.9, 0.9, 1)
+theme_override_font_sizes/font_size = 25
+text = "CHUẨN BỊ"
+
+[node name="Description" type="Label" parent="PageMargin/Page/Main/ControlPanel/Margin/Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.48, 0.59, 0.6, 1)
+text = "Mời mọi người vào phòng, sau đó từng người xác nhận sẵn sàng. Villa chỉ được tải khi chủ phòng bắt đầu."
+autowrap_mode = 2
+
+[node name="ReadyCountLabel" type="Label" parent="PageMargin/Page/Main/ControlPanel/Margin/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.37, 0.83, 0.69, 1)
+theme_override_font_sizes/font_size = 20
+text = "0/1 ĐÃ SẴN SÀNG"
+
+[node name="Spacer" type="Control" parent="PageMargin/Page/Main/ControlPanel/Margin/Content"]
+custom_minimum_size = Vector2(0, 16)
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="HintLabel" type="Label" parent="PageMargin/Page/Main/ControlPanel/Margin/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.55, 0.66, 0.67, 1)
+text = "Chờ mọi người bấm SẴN SÀNG."
+horizontal_alignment = 1
+autowrap_mode = 2
+
+[node name="ReadyButton" type="Button" parent="PageMargin/Page/Main/ControlPanel/Margin/Content"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 52)
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+theme_override_styles/normal = SubResource("Style_ready_button")
+text = "SẴN SÀNG"
+
+[node name="StartButton" type="Button" parent="PageMargin/Page/Main/ControlPanel/Margin/Content"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 58)
+layout_mode = 2
+theme_override_font_sizes/font_size = 21
+text = "BẮT ĐẦU VILLA"
+
+[node name="StatusLabel" type="Label" parent="PageMargin/Page"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 28)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.4, 0.58, 0.6, 1)
+text = "Phòng đã mở. Đang chờ người chơi…"
+horizontal_alignment = 1

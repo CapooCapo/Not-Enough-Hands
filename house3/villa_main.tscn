@@ -1,7 +1,6 @@
 [gd_scene format=3 uid="uid://solwpc3lnux2"]
 
 [ext_resource type="PackedScene" path="res://house3/villa_house.tscn" id="1_villa"]
-[ext_resource type="PackedScene" path="res://player/player.tscn" id="2_player"]
 [ext_resource type="Script" uid="uid://bskv7nqtwugr7" path="res://house3/villa_main.gd" id="3_villa_main"]
 [ext_resource type="PackedScene" path="res://ghosts/statue_ghost.tscn" id="5_statue"]
 [ext_resource type="Script" uid="uid://d3dtpcwe6oum" path="res://door/door_attack_director.gd" id="6_door_director"]
@@ -79291,13 +79290,6 @@ script = ExtResource("75_electrical_zone")
 zone_id = &"Z13_F02_ATTIC"
 display_name = "Z13 Gác mái"
 device_ids = PackedStringArray("R_ATTIC")
-
-[node name="Player" parent="." unique_id=257862931 instance=ExtResource("2_player")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 33, 1, 7)
-walk_speed = 2.6
-crouch_speed = 1.45
-sprint_speed_multiplier = 1.35
-forced_blink_duration = 0.25
 
 [node name="HouseAmbience" type="Node" parent="." unique_id=1802173984]
 script = ExtResource("7_house_ambience")

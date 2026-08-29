@@ -10,12 +10,17 @@ const JUMP_SCENE: PackedScene = preload("res://assets/player/Animations/jump.fbx
 
 @export var skin: Texture2D
 @export var model_scale: float = 0.46
+## Kenney's character faces +Z, while Godot gameplay/camera forward is -Z.
+## Keep this correction on the presentation rig so movement and flashlight
+## transforms remain authoritative and unchanged.
+@export var model_forward_yaw_degrees: float = 180.0
 @export_range(0.4, 1.0) var crouch_height_ratio: float = 0.64
 @export var crouch_visual_speed: float = 8.0
 @export var show_local_body: bool = false
 
 @onready var character: Node3D = $Character
 @onready var body_mesh: MeshInstance3D = $Character/Root/Skeleton3D/characterMedium
+@onready var name_tag: Label3D = $NameTag
 
 var _animation_player: AnimationPlayer
 var _current_animation: StringName = &""
@@ -28,6 +33,7 @@ func _ready() -> void:
 	_build_animation_player()
 	_align_to_player_capsule()
 	_update_local_render_mode()
+	_update_name_tag()
 	_play_animation(&"idle")
 
 
@@ -83,17 +89,29 @@ func _align_to_player_capsule() -> void:
 		standing_height = _player.standing_height
 	position.y = -standing_height * 0.5
 	scale = Vector3.ONE * model_scale
+	character.rotation.y = deg_to_rad(model_forward_yaw_degrees)
 
 
 func _update_local_render_mode() -> void:
 	if not body_mesh or not is_instance_valid(_player):
 		return
-	var is_local_player := _player.is_multiplayer_authority()
+	var is_local_player := (
+		bool(_player.call("is_local_player"))
+		if _player.has_method("is_local_player")
+		else _player.is_multiplayer_authority()
+	)
 	body_mesh.cast_shadow = (
 		GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 		if show_local_body or not is_local_player
 		else GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
 	)
+
+
+func _update_name_tag() -> void:
+	if not name_tag or not is_instance_valid(_player):
+		return
+	name_tag.text = str(_player.get("display_name"))
+	name_tag.visible = not bool(_player.call("is_local_player"))
 
 
 func _update_crouch_visual(delta: float) -> void:

@@ -1,13 +1,41 @@
-# Not Enough Hands — House2
+# Not Enough Hands
 
 Godot 4 first-person horror prototype built around a four-level modular house.
-`main.tscn` now uses `house2/house2.tscn`, assembled from the architecture and
-furniture source packs under `assets/map`.
+Running the project now opens the multiplayer menu; every hosted or joined
+session loads `house3/villa_main.tscn`.
+
+## Multiplayer development flow
+
+The current milestone provides ENet host/join, a four-player waiting lobby,
+ready states, player names, replicated player spawning in the Villa, and
+server-authoritative player movement. To test locally, run two game instances:
+create a room in the first, then join `127.0.0.1` on UDP port `7777` from the
+second. Everyone presses Ready; only the lobby host can start the Villa.
+
+A headless dedicated server can be started with:
+
+```powershell
+godot --headless --path . -- --server --port=7777
+```
+
+Clients can join from the menu, or directly for automated testing:
+
+```powershell
+godot --path . -- --join=127.0.0.1 --port=7777 --name=Player2
+```
+
+For Edgegap, expose the container's UDP port `7777`; players must join the
+external IP and dynamically assigned external port returned by Edgegap. The
+allocation/lobby API and replication of shared gameplay state (doors, items,
+ghosts, clock, and win/lose state) are later milestones.
+
+The complete export, container, registry, App Version, and join checklist is in
+[`deploy/edgegap/README.md`](deploy/edgegap/README.md).
 
 ## Play
 
 1. Open `project.godot` in Godot 4.7.
-2. Run `main.tscn` with F6/F5.
+2. Press F5, enter a player name, then host locally or join a server.
 3. Move with WASD, sprint with Shift, crouch with Ctrl, jump with Space, interact
    with E, blink with B, and press Alt to show or recapture the mouse.
 
@@ -348,12 +376,13 @@ horror overlay on whichever is currently worse.
 House2 is 18 × 12 m and its seven entrances are close enough that one player can
 cover several of them. `NEH_map_spec_v2.md` asks for a house about four times
 that size, where the geometry itself forces the team apart. That map lives in
-`house3/` **beside** House2, not in place of it: `main.tscn` and every House2
-test are untouched, and the villa reaches the player, the three ghosts, the
-defense doors, the power system and the audio through exactly the same node
-groups.
+`house3/` **beside** House2. The multiplayer entry point now selects the Villa,
+while the House2 scenes and tests remain available. The villa reaches the
+player, the three ghosts, the defense doors, the power system and the audio
+through exactly the same node groups.
 
-Run it with `house3/villa_main.tscn` (F6). House2 still runs from `main.tscn`.
+Run the full multiplayer flow with F5, or run `house3/villa_main.tscn` directly
+with F6 for an offline Villa session.
 
 The one behavioural difference is the huntsman. House2 has a single one that
 walks in through whichever breach it likes; the villa is big enough that one

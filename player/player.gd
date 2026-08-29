@@ -7,6 +7,10 @@ signal door_minigame_finished()
 signal hunter_trap_changed(trapped: bool)
 signal toilet_ghost_stun_changed(active: bool)
 
+@export_category("Multiplayer")
+@export var owner_peer_id: int = 0
+@export var display_name: String = "Player"
+
 @export var walk_speed: float = 6
 @export var crouch_speed: float = 2.75
 @export var sprint_speed_multiplier: float = 2.5
@@ -159,6 +163,24 @@ var _footstep_rng := RandomNumberGenerator.new()
 # Get the gravity from the project settings to be synced with RigidBody nodes.
 var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 
+const NETWORK_STATE_INTERVAL := 1.0 / 20.0
+const NETWORK_SERVER_PEER_ID := 1
+
+var _network_move := Vector2.ZERO
+var _network_jump: bool = false
+var _network_crouch: bool = false
+var _network_run: bool = false
+var _network_blink: bool = false
+var _previous_network_jump: bool = false
+var _network_yaw: float = 0.0
+var _network_pitch: float = 0.0
+var _state_sync_remaining: float = 0.0
+var _snapshot_position := Vector3.ZERO
+var _snapshot_yaw: float = 0.0
+var _snapshot_pitch: float = 0.0
+var _snapshot_velocity := Vector3.ZERO
+var _has_network_snapshot: bool = false
+
 func _ready() -> void:
 	# Interior doors query this group for a light physical push. Keeping the
 	# lookup on the door means player movement needs no door-specific branches.
@@ -169,7 +191,11 @@ func _ready() -> void:
 	var shape := collision_shape.shape as CapsuleShape3D
 	shape.radius = player_radius
 	shape.height = standing_height
-	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+	_network_yaw = rotation.y
+	_network_pitch = camera_pivot.rotation.x
+	_configure_player_presentation()
+	if is_local_player() and DisplayServer.get_name() != "headless":
+		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 	if interact_ray:
 		interact_ray.target_position = Vector3(0, 0, -max_interaction_range)
 	if flashlight:
@@ -181,9 +207,12 @@ func _ready() -> void:
 ## body's physics. That makes a seven-second Toilet Ghost stun seven seconds
 ## of real gameplay time, including the brief camera-release transition.
 func _process(delta: float) -> void:
-	_update_toilet_ghost_stun(delta)
+	if not _is_network_session() or multiplayer.is_server() or is_local_player():
+		_update_toilet_ghost_stun(delta)
 
 func _unhandled_input(event: InputEvent) -> void:
+	if not is_local_player():
+		return
 	if not is_alive:
 		return
 	if _is_alt_toggle_event(event):
@@ -213,18 +242,240 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 
 	if event.is_action_pressed("interact"):
-		_try_interact()
+		if _is_network_client():
+			_request_interact.rpc_id(NETWORK_SERVER_PEER_ID)
+		else:
+			_try_interact()
 	if event.is_action_pressed("drop_item"):
-		_drop_selected_item()
+		if _is_network_client():
+			_request_drop_item.rpc_id(NETWORK_SERVER_PEER_ID)
+		else:
+			_drop_selected_item()
 	if event.is_action_pressed("select_slot_1"):
-		equipment.select_slot(0)
+		_request_or_select_slot(0)
 	if event.is_action_pressed("select_slot_2"):
-		equipment.select_slot(1)
+		_request_or_select_slot(1)
 	if event is InputEventMouseButton and event.pressed:
 		# Only 2 slots exist, so "next" and "previous" are both just "the
 		# other slot" - same select_slot() the keyboard shortcuts use.
 		if event.button_index == MOUSE_BUTTON_WHEEL_UP or event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			equipment.select_slot(1 - equipment.selected_slot)
+			_request_or_select_slot(1 - equipment.selected_slot)
+
+
+func is_local_player() -> bool:
+	if not _is_network_session() or owner_peer_id <= 0:
+		return true
+	return multiplayer.get_unique_id() == owner_peer_id
+
+
+func _configure_player_presentation() -> void:
+	var local := is_local_player()
+	var camera := camera_pivot.get_node_or_null("Camera3D") as Camera3D
+	if camera:
+		camera.current = local
+	# The server keeps InteractRay active for authoritative range checks; remote
+	# clients need neither the ray nor any of this player's full-screen UI.
+	if interact_ray:
+		interact_ray.enabled = local or multiplayer.is_server()
+	for node_name: StringName in [
+		&"HorrorOverlay",
+		&"InteractionUI",
+		&"StatusUI",
+		&"EquipmentUI",
+		&"BlinkUI",
+		&"BlinkOverlay",
+		&"DoorGhostMinigame",
+		&"DeathUI",
+	]:
+		var layer := get_node_or_null(NodePath(node_name)) as CanvasLayer
+		# Local UI nodes own their initial visibility (DeathUI and minigames
+		# deliberately start hidden). Only remote players need a forced hide.
+		if layer and not local:
+			layer.visible = false
+	set_process_unhandled_input(local)
+
+
+func _is_network_session() -> bool:
+	var manager := get_node_or_null("/root/NetworkManager")
+	return manager != null and bool(manager.get("session_active"))
+
+
+func _is_network_client() -> bool:
+	return _is_network_session() and not multiplayer.is_server()
+
+
+func _capture_and_send_network_input() -> void:
+	var move := Input.get_vector("move_left", "move_right", "move_forward", "move_backward")
+	var jump := Input.is_action_pressed("jump")
+	var crouch := Input.is_action_pressed("crouch")
+	var run_pressed := Input.is_action_pressed("run")
+	var blink_pressed := Input.is_action_pressed("blink")
+	var yaw := rotation.y
+	var pitch := camera_pivot.rotation.x
+	if multiplayer.is_server():
+		_apply_network_input(move, jump, crouch, run_pressed, blink_pressed, yaw, pitch)
+	else:
+		_submit_network_input.rpc_id(
+			NETWORK_SERVER_PEER_ID,
+			move,
+			jump,
+			crouch,
+			run_pressed,
+			blink_pressed,
+			yaw,
+			pitch
+		)
+
+
+@rpc("any_peer", "call_remote", "unreliable_ordered", 1)
+func _submit_network_input(
+	move: Vector2,
+	jump: bool,
+	crouch: bool,
+	run_pressed: bool,
+	blink_pressed: bool,
+	yaw: float,
+	pitch: float
+) -> void:
+	if not multiplayer.is_server() or not _rpc_sender_owns_player():
+		return
+	if not is_finite(yaw) or not is_finite(pitch):
+		return
+	_apply_network_input(move, jump, crouch, run_pressed, blink_pressed, yaw, pitch)
+
+
+func _apply_network_input(
+	move: Vector2,
+	jump: bool,
+	crouch: bool,
+	run_pressed: bool,
+	blink_pressed: bool,
+	yaw: float,
+	pitch: float
+) -> void:
+	_network_move = move.limit_length(1.0)
+	_network_jump = jump
+	_network_crouch = crouch
+	_network_run = run_pressed
+	_network_blink = blink_pressed
+	_network_yaw = wrapf(yaw, -PI, PI)
+	_network_pitch = clampf(pitch, -PI * 0.5, PI * 0.5)
+
+
+func _movement_input() -> Vector2:
+	if _is_network_session() and multiplayer.is_server():
+		return _network_move
+	return Input.get_vector("move_left", "move_right", "move_forward", "move_backward")
+
+
+func _input_action_pressed(action: StringName) -> bool:
+	if _is_network_session() and multiplayer.is_server():
+		match action:
+			&"jump":
+				return _network_jump
+			&"crouch":
+				return _network_crouch
+			&"run":
+				return _network_run
+			&"blink":
+				return _network_blink
+	return Input.is_action_pressed(action)
+
+
+func _input_action_just_pressed(action: StringName) -> bool:
+	if _is_network_session() and multiplayer.is_server() and action == &"jump":
+		return _network_jump and not _previous_network_jump
+	return Input.is_action_just_pressed(action)
+
+
+func _finish_network_tick(delta: float) -> void:
+	if not _is_network_session() or not multiplayer.is_server():
+		return
+	_previous_network_jump = _network_jump
+	_state_sync_remaining -= delta
+	if _state_sync_remaining > 0.0:
+		return
+	_state_sync_remaining += NETWORK_STATE_INTERVAL
+	for ready_peer: int in NetworkManager.replication_ready_peers:
+		if ready_peer == NETWORK_SERVER_PEER_ID:
+			continue
+		_send_network_state(ready_peer)
+
+
+func _send_network_state(peer_id: int) -> void:
+	_receive_network_state.rpc_id(
+		peer_id,
+		global_position,
+		rotation.y,
+		camera_pivot.rotation.x,
+		velocity,
+		is_crouching,
+		is_alive,
+		current_stamina,
+		eyes_closed,
+		blink_time_remaining,
+		eyelid_closure
+	)
+
+
+@rpc("authority", "call_remote", "unreliable_ordered", 2)
+func _receive_network_state(
+	server_position: Vector3,
+	server_yaw: float,
+	server_pitch: float,
+	server_velocity: Vector3,
+	server_crouching: bool,
+	server_alive: bool,
+	server_stamina: float,
+	server_eyes_closed: bool,
+	server_blink_remaining: float,
+	server_eyelid_closure: float
+) -> void:
+	if multiplayer.is_server():
+		return
+	_snapshot_position = server_position
+	_snapshot_yaw = server_yaw
+	_snapshot_pitch = server_pitch
+	_snapshot_velocity = server_velocity
+	is_alive = server_alive
+	current_stamina = clampf(server_stamina, 0.0, max_stamina)
+	eyes_closed = server_eyes_closed
+	blink_time_remaining = server_blink_remaining
+	eyelid_closure = server_eyelid_closure
+	if server_crouching != is_crouching:
+		if server_crouching:
+			_crouch()
+		else:
+			_stand_up()
+	if not _has_network_snapshot:
+		global_position = server_position
+		rotation.y = server_yaw
+		if not is_local_player():
+			camera_pivot.rotation.x = server_pitch
+		_has_network_snapshot = true
+
+
+func _interpolate_network_snapshot(delta: float) -> void:
+	if not _has_network_snapshot:
+		return
+	var distance := global_position.distance_to(_snapshot_position)
+	if distance > 3.0:
+		global_position = _snapshot_position
+	else:
+		global_position = global_position.lerp(_snapshot_position, minf(delta * 14.0, 1.0))
+	if not is_local_player():
+		rotation.y = lerp_angle(rotation.y, _snapshot_yaw, minf(delta * 16.0, 1.0))
+		camera_pivot.rotation.x = lerpf(
+			camera_pivot.rotation.x,
+			_snapshot_pitch,
+			minf(delta * 16.0, 1.0)
+		)
+	velocity = _snapshot_velocity
+	if is_local_player():
+		_update_camera_motion(delta)
+		var eyelid_material := blink_overlay.material as ShaderMaterial
+		if eyelid_material:
+			eyelid_material.set_shader_parameter("closure", eyelid_closure)
 
 
 func toggle_mouse_capture() -> void:
@@ -286,6 +537,35 @@ func _try_interact() -> void:
 		target.interact(self)
 
 
+@rpc("any_peer", "call_remote", "reliable")
+func _request_interact() -> void:
+	if multiplayer.is_server() and _rpc_sender_owns_player():
+		_try_interact()
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _request_drop_item() -> void:
+	if multiplayer.is_server() and _rpc_sender_owns_player():
+		_drop_selected_item()
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _request_select_slot(slot_index: int) -> void:
+	if multiplayer.is_server() and _rpc_sender_owns_player() and slot_index in [0, 1]:
+		equipment.select_slot(slot_index)
+
+
+func _request_or_select_slot(slot_index: int) -> void:
+	if _is_network_client():
+		_request_select_slot.rpc_id(NETWORK_SERVER_PEER_ID, slot_index)
+	else:
+		equipment.select_slot(slot_index)
+
+
+func _rpc_sender_owns_player() -> bool:
+	return multiplayer.get_remote_sender_id() == owner_peer_id
+
+
 ## Called by a PickupItem's own script when its Interactable fires - mirrors
 ## set_threat_from()/kill_by_ghost(): other systems call into the player's
 ## public API, the player never reaches into item internals. Returns false
@@ -318,21 +598,38 @@ func _drop_selected_item() -> void:
 
 
 func _physics_process(delta: float) -> void:
+	if _is_network_session():
+		if not multiplayer.is_server():
+			if is_local_player():
+				_capture_and_send_network_input()
+				# Blink is a first-person visual, so the owner animates it without
+				# waiting a round-trip while the same held state goes to the server.
+				_update_blink(delta)
+			_interpolate_network_snapshot(delta)
+			return
+		if owner_peer_id == NETWORK_SERVER_PEER_ID and not NetworkManager.dedicated_server:
+			_capture_and_send_network_input()
+		rotation.y = _network_yaw
+		camera_pivot.rotation.x = _network_pitch
+
 	_update_minigame_ghost_safety(delta)
 	if _is_any_minigame_active():
 		_open_eyes_for_minigame()
 		velocity = Vector3.ZERO
 		_stop_footsteps()
+		_finish_network_tick(delta)
 		return
 
 	_update_blink(delta)
 	if not is_alive:
 		velocity = Vector3.ZERO
 		_stop_footsteps()
+		_finish_network_tick(delta)
 		return
 
 	if dev_noclip:
 		_fly(delta)
+		_finish_network_tick(delta)
 		return
 
 	var was_on_floor := is_on_floor()
@@ -345,6 +642,7 @@ func _physics_process(delta: float) -> void:
 			velocity.y = 0.0
 		move_and_slide()
 		_stop_footsteps()
+		_finish_network_tick(delta)
 		return
 
 	# Add the gravity.
@@ -352,7 +650,7 @@ func _physics_process(delta: float) -> void:
 		velocity.y -= gravity * delta
 
 	# Handle Jump
-	if Input.is_action_just_pressed("jump") and is_on_floor():
+	if _input_action_just_pressed(&"jump") and is_on_floor():
 		if is_crouching:
 			if _can_stand():
 				_stand_up()
@@ -361,7 +659,7 @@ func _physics_process(delta: float) -> void:
 			velocity.y = jump_velocity
 
 	# Handle Crouch
-	if Input.is_action_pressed("crouch"):
+	if _input_action_pressed(&"crouch"):
 		if not is_crouching:
 			_crouch()
 	else:
@@ -371,11 +669,11 @@ func _physics_process(delta: float) -> void:
 
 	# Get the input direction and handle the movement/deceleration.
 	# Input.get_vector automatically normalizes diagonal input
-	var input_dir := Input.get_vector("move_left", "move_right", "move_forward", "move_backward")
+	var input_dir := _movement_input()
 	var direction := (transform.basis * Vector3(input_dir.x, 0, input_dir.y)).normalized()
 	
 	var is_sprinting = false
-	if direction != Vector3.ZERO and Input.is_action_pressed("run") and current_stamina > 0.0 and not is_crouching:
+	if direction != Vector3.ZERO and _input_action_pressed(&"run") and current_stamina > 0.0 and not is_crouching:
 		is_sprinting = true
 
 	var current_speed = walk_speed
@@ -415,11 +713,12 @@ func _physics_process(delta: float) -> void:
 
 	move_and_slide()
 	_update_footsteps(delta, is_sprinting)
+	_finish_network_tick(delta)
 
 
 func _update_blink(delta: float) -> void:
 	var was_closed := eyes_closed
-	var manual_close := Input.is_action_pressed('blink') and is_alive
+	var manual_close := _input_action_pressed(&"blink") and is_alive
 
 	if manual_close:
 		eyes_closed = true
@@ -822,17 +1121,17 @@ func set_dev_clear_vision(enabled: bool) -> void:
 ## are straight up and down. Position is written directly, so no collision,
 ## gravity or step-up logic gets a say.
 func _fly(delta: float) -> void:
-	var input_dir := Input.get_vector("move_left", "move_right", "move_forward", "move_backward")
+	var input_dir := _movement_input()
 	var camera_basis := camera_pivot.global_basis
 	var motion := (
 		camera_basis * Vector3(input_dir.x, 0.0, input_dir.y)
 		+ Vector3.UP * (
-			(1.0 if Input.is_action_pressed("jump") else 0.0)
-			- (1.0 if Input.is_action_pressed("crouch") else 0.0)
+			(1.0 if _input_action_pressed(&"jump") else 0.0)
+			- (1.0 if _input_action_pressed(&"crouch") else 0.0)
 		)
 	)
 	var speed := walk_speed * 3.0
-	if Input.is_action_pressed("run"):
+	if _input_action_pressed(&"run"):
 		speed *= 3.0
 	if dev_fast_movement:
 		speed *= maxf(dev_speed_multiplier, 1.0)
