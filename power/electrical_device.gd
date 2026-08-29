@@ -90,6 +90,10 @@ func is_forced_off() -> bool:
 	return _forced_off_by_blackout
 
 
+func is_forced_off_for(reason: StringName) -> bool:
+	return _forced_off_reasons.has(reason)
+
+
 func force_off(reason: StringName) -> void:
 	if _forced_off_reasons.has(reason):
 		return

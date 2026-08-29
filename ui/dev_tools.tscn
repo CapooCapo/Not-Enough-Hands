@@ -113,6 +113,16 @@ theme_override_colors/font_color = Color(0.65, 0.72, 0.78, 1)
 text = "Bật/tắt độc lập từng zone để test blackout."
 autowrap_mode = 2
 
+[node name="PowerReadout" type="Label" parent="Panel/Margin/Scroll/Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.84, 0.91, 0.88, 1)
+text = "ĐIỆN TỔNG: đang kết nối..."
+
+[node name="RechargePower" type="Button" parent="Panel/Margin/Scroll/Content"]
+custom_minimum_size = Vector2(0, 34)
+layout_mode = 2
+text = "NẠP ĐẦY ĐIỆN TỔNG"
+
 [node name="PowerActions" type="HBoxContainer" parent="Panel/Margin/Scroll/Content"]
 layout_mode = 2
 theme_override_constants/separation = 8
@@ -148,6 +158,34 @@ text = "GỌI CRAWLER XUẤT HIỆN"
 custom_minimum_size = Vector2(0, 44)
 layout_mode = 2
 text = "GỌI THỢ SĂN VÀO NHÀ"
+
+[node name="SpawnDarknessGhost" type="Button" parent="Panel/Margin/Scroll/Content"]
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+text = "GỌI MA BÓNG TỐI (TẮT 1 ZONE)"
+
+[node name="GhostBoxTitle" type="Label" parent="Panel/Margin/Scroll/Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.45, 0.75, 1)
+text = "ĐÁNH DẤU HITBOX MA"
+
+[node name="GhostBoxRow" type="HBoxContainer" parent="Panel/Margin/Scroll/Content"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Ghost" type="OptionButton" parent="Panel/Margin/Scroll/Content/GhostBoxRow"]
+custom_minimum_size = Vector2(150, 38)
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="ShowBox" type="CheckButton" parent="Panel/Margin/Scroll/Content/GhostBoxRow"]
+layout_mode = 2
+text = "Hiện box"
+
+[node name="TeleportToGhost" type="Button" parent="Panel/Margin/Scroll/Content"]
+custom_minimum_size = Vector2(0, 38)
+layout_mode = 2
+text = "TELE TỚI MA ĐÃ CHỌN"
 
 [node name="DoorTitle" type="Label" parent="Panel/Margin/Scroll/Content"]
 layout_mode = 2

@@ -14,6 +14,7 @@ var interactable: Interactable
 var _controlled_device: ElectricalDevice
 var _power_manager: PowerManager
 var _unlock_timer: Timer
+var _electrical_zone: ElectricalZone
 
 
 func _ready() -> void:
@@ -39,7 +40,10 @@ func _on_interacted(_player: Node) -> void:
 	if not _controlled_device:
 		return
 	interactable.lock()
-	_controlled_device.toggle()
+	if _restore_darkness_zone_from_switch():
+		_update_prompt()
+	else:
+		_controlled_device.toggle()
 	_unlock_timer.start()
 
 
@@ -72,6 +76,7 @@ func _bind_device(device: ElectricalDevice) -> void:
 	if _controlled_device and _controlled_device.state_changed.is_connected(_on_device_state_changed):
 		_controlled_device.state_changed.disconnect(_on_device_state_changed)
 	_controlled_device = device
+	_electrical_zone = _find_controlled_zone()
 	_controlled_device.state_changed.connect(_on_device_state_changed)
 	_update_prompt()
 
@@ -83,7 +88,33 @@ func _update_prompt() -> void:
 			if not controlled_device_id.is_empty()
 			else "CHƯA GÁN THIẾT BỊ"
 		)
+	elif _controlled_zone_requires_restore():
+		interactable.prompt_text = "KHÔI PHỤC ĐIỆN"
 	elif _controlled_device.is_forced_off():
 		interactable.prompt_text = "MẤT ĐIỆN"
 	else:
 		interactable.prompt_text = "TẮT ĐÈN" if _controlled_device.is_on else "BẬT ĐÈN"
+
+
+func _restore_darkness_zone_from_switch() -> bool:
+	if not _electrical_zone:
+		_electrical_zone = _find_controlled_zone()
+	if _electrical_zone and _electrical_zone.restore_device_from_switch(_controlled_device):
+		return true
+	return false
+
+
+func _controlled_zone_requires_restore() -> bool:
+	if not _electrical_zone:
+		_electrical_zone = _find_controlled_zone()
+	return _electrical_zone != null and _electrical_zone.is_device_waiting_for_switch(_controlled_device)
+
+
+func _find_controlled_zone() -> ElectricalZone:
+	if not _controlled_device:
+		return null
+	for node: Node in get_tree().get_nodes_in_group("electrical_zones"):
+		var zone := node as ElectricalZone
+		if zone and zone.contains_device_id(_controlled_device.device_id):
+			return zone
+	return null
