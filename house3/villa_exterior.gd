@@ -115,6 +115,9 @@ var _index: int = 0
 var _flicker_lights: Array[Light3D] = []
 var _flicker_energy: Array[float] = []
 var _time: float = 0.0
+var _batches: Dictionary = {}
+var _logical_counts: Dictionary = {}
+var _batch_root: Node3D
 
 
 func _ready() -> void:
@@ -123,6 +126,7 @@ func _ready() -> void:
 	_rng.seed = LAYOUT_SEED
 	var root := _container(self, "Generated")
 	root.add_to_group("villa_exterior")
+	_batch_root = _container(root, "BatchedGeometry")
 
 	_build_terrain(_container(root, "Terrain"))
 	_build_road(_container(root, "RingRoad"))
@@ -133,6 +137,10 @@ func _ready() -> void:
 	_build_back_garden(_container(root, "BackGarden"))
 	if build_backdrop:
 		_build_backdrop(_container(root, "Backdrop"))
+	_flush_batches()
+	root.set_meta("logical_counts", _logical_counts.duplicate(true))
+	root.set_meta("logical_mesh_count", _logical_mesh_count())
+	root.set_meta("render_batch_count", _batch_root.get_child_count())
 	if build_atmosphere:
 		_build_atmosphere(_container(root, "Atmosphere"))
 
@@ -223,19 +231,14 @@ func _ground(
 	y: float,
 	material: Material,
 	rotation_y: float = 0.0
-) -> MeshInstance3D:
-	var mesh := PlaneMesh.new()
-	mesh.size = area.size
-	mesh.material = material
-	var instance := MeshInstance3D.new()
-	_index += 1
-	instance.name = "%s_%04d" % [skin_name, _index]
-	instance.mesh = mesh
-	instance.position = Vector3(area.get_center().x, y, area.get_center().y)
-	instance.rotation.y = rotation_y
-	instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	parent.add_child(instance)
-	return instance
+) -> void:
+	var basis := Basis.from_euler(Vector3(0.0, rotation_y, 0.0)) \
+		* Basis.from_scale(Vector3(area.size.x, 1.0, area.size.y))
+	_queue_batch(
+		"plane", parent, skin_name,
+		Transform3D(basis, Vector3(area.get_center().x, y, area.get_center().y)),
+		material, false
+	)
 
 
 func _box(
@@ -246,22 +249,23 @@ func _box(
 	material: Material,
 	collide: bool = false,
 	rotation: Vector3 = Vector3.ZERO
-) -> Node3D:
+) -> void:
+	_record_logical(box_name)
+	if not collide:
+		_queue_batch(
+			"box", parent, box_name,
+			Transform3D(Basis.from_euler(rotation) * Basis.from_scale(size), centre),
+			material, true, false
+		)
+		return
+
+	var body := _static_root(parent, box_name, centre, rotation)
 	var mesh := BoxMesh.new()
 	mesh.size = size
 	mesh.material = material
 	var instance := MeshInstance3D.new()
 	instance.name = "Mesh"
 	instance.mesh = mesh
-	if not collide:
-		_index += 1
-		instance.name = "%s_%04d" % [box_name, _index]
-		instance.position = centre
-		instance.rotation = rotation
-		parent.add_child(instance)
-		return instance
-
-	var body := _static_root(parent, box_name, centre, rotation)
 	var shape := BoxShape3D.new()
 	shape.size = size
 	var collision := CollisionShape3D.new()
@@ -269,7 +273,6 @@ func _box(
 	collision.shape = shape
 	body.add_child(collision)
 	body.add_child(instance)
-	return body
 
 
 func _cylinder(
@@ -281,8 +284,23 @@ func _cylinder(
 	material: Material,
 	collide: bool = false,
 	rotation: Vector3 = Vector3.ZERO,
-	segments: int = 10
-) -> Node3D:
+	segments: int = 10,
+	basis_override: Basis = Basis.IDENTITY
+) -> void:
+	_record_logical(cylinder_name)
+	if not collide:
+		var orientation := basis_override if basis_override != Basis.IDENTITY else Basis.from_euler(rotation)
+		_queue_batch(
+			"cylinder_%d" % segments, parent, cylinder_name,
+			Transform3D(
+				orientation * Basis.from_scale(Vector3(radius, height * 0.5, radius)),
+				centre
+			),
+			material, true, false, segments
+		)
+		return
+
+	var body := _static_root(parent, cylinder_name, centre, rotation)
 	var mesh := CylinderMesh.new()
 	mesh.top_radius = radius
 	mesh.bottom_radius = radius
@@ -293,15 +311,6 @@ func _cylinder(
 	var instance := MeshInstance3D.new()
 	instance.name = "Mesh"
 	instance.mesh = mesh
-	if not collide:
-		_index += 1
-		instance.name = "%s_%04d" % [cylinder_name, _index]
-		instance.position = centre
-		instance.rotation = rotation
-		parent.add_child(instance)
-		return instance
-
-	var body := _static_root(parent, cylinder_name, centre, rotation)
 	var shape := CylinderShape3D.new()
 	shape.radius = radius
 	shape.height = height
@@ -310,7 +319,6 @@ func _cylinder(
 	collision.shape = shape
 	body.add_child(collision)
 	body.add_child(instance)
-	return body
 
 
 ## Colliders are only ever legitimate inside the aprons - see the file header.
@@ -359,19 +367,9 @@ func _quad(
 	size: Vector2,
 	material: Material,
 	rotation: Vector3 = Vector3.ZERO
-) -> MeshInstance3D:
-	var mesh := QuadMesh.new()
-	mesh.size = size
-	mesh.material = material
-	var instance := MeshInstance3D.new()
-	_index += 1
-	instance.name = "%s_%04d" % [quad_name, _index]
-	instance.mesh = mesh
-	instance.position = centre
-	instance.rotation = rotation
-	instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	parent.add_child(instance)
-	return instance
+) -> void:
+	var basis := Basis.from_euler(rotation) * Basis.from_scale(Vector3(size.x, size.y, 1.0))
+	_queue_batch("quad", parent, quad_name, Transform3D(basis, centre), material, false)
 
 
 ## A deliberately low-poly stone. Small ones are only visual clutter; the few
@@ -384,6 +382,7 @@ func _rock(
 	material: Material,
 	collide: bool = false
 ) -> Node3D:
+	_record_logical("GardenBoulder" if collide else "GardenRock")
 	var mesh := SphereMesh.new()
 	mesh.radius = 1.0
 	mesh.height = 2.0
@@ -427,6 +426,94 @@ func _crossed_cards(
 ) -> void:
 	for offset: float in [0.0, PI * 0.5]:
 		_quad(parent, card_name, at, size, material, Vector3(0.0, yaw + offset, 0.0))
+
+
+## Static decoration uses a handful of shared unit meshes. This turns more
+## than a thousand tiny MeshInstance3D draw submissions into a few dozen
+## MultiMesh batches without touching any authored collider or navigation
+## surface.
+func _queue_batch(
+	kind: String,
+	parent: Node3D,
+	logical_name: String,
+	local_transform: Transform3D,
+	material: Material,
+	cast_shadow: bool,
+	record_count: bool = true,
+	segments: int = 10
+) -> void:
+	if record_count:
+		_record_logical(logical_name)
+	var key := "%s|%d|%s" % [kind, material.get_instance_id(), cast_shadow]
+	if not _batches.has(key):
+		_batches[key] = {
+			"kind": kind,
+			"material": material,
+			"cast_shadow": cast_shadow,
+			"segments": segments,
+			"transforms": [],
+		}
+	var relative := _batch_root.global_transform.affine_inverse() \
+		* parent.global_transform * local_transform
+	((_batches[key] as Dictionary)["transforms"] as Array).append(relative)
+
+
+func _record_logical(logical_name: String) -> void:
+	_logical_counts[logical_name] = int(_logical_counts.get(logical_name, 0)) + 1
+
+
+func _logical_mesh_count() -> int:
+	var total := 0
+	for count: Variant in _logical_counts.values():
+		total += int(count)
+	return total
+
+
+func _flush_batches() -> void:
+	var keys: Array = _batches.keys()
+	keys.sort()
+	for key: String in keys:
+		var batch: Dictionary = _batches[key]
+		var transforms: Array = batch["transforms"]
+		var mesh: PrimitiveMesh
+		match String(batch["kind"]).get_slice("_", 0):
+			"box":
+				var box := BoxMesh.new()
+				box.size = Vector3.ONE
+				mesh = box
+			"plane":
+				var plane := PlaneMesh.new()
+				plane.size = Vector2.ONE
+				mesh = plane
+			"quad":
+				var quad := QuadMesh.new()
+				quad.size = Vector2.ONE
+				mesh = quad
+			"cylinder":
+				var cylinder := CylinderMesh.new()
+				cylinder.top_radius = 1.0
+				cylinder.bottom_radius = 1.0
+				cylinder.height = 2.0
+				cylinder.radial_segments = int(batch["segments"])
+				cylinder.rings = 0
+				mesh = cylinder
+		mesh.material = batch["material"] as Material
+		var multimesh := MultiMesh.new()
+		multimesh.transform_format = MultiMesh.TRANSFORM_3D
+		multimesh.mesh = mesh
+		multimesh.instance_count = transforms.size()
+		for index: int in transforms.size():
+			multimesh.set_instance_transform(index, transforms[index] as Transform3D)
+		var instance := MultiMeshInstance3D.new()
+		instance.name = "ExteriorBatch_%03d" % _batch_root.get_child_count()
+		instance.multimesh = multimesh
+		instance.cast_shadow = (
+			GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+			if bool(batch["cast_shadow"])
+			else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		)
+		_batch_root.add_child(instance)
+	_batches.clear()
 
 
 ## An orthonormal basis whose +Y runs along `up`; lets a cylinder be a branch
@@ -708,10 +795,10 @@ func _add_power_line(parent: Node3D) -> void:
 			var a := from.lerp(to, float(segment) / (sag.size() - 1)) + Vector3.UP * sag[segment]
 			var b := from.lerp(to, float(segment + 1) / (sag.size() - 1)) \
 				+ Vector3.UP * sag[segment + 1]
-			var strand := _cylinder(
-				parent, "PowerWire", (a + b) * 0.5, 0.035, a.distance_to(b), wire, false
+			_cylinder(
+				parent, "PowerWire", (a + b) * 0.5, 0.035, a.distance_to(b), wire,
+				false, Vector3.ZERO, 10, _basis_along(b - a)
 			)
-			strand.basis = _basis_along(b - a)
 
 
 func _add_guard_rail(parent: Node3D) -> void:
@@ -986,11 +1073,10 @@ func _add_dead_tree(parent: Node3D, at: Vector2, height: float, collide: bool) -
 		var length := _rng.randf_range(1.4, 2.9)
 		var base := Vector3(at.x, height * _rng.randf_range(0.62, 0.94), at.y)
 		var direction := Vector3(cos(angle), _rng.randf_range(0.5, 1.1), sin(angle)).normalized()
-		var limb := _cylinder(
+		_cylinder(
 			parent, "TreeLimb", base + direction * length * 0.5,
-			radius * 0.38, length, bark, false, Vector3.ZERO, 6
+			radius * 0.38, length, bark, false, Vector3.ZERO, 6, _basis_along(direction)
 		)
-		limb.basis = _basis_along(direction)
 
 	# A minority still carries thin, sickly foliage. Crossed cards preserve the
 	# Classic64 silhouette without turning the treeline into opaque green blobs.

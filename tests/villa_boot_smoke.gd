@@ -34,6 +34,11 @@ func _run() -> void:
 		return
 
 	var entrance_ids: Array[int] = []
+	var authored_outward: Dictionary = {}
+	for anchor_node: Node in get_nodes_in_group("villa_entrance_anchors"):
+		var anchor := anchor_node as Marker3D
+		if not bool(anchor.get_meta("overhead", false)):
+			authored_outward[int(anchor.get_meta("entrance_id"))] = anchor.global_basis.z.normalized()
 	# Entrance 07 is the attic skylight, so it sits in the ceiling above the
 	# attic floor rather than on it.
 	var elevations := {1: 0.0, 2: 0.0, 3: 0.0, 4: 0.0, 5: -3.5, 6: 3.5, 7: 10.5}
@@ -47,6 +52,11 @@ func _run() -> void:
 			_fail("Entrance %02d sits at y=%.2f, expected %.2f."
 				% [entrance_id, (node as Node3D).global_position.y, elevations[entrance_id]])
 			return
+		if entrance_id != 7:
+			var exterior: Vector3 = (node as Node3D).get_meta("exterior_outward", Vector3.ZERO)
+			if exterior.dot(authored_outward.get(entrance_id, Vector3.ZERO)) < 0.999:
+				_fail("Entrance %02d did not preserve its authored exterior direction." % entrance_id)
+				return
 	entrance_ids.sort()
 	if entrance_ids != [1, 2, 3, 4, 5, 6, 7]:
 		_fail("Villa entrances are incomplete or duplicated: %s." % [entrance_ids])

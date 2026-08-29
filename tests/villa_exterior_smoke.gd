@@ -36,11 +36,32 @@ func _run() -> void:
 			return
 
 	var meshes := generated.find_children("*", "MeshInstance3D", true, false)
+	var batches := generated.find_children("*", "MultiMeshInstance3D", true, false)
 	var static_bodies := generated.find_children("*", "StaticBody3D", true, false)
 	var lights := generated.find_children("*", "Light3D", true, false)
 	var fog := generated.find_children("*", "FogVolume", true, false)
-	if meshes.size() < 300:
-		_fail("Exterior detail is unexpectedly sparse: %d meshes." % meshes.size())
+	var logical_meshes := int(generated.get_meta("logical_mesh_count", 0))
+	if logical_meshes < 1000:
+		_fail("Exterior detail is unexpectedly sparse: %d logical meshes." % logical_meshes)
+		return
+	if batches.is_empty() or meshes.size() + batches.size() > 320:
+		_fail(
+			"Exterior geometry was not efficiently batched: %d meshes + %d batches."
+			% [meshes.size(), batches.size()]
+		)
+		return
+	var rendered_instances := meshes.size()
+	for node: Node in batches:
+		var multimesh := (node as MultiMeshInstance3D).multimesh
+		if not multimesh or multimesh.instance_count == 0:
+			_fail("Exterior contains an empty render batch.")
+			return
+		rendered_instances += multimesh.instance_count
+	if rendered_instances != logical_meshes:
+		_fail(
+			"Batching lost geometry: %d rendered instances for %d authored meshes."
+			% [rendered_instances, logical_meshes]
+		)
 		return
 	if static_bodies.size() < 80:
 		_fail("Exterior collision is unexpectedly sparse: %d bodies." % static_bodies.size())
@@ -49,14 +70,15 @@ func _run() -> void:
 		_fail("Exterior atmosphere is incomplete: %d lights, %d fog volumes." % [lights.size(), fog.size()])
 		return
 
-	for pattern: String in ["LeafLitter_*", "DeadGrass_*", "FallenBranch_*", "GardenRock_*"]:
-		if generated.find_children(pattern, "MeshInstance3D", true, false).is_empty():
-			_fail("Exterior is missing ground detail %s." % pattern)
+	var logical_counts := generated.get_meta("logical_counts", {}) as Dictionary
+	for detail: String in ["LeafLitter", "DeadGrass", "FallenBranch", "GardenRock"]:
+		if int(logical_counts.get(detail, 0)) == 0:
+			_fail("Exterior is missing ground detail %s." % detail)
 			return
-	if generated.find_children("SicklyLeaves_*", "MeshInstance3D", true, false).is_empty():
+	if int(logical_counts.get("SicklyLeaves", 0)) == 0:
 		_fail("Exterior treeline has no remaining foliage.")
 		return
-	if generated.find_children("LeafyShrub_*", "MeshInstance3D", true, false).size() < 16:
+	if int(logical_counts.get("LeafyShrub", 0)) < 16:
 		_fail("Exterior garden has too few leafy shrub cards.")
 		return
 
@@ -67,6 +89,12 @@ func _run() -> void:
 		if not material or not material.albedo_texture:
 			continue
 		texture_paths[material.albedo_texture.resource_path] = true
+	for node: Node in batches:
+		var batch_instance := node as MultiMeshInstance3D
+		var batch_mesh := batch_instance.multimesh.mesh if batch_instance.multimesh else null
+		var material := batch_mesh.material as StandardMaterial3D if batch_mesh else null
+		if material and material.albedo_texture:
+			texture_paths[material.albedo_texture.resource_path] = true
 	if texture_paths.size() < 15:
 		_fail("Exterior uses only %d Classic64 textures; expected a dressed environment." % texture_paths.size())
 		return
@@ -83,8 +111,8 @@ func _run() -> void:
 		return
 
 	print(
-		"Villa exterior smoke test passed: %d meshes, %d colliders, %d Classic64 textures."
-		% [meshes.size(), static_bodies.size(), texture_paths.size()]
+		"Villa exterior smoke test passed: %d logical meshes in %d render nodes, %d colliders, %d Classic64 textures."
+		% [logical_meshes, meshes.size() + batches.size(), static_bodies.size(), texture_paths.size()]
 	)
 	stage.queue_free()
 	await process_frame

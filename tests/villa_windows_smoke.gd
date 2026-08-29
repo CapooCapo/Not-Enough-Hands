@@ -44,20 +44,28 @@ func _run() -> void:
 		_fail("VillaWindows generated no grouped output.")
 		return
 
-	var panes := generated.find_children("WindowPane_*", "MeshInstance3D", true, false)
-	var boarded := generated.find_children("WindowBoardStub_*", "MeshInstance3D", true, false)
+	var panes := int(generated.get_meta("glazed_count", 0))
+	var boarded := int(generated.get_meta("boarded_count", 0))
 	var lights := generated.find_children("Moonlight_*", "SpotLight3D", true, false)
-	if panes.is_empty():
+	if panes == 0:
 		_fail("No glazed window bays were generated.")
 		return
-	if boarded.is_empty():
+	if boarded == 0:
 		_fail("No boarded window variation was generated.")
 		return
-	if lights.size() != panes.size() + boarded.size():
+	if lights.size() != panes + boarded:
 		_fail(
 			"Expected one moonlight per bay, got %d lights for %d glazed and %d boarded bays."
-			% [lights.size(), panes.size(), boarded.size()]
+			% [lights.size(), panes, boarded]
 		)
+		return
+	var batches := generated.find_children("*", "MultiMeshInstance3D", true, false)
+	if batches.is_empty() or batches.size() > 10:
+		_fail("Window geometry was not efficiently batched: %d render batches." % batches.size())
+		return
+	var logical_meshes := int(generated.get_meta("logical_mesh_count", 0))
+	if logical_meshes < 500:
+		_fail("Window batching lost authored geometry.")
 		return
 
 	var opened_wall := _find_opened_wall(house)
@@ -84,8 +92,8 @@ func _run() -> void:
 		return
 
 	print(
-		"Villa windows smoke test passed: %d glazed, %d boarded, %d active lights."
-		% [panes.size(), boarded.size(), visible_count]
+		"Villa windows smoke test passed: %d glazed, %d boarded, %d pieces in %d batches, %d active lights."
+		% [panes, boarded, logical_meshes, batches.size(), visible_count]
 	)
 	stage.queue_free()
 	await process_frame

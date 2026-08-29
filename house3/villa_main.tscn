@@ -23392,12 +23392,12 @@ automatic_waves = true
 [node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=875346206]
 environment = SubResource("Environment_villa")
 
-[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
-rotation_degrees = Vector3(-48, -28, 0)
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=744362694]
+transform = Transform3D(0.88294756, 0.3488854, -0.3141378, 0, 0.66913056, 0.74314487, 0.46947157, -0.656158, 0.5908072, 0, 0, 0)
 light_color = Color(0.34, 0.43, 0.62, 1)
 light_energy = 0.3
-light_specular = 0.18
 light_volumetric_fog_energy = 0.55
+light_specular = 0.18
 shadow_enabled = true
 directional_shadow_max_distance = 96.0
 
@@ -23407,12 +23407,6 @@ directional_shadow_max_distance = 96.0
 
 [node name="VillaHouse" parent="." unique_id=292533536 instance=ExtResource("1_villa")]
 authoring_granularity = 1
-
-[node name="VillaWindows" type="Node3D" parent="."]
-script = ExtResource("79_villa_windows")
-
-[node name="VillaExterior" type="Node3D" parent="."]
-script = ExtResource("80_villa_exterior")
 
 [node name="Generated" type="Node3D" parent="VillaHouse" unique_id=973196854 groups=["house2_geometry", "villa_geometry"]]
 
@@ -41653,19 +41647,11 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 39, 1.75, -0.15)
 [node name="Collision" type="CollisionShape3D" parent="VillaHouse/Generated/Level_F_00/Architecture/InteriorWall_3607" unique_id=1914586293]
 shape = SubResource("BoxShape3D_u48kk")
 
-[node name="InteriorWallModule_3608" parent="VillaHouse/Generated/Level_F_00/Architecture/InteriorWall_3607" unique_id=991042747 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("8_f1ptq")]
-transform = Transform3D(1, 0, 0, 0, 1.1666666, 0, 0, 0, 1, 0, -1.75, 0.15)
-metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
-
 [node name="InteriorWall_3609" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_00/Architecture" unique_id=936725257]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 41, 1.75, -0.15)
 
 [node name="Collision" type="CollisionShape3D" parent="VillaHouse/Generated/Level_F_00/Architecture/InteriorWall_3609" unique_id=469844370]
 shape = SubResource("BoxShape3D_bxdww")
-
-[node name="InteriorWallModule_3610" parent="VillaHouse/Generated/Level_F_00/Architecture/InteriorWall_3609" unique_id=609642200 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("8_f1ptq")]
-transform = Transform3D(1, 0, 0, 0, 1.1666666, 0, 0, 0, 1, 0, -1.75, 0.15)
-metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="InteriorWall_3611" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_00/Architecture" unique_id=1165251161]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 40.15, 1.75, 11)
@@ -78874,6 +78860,12 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 29, 7.4, 29)
 
 [node name="Lair" type="Marker3D" parent="VillaHouse/Generated/Routes/CrawlerRoute" unique_id=444473228 groups=["crawler_lair"]]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 29, 7.4, 29)
+
+[node name="VillaWindows" type="Node3D" parent="." unique_id=46692470]
+script = ExtResource("79_villa_windows")
+
+[node name="VillaExterior" type="Node3D" parent="." unique_id=148331078]
+script = ExtResource("80_villa_exterior")
 
 [node name="RoomSigns" type="Node3D" parent="." unique_id=950377845]
 script = ExtResource("71_room_signs")

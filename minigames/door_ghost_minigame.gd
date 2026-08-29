@@ -27,7 +27,7 @@ signal encounter_phase_changed(phase_index: int)
 ## (STARE -> JUMPSCARE) is shared, so the phase is a second axis rather than
 ## three copied sets of states. PHASE_1_SEARCH is (SEARCH, 0), PHASE_2_RETREAT
 ## is (RETREAT, 1), and so on.
-enum State { INACTIVE, SEARCH, STARE, RETREAT, JUMPSCARE, SUCCESS }
+enum State { INACTIVE, SEARCH, STARE, DODGE, RETREAT, JUMPSCARE, SUCCESS }
 
 ## Phases of the encounter: peephole, ajar, wide open. Every per-phase export
 ## below carries exactly this many entries.
@@ -47,9 +47,8 @@ const SPOT_GROUP := &"door_ghost_positions"
 ## Seconds the ghost needs to cross from its spot to the door. This is one
 ## search/hit cycle, not one phase: every landed hit resets it in full.
 @export var threat_window: float = 5.0
-## Remaining time at which the ghost stops closing and simply stares. Once it
-## is staring the window is spent - the beam no longer repels it, so this is a
-## real deadline rather than a last chance.
+## Remaining time at which the ghost stops closing and simply stares. It stays
+## vulnerable here, giving a final short chance before the real deadline.
 @export var stare_threshold: float = 1.0
 ## How long the beam has to stay on the ghost, unbroken, for the hit to count.
 ## Brushing past it does nothing; look away and the hold starts over.
@@ -63,6 +62,17 @@ const SPOT_GROUP := &"door_ghost_positions"
 @export var retreat_duration: float = 0.55
 ## How much of that beat it spends recoiling in the beam before it vanishes.
 @export var reaction_duration: float = 0.3
+
+@export_category("Dodge")
+## One roll per appearance, made once a continuous beam reaches this fraction
+## of a completed repel. A dodge resets that hold but never counts as a hit.
+@export_range(0.0, 1.0, 0.01) var dodge_chance: float = 0.3
+@export_range(0.05, 0.95, 0.05) var dodge_trigger_fraction: float = 0.3
+## Angular sidestep relative to the camera. It must clear the gameplay beam's
+## 16.8-degree half-angle even at the far phase, where a fixed metre offset
+## would still leave the ghost illuminated.
+@export_range(18.0, 60.0, 1.0) var dodge_angle_degrees: float = 24.0
+@export_range(0.1, 1.0, 0.05) var dodge_duration: float = 0.3
 
 @export_category("Presentation text")
 ## Shown with the phase number and the per-phase hit counter.
@@ -78,8 +88,18 @@ const SPOT_GROUP := &"door_ghost_positions"
 ## 180 or more means the phase is free-look and the clamp is switched off.
 @export var phase_yaw_limits: PackedFloat32Array = PackedFloat32Array([45.0, 60.0, 180.0])
 @export var phase_pitch_limits: PackedFloat32Array = PackedFloat32Array([32.0, 45.0, 80.0])
-## Peephole aperture per phase, fed to the overlay shader (0 = spyhole).
-@export var phase_apertures: PackedFloat32Array = PackedFloat32Array([0.0, 0.42, 1.0])
+## Keep the same tight darkness mask in every phase. Phase progression only
+## loosens camera rotation; the mouse-driven flashlight remains the sole bright
+## patch instead of the whole doorway becoming visible.
+@export var phase_apertures: PackedFloat32Array = PackedFloat32Array([0.0, 0.0, 0.0])
+## Minigame-only flashlight reach and spread. Both are restored on exit.
+@export_range(8.0, 30.0, 0.5) var encounter_flashlight_range: float = 16.5
+@export_range(20.0, 55.0, 1.0) var encounter_flashlight_angle: float = 32.0
+## The centre stays clear for the physical flashlight. Outside it, a small
+## fraction of the world remains visible so silhouettes can guide the search
+## without making the torch optional.
+@export_range(0.15, 0.45, 0.01) var flashlight_focus_radius: float = 0.26
+@export_range(0.0, 0.35, 0.01) var peripheral_visibility: float = 0.16
 ## How far the door leaf itself swings open per phase, in degrees.
 @export var phase_leaf_swing: PackedFloat32Array = PackedFloat32Array([0.0, 26.0, 88.0])
 ## Hinge line the leaf swings around, in the door's own local space. Local, so
@@ -93,6 +113,12 @@ const SPOT_GROUP := &"door_ghost_positions"
 @export var spot_search_radius: float = 9.0
 ## A spot the door cannot actually see from is discarded below this distance.
 @export var minimum_spot_distance: float = 1.8
+## Minimum horizontal spawn distance from the phase viewpoint. Later phases
+## open the door wider and deliberately put the ghost deeper into the exterior:
+## close through the peephole, medium through the ajar door, far when open.
+@export var phase_minimum_spot_distances: PackedFloat32Array = PackedFloat32Array([
+	3.0, 4.8, 6.6,
+])
 ## Fractions along the walk from a spot to the door that must also be in view.
 ## A spot the beam can reach is not enough on its own: the ghost has to stay
 ## hittable while it closes, or a doorway with something in the middle of its
@@ -180,6 +206,11 @@ var _ghost_safety_acquired: bool = false
 var _phase_tween: Tween
 var _leaf_tween: Tween
 var _current_leaf_swing: float = 0.0
+var _spots_phase: int = -1
+var _dodge_roll_checked: bool = false
+var _dodge_from: Vector3 = Vector3.ZERO
+var _dodge_to: Vector3 = Vector3.ZERO
+var _dodge_return_state: State = State.SEARCH
 
 var _saved_player_position: Vector3 = Vector3.ZERO
 var _saved_player_yaw: float = 0.0
@@ -187,6 +218,8 @@ var _saved_pitch: float = 0.0
 var _saved_yaw_clamp_active: bool = false
 var _saved_flashlight_visible: bool = true
 var _saved_flashlight_energy: float = 0.0
+var _saved_flashlight_range: float = 0.0
+var _saved_flashlight_angle: float = 0.0
 var _flicker_time: float = 0.0
 ## Lights this encounter switched off, and what they were before it did.
 var _darkened_lights: Dictionary = {}
@@ -265,8 +298,9 @@ func start(player: Node, door: Node) -> bool:
 	_capture_player_state()
 	_darken_house()
 	_acquire_ghost_safety()
-	spots = _collect_spots()
+	spots.clear()
 	spot_index = -1
+	_spots_phase = -1
 	_apply_phase(0, false)
 	_aperture = phase_apertures[0]
 	overlay.visible = true
@@ -352,6 +386,8 @@ func _process(delta: float) -> void:
 	match state:
 		State.SEARCH, State.STARE:
 			_update_threat(delta)
+		State.DODGE:
+			_update_dodge(delta)
 		State.RETREAT:
 			state_timer -= delta
 			if ghost.visible and state_timer <= retreat_duration - reaction_duration:
@@ -385,11 +421,12 @@ func _update_threat(delta: float) -> void:
 			state = State.STARE
 			relocate_audio.pitch_scale = _rng.randf_range(0.72, 0.86)
 			relocate_audio.play()
-		# It has arrived. It stops walking, looks at the player, and from here
-		# the beam does nothing - the window was the chance, and it is gone.
-		ghost.set_pose(DoorGhost.Pose.IDLE)
-		_place_ghost(_stare_position())
-		lit_time = 0.0
+			# It has arrived and stops walking, but remains vulnerable. A visible
+			# ghost becoming immune in the centre of the flashlight reads as a
+			# broken hitbox, not as a deadline.
+			ghost.set_pose(DoorGhost.Pose.IDLE)
+			_place_ghost(_stare_position())
+		_check_flashlight(delta)
 		return
 
 	var travel := 1.0 - (threat_remaining - stare_at) / maxf(threat_window - stare_at, 0.01)
@@ -406,6 +443,11 @@ func _check_flashlight(delta: float) -> void:
 		if lit_time <= 0.0:
 			flashlight_audio.play()
 		lit_time += delta
+		if not _dodge_roll_checked \
+			and lit_time >= flashlight_confirm_time * dodge_trigger_fraction:
+			_dodge_roll_checked = true
+			if _rng.randf() < dodge_chance and _begin_dodge():
+				return
 		# Caught in the beam it stops walking and holds still, so the player can
 		# tell a hit is landing before it completes.
 		ghost.set_pose(DoorGhost.Pose.IDLE)
@@ -413,6 +455,53 @@ func _check_flashlight(delta: float) -> void:
 			_land_repel()
 	else:
 		lit_time = 0.0
+
+
+func _begin_dodge() -> bool:
+	var eye := _camera.global_position
+	var eye_ground := Vector3(eye.x, floor_height, eye.z)
+	var radial := ghost.global_position - eye_ground
+	radial.y = 0.0
+	if radial.length_squared() < 0.01:
+		return false
+	var first_side := -1.0 if _rng.randf() < 0.5 else 1.0
+	for side: float in [first_side, -first_side]:
+		var dodge_direction := radial.normalized().rotated(
+			Vector3.UP, deg_to_rad(dodge_angle_degrees) * side
+		)
+		var candidate := eye_ground + dodge_direction * radial.length()
+		candidate.y = _measure_floor(candidate)
+		if not _inside_phase_yaw(candidate, eye) \
+			or not _first_blocker(eye, candidate).is_empty():
+			continue
+		# Refund the incomplete hold and pause the deadline for the actual dodge.
+		# The player must reacquire the ghost, but is never punished for the time
+		# in which the game itself moved it out of the beam.
+		threat_remaining = minf(threat_window, threat_remaining + lit_time)
+		lit_time = 0.0
+		_dodge_return_state = state
+		state = State.DODGE
+		state_timer = dodge_duration
+		_dodge_from = ghost.global_position
+		_dodge_to = candidate
+		ghost.set_pose(DoorGhost.Pose.REACT)
+		relocate_audio.pitch_scale = _rng.randf_range(1.08, 1.22)
+		relocate_audio.play()
+		return true
+	return false
+
+
+func _update_dodge(delta: float) -> void:
+	state_timer = maxf(state_timer - delta, 0.0)
+	var completion := 1.0 - state_timer / maxf(dodge_duration, 0.01)
+	_place_ghost(_dodge_from.lerp(_dodge_to, ease(completion, -1.7)))
+	if state_timer > 0.0:
+		return
+	ghost_origin = _dodge_to
+	state = _dodge_return_state
+	ghost.set_pose(
+		DoorGhost.Pose.IDLE if state == State.STARE else DoorGhost.Pose.APPROACH
+	)
 
 
 ## Real 3D test against the player's own SpotLight3D: inside its range, inside
@@ -481,6 +570,11 @@ func _begin_search(is_first: bool) -> void:
 	state = State.SEARCH
 	threat_remaining = threat_window
 	lit_time = 0.0
+	_dodge_roll_checked = false
+	if _spots_phase != phase_index:
+		spots = _collect_spots()
+		spot_index = -1
+		_spots_phase = phase_index
 	ghost_origin = _pick_spot()
 	ghost.appear(ghost_origin)
 	_place_ghost(ghost_origin)
@@ -592,7 +686,10 @@ func _camera_ground_position() -> Vector3:
 ## player ends up looking along the wall's outside, not into the floor.
 func _measure_outward(door_body: Node3D) -> Vector3:
 	var basis := door_body.global_transform.basis
-	var direction := -basis.z
+	# Maps that rotate the shared defense-door asset independently of its
+	# authored House2 convention can state the real exterior normal explicitly.
+	# Falling back to local -Z preserves every existing House2 entrance.
+	var direction: Vector3 = door_body.get_meta("exterior_outward", -basis.z)
 	if absf(direction.normalized().y) > 0.7:
 		direction = -basis.y
 	direction.y = 0.0
@@ -624,9 +721,10 @@ func _fallback_spot() -> Vector3:
 		_camera_pivot.position.y if is_instance_valid(_camera_pivot) else 0.0
 	)
 	var ground := Vector3(eye.x, floor_height, eye.z)
-	var best := ground + outward * minimum_spot_distance
+	var phase_distance := _phase_minimum_spot_distance()
+	var best := ground + outward * phase_distance
 	for step: int in 8:
-		var candidate := ground + outward * (minimum_spot_distance + float(step) * 0.45)
+		var candidate := ground + outward * (phase_distance + float(step) * 0.45)
 		candidate.y = _measure_floor(candidate)
 		if not _first_blocker(eye, candidate).is_empty():
 			break
@@ -646,7 +744,7 @@ func _collect_spots() -> Array[Vector3]:
 	var resolved: Array[Vector3] = []
 	var scored: Array[Dictionary] = []
 	var door_body := current_door as Node3D
-	var eye := _view_position(phase_view_offsets[0]) + Vector3.UP * (
+	var eye := _view_position(phase_view_offsets[phase_index]) + Vector3.UP * (
 		_camera_pivot.position.y if is_instance_valid(_camera_pivot) else 0.0
 	)
 	for node: Node in get_tree().get_nodes_in_group(SPOT_GROUP):
@@ -657,7 +755,11 @@ func _collect_spots() -> Array[Vector3]:
 			continue
 		if not _owns_spot(marker):
 			continue
-		var candidate := _resolve_spot(_spot_origin(marker, door_body), eye)
+		var candidate := _spot_origin(marker, door_body)
+		candidate = _apply_phase_minimum_distance(candidate, eye)
+		if not _inside_phase_yaw(candidate, eye):
+			continue
+		candidate = _resolve_spot(candidate, eye)
 		if candidate.is_finite():
 			scored.append({"spot": candidate, "clearance": _approach_clearance(eye, candidate)})
 
@@ -727,7 +829,7 @@ func _resolve_spot(candidate: Vector3, eye: Vector3) -> Vector3:
 	# of that instead. Whatever comes out has to pass the same visibility test
 	# the flashlight will use, or it is dropped.
 	for _pass: int in 2:
-		if distance < minimum_spot_distance:
+		if distance < _phase_minimum_spot_distance():
 			return Vector3.INF
 		candidate = ground + direction * distance
 		candidate.y = _measure_floor(candidate)
@@ -736,6 +838,45 @@ func _resolve_spot(candidate: Vector3, eye: Vector3) -> Vector3:
 			return candidate
 		distance = eye.distance_to(blocker["position"]) - spot_wall_margin
 	return Vector3.INF
+
+
+func _phase_minimum_spot_distance() -> float:
+	if phase_minimum_spot_distances.is_empty():
+		return minimum_spot_distance
+	return maxf(
+		minimum_spot_distance,
+		phase_minimum_spot_distances[clampi(
+			phase_index, 0, phase_minimum_spot_distances.size() - 1
+		)]
+	)
+
+
+func _apply_phase_minimum_distance(candidate: Vector3, eye: Vector3) -> Vector3:
+	var ground := Vector3(eye.x, floor_height, eye.z)
+	var direction := candidate - ground
+	direction.y = 0.0
+	var distance := direction.length()
+	if distance < 0.01:
+		direction = outward
+		distance = 0.0
+	if distance >= _phase_minimum_spot_distance():
+		return candidate
+	var result := ground + direction.normalized() * _phase_minimum_spot_distance()
+	result.y = candidate.y
+	return result
+
+
+func _inside_phase_yaw(candidate: Vector3, eye: Vector3) -> bool:
+	var yaw_limit := phase_yaw_limits[clampi(phase_index, 0, phase_yaw_limits.size() - 1)]
+	if yaw_limit >= 179.0:
+		return true
+	var direction := candidate - Vector3(eye.x, floor_height, eye.z)
+	direction.y = 0.0
+	if direction.length_squared() < 0.001:
+		return false
+	var angle := rad_to_deg(acos(clampf(outward.dot(direction.normalized()), -1.0, 1.0)))
+	# Keep a small input margin so a legal spawn is not exactly on the clamp.
+	return angle <= maxf(yaw_limit - 2.0, 0.0)
 
 
 ## Fraction of the walk from `spot` to the door that the beam can still reach.
@@ -876,6 +1017,8 @@ func _update_presentation(delta: float) -> void:
 	match state:
 		State.SEARCH:
 			pressure = 1.0 - clampf(threat_remaining / maxf(threat_window, 0.01), 0.0, 1.0)
+		State.DODGE:
+			pressure = 1.0 - clampf(threat_remaining / maxf(threat_window, 0.01), 0.0, 1.0)
 		State.STARE, State.JUMPSCARE:
 			# It is on the doorstep. This is as bad as the picture gets.
 			pressure = 1.0
@@ -888,6 +1031,8 @@ func _update_presentation(delta: float) -> void:
 		material.set_shader_parameter("aperture", _aperture)
 		material.set_shader_parameter("pressure", pressure)
 		material.set_shader_parameter("flash", _flash)
+		material.set_shader_parameter("focus_radius", flashlight_focus_radius)
+		material.set_shader_parameter("peripheral_visibility", peripheral_visibility)
 		if viewport_size.y > 0.0:
 			material.set_shader_parameter("viewport_aspect", viewport_size.x / viewport_size.y)
 
@@ -981,7 +1126,11 @@ func _capture_player_state() -> void:
 	if is_instance_valid(_flashlight):
 		_saved_flashlight_visible = _flashlight.visible
 		_saved_flashlight_energy = _flashlight.light_energy
+		_saved_flashlight_range = _flashlight.spot_range
+		_saved_flashlight_angle = _flashlight.spot_angle
 		_flashlight.visible = true
+		_flashlight.spot_range = encounter_flashlight_range
+		_flashlight.spot_angle = encounter_flashlight_angle
 
 
 func _close() -> void:
@@ -1013,6 +1162,8 @@ func _restore_player_state() -> void:
 		_flashlight.visible = _saved_flashlight_visible
 		if _saved_flashlight_energy > 0.0:
 			_flashlight.light_energy = _saved_flashlight_energy
+		_flashlight.spot_range = _saved_flashlight_range
+		_flashlight.spot_angle = _saved_flashlight_angle
 	if is_instance_valid(owning_player) and owning_player.has_method("set_danger_intensity"):
 		owning_player.call("set_danger_intensity", 0.0)
 	if not is_instance_valid(owning_player):

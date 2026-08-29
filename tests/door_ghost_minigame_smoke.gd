@@ -19,9 +19,11 @@ extends SceneTree
 ## - each of the three phases costs exactly hits_per_phase illuminated hits,
 ##   the counter resets to 0 on every transition, and the fifteenth hit hands
 ##   the door back through complete_exorcism()
-## - phases 0/1/2 open up as each is cleared, widening the look limits
-## - a timed-out approach enters the final stare, then applies the door's own
-##   single failure hit and returns to the normal attack flow
+## - phases 0/1/2 stay equally dark while each clear widens the look limits
+## - the final stare remains flashlight-vulnerable; only actually ignoring it
+##   through the whole deadline applies the door's single failure hit
+## - phase spawn bands progress from near, to medium, to far, and every spawn
+##   remains inside that phase's yaw clamp
 ## - the house lights go out for the encounter and come back exactly as they
 ##   were, with the flashlight left on as the only source
 ## - the retro post-process grade tracks the approach and is stood down, and
@@ -182,6 +184,17 @@ func _run() -> void:
 		return
 	minigame.set_process(false)
 	minigame.set_random_seed(11)
+	# Villa entrances publish their real exterior normal because the reused door
+	# mesh has the opposite local-axis convention there. The minigame must honour
+	# it, while the encounter below continues to cover House2's -Z fallback.
+	var direction_probe := Node3D.new()
+	root.add_child(direction_probe)
+	direction_probe.set_meta("exterior_outward", Vector3.RIGHT)
+	var measured: Vector3 = minigame.call("_measure_outward", direction_probe)
+	if measured.dot(Vector3.RIGHT) < 0.999:
+		_fail("Door ghost ignored the map-authored exterior direction.")
+		return
+	direction_probe.queue_free()
 	if minigame.hits_per_phase != 5 \
 		or DoorGhostMinigame.TOTAL_PHASES != 3 \
 		or minigame.get_hits_required() != 15 \
@@ -200,6 +213,23 @@ func _run() -> void:
 			]
 		)
 		return
+	if minigame.phase_minimum_spot_distances.size() != DoorGhostMinigame.TOTAL_PHASES \
+		or minigame.phase_minimum_spot_distances[0] >= minigame.phase_minimum_spot_distances[1] \
+		or minigame.phase_minimum_spot_distances[1] >= minigame.phase_minimum_spot_distances[2]:
+		_fail("Door ghost phase distances are not ordered near, medium, far.")
+		return
+	if not is_equal_approx(minigame.dodge_chance, 0.3) \
+		or not is_equal_approx(minigame.dodge_trigger_fraction, 0.3) \
+		or minigame.phase_apertures != PackedFloat32Array([0.0, 0.0, 0.0]) \
+		or not is_equal_approx(minigame.encounter_flashlight_range, 16.5) \
+		or not is_equal_approx(minigame.encounter_flashlight_angle, 32.0) \
+		or not is_equal_approx(minigame.flashlight_focus_radius, 0.26) \
+		or not is_equal_approx(minigame.peripheral_visibility, 0.16):
+		_fail("Darkness, minigame flashlight or the 30%% dodge defaults drifted.")
+		return
+	# Keep the deterministic 15-hit contract separate from the forced dodge
+	# scenario at the end of this test.
+	minigame.dodge_chance = 0.0
 
 	# Two house lights, one of them already switched off, so the restore has to
 	# put back what was there rather than blanket-enabling everything.
@@ -233,14 +263,33 @@ func _run() -> void:
 	if not torch.visible:
 		_fail("The flashlight was not left on as the only light source.")
 		return
+	var torch_range: float = float(minigame.get("_saved_flashlight_range"))
+	var torch_angle: float = float(minigame.get("_saved_flashlight_angle"))
+	if not is_equal_approx(torch.spot_range, minigame.encounter_flashlight_range) \
+		or not is_equal_approx(torch.spot_angle, minigame.encounter_flashlight_angle):
+		_fail("The minigame did not widen and extend the flashlight.")
+		return
+	minigame.debug_step(0.0)
+	var darkness_material := minigame.mask.material as ShaderMaterial
+	if not is_equal_approx(
+		float(darkness_material.get_shader_parameter("focus_radius")),
+		minigame.flashlight_focus_radius
+	) or not is_equal_approx(
+		float(darkness_material.get_shader_parameter("peripheral_visibility")),
+		minigame.peripheral_visibility
+	):
+		_fail("The darkness mask did not preserve the faint peripheral view.")
+		return
 	var torch_energy: float = player._flashlight_base_energy
 	var overlay := player.horror_overlay_rect.material as ShaderMaterial
 	if not is_equal_approx(player.yaw_clamp_max, deg_to_rad(minigame.phase_yaw_limits[0])):
 		_fail("The peephole phase did not apply its authored yaw limit.")
 		return
-	if minigame.spots.size() != 5:
+	# The two outer markers sit beyond phase 1's 45-degree look clamp, so only
+	# the three reachable positions may survive until the door opens wider.
+	if minigame.spots.size() != 3:
 		_fail(
-			"Expected the attacked door's own five door_ghost_spots markers, resolved %d."
+			"Expected three phase-1 spots inside the yaw clamp, resolved %d."
 			% minigame.spots.size()
 		)
 		return
@@ -315,6 +364,23 @@ func _run() -> void:
 					and not is_equal_approx(minigame.get_threat_remaining(), minigame.threat_window)):
 				_fail("A new search did not put the ghost back out with a full approach window.")
 				return
+			var intended_eye: Vector3 = minigame.call(
+				"_view_position", minigame.phase_view_offsets[phase]
+			)
+			var from_eye := minigame.ghost.global_position - intended_eye
+			from_eye.y = 0.0
+			if from_eye.length() < minigame.phase_minimum_spot_distances[phase] - 0.05:
+				_fail(
+					"Phase %d spawned at %.2f m; minimum is %.2f m."
+					% [phase + 1, from_eye.length(), minigame.phase_minimum_spot_distances[phase]]
+				)
+				return
+			var yaw_limit: float = minigame.phase_yaw_limits[phase]
+			if yaw_limit < 179.0:
+				var angle := rad_to_deg(acos(clampf(minigame.outward.dot(from_eye.normalized()), -1.0, 1.0)))
+				if angle > yaw_limit - 1.9:
+					_fail("Phase %d spawned outside its %.0f-degree yaw clamp." % [phase + 1, yaw_limit])
+					return
 			var spot_before: Vector3 = minigame.ghost.global_position
 			if not _land_repel(minigame):
 				_fail("Hit %d of phase %d did not land while the beam was held on the ghost." % [hit + 1, phase + 1])
@@ -400,6 +466,10 @@ func _run() -> void:
 			% [torch.light_energy, torch_energy]
 		)
 		return
+	if not is_equal_approx(torch.spot_range, torch_range) \
+		or not is_equal_approx(torch.spot_angle, torch_angle):
+		_fail("The flashlight reach or spread was not restored after the minigame.")
+		return
 
 	# --- running out of time reaches the door's own failure hit -------------
 	door.reset_door()
@@ -434,26 +504,34 @@ func _run() -> void:
 	if minigame.get_threat_remaining() > minigame.stare_threshold + STEP:
 		_fail("The staring state began earlier than its authored threshold.")
 		return
-	# The window was the chance. Holding the beam on it now must not save it.
-	# Hold it longer than a confirmation would need, but inside the one second
-	# the stare lasts - so the only reason no hit lands is that it cannot.
+	# A ghost visibly held in the beam must remain vulnerable at the stare. This
+	# is the last-second save the real encounter used to reject as "immortal".
 	var hits_before_stare := minigame.get_total_hits()
-	for _step: int in int(ceil((minigame.flashlight_confirm_time + STEP) / STEP)):
+	for _step: int in int(ceil((minigame.flashlight_confirm_time + STEP) / STEP)) + 2:
 		minigame.debug_aim_at_ghost()
 		minigame.debug_step(STEP)
-	if minigame.state != DoorGhostMinigame.State.STARE:
-		_fail("The stare ended before the no-repel rule could be tested.")
+		if minigame.get_total_hits() > hits_before_stare:
+			break
+	if minigame.get_total_hits() != hits_before_stare + 1 \
+		or minigame.state != DoorGhostMinigame.State.RETREAT:
+		_fail("A centered flashlight could not repel the ghost during its final stare.")
 		return
-	if minigame.get_total_hits() != hits_before_stare:
-		_fail("The beam repelled the ghost after it had already arrived to stare.")
-		return
-	var stare_position: Vector3 = minigame.ghost.global_position
-	minigame.debug_step(STEP)
-	if not minigame.ghost.global_position.is_equal_approx(stare_position):
-		_fail("The ghost kept moving after it should have stopped to stare.")
+	if not is_equal_approx(door.current_durability, durability_before):
+		_fail("A successful last-second repel still damaged the door.")
 		return
 
-	minigame.debug_step(minigame.stare_threshold + 0.01)
+	# A genuinely ignored retry still reaches the same single failure hit.
+	minigame.cancel()
+	door.reset_door()
+	door.begin_targeting(true, 30.0)
+	door.interact(player)
+	durability_before = door.current_durability
+	minigame.debug_look_away()
+	var failure_elapsed := 0.0
+	while minigame.state != DoorGhostMinigame.State.JUMPSCARE \
+		and failure_elapsed < minigame.threat_window + STEP * 2.0:
+		minigame.debug_step(STEP)
+		failure_elapsed += STEP
 	if minigame.state != DoorGhostMinigame.State.JUMPSCARE:
 		_fail("A spent threat window did not trigger the attack.")
 		return
@@ -487,6 +565,52 @@ func _run() -> void:
 	if minigame.is_running() or door.minigame_active:
 		_fail("Cancelling did not release the door.")
 		return
+
+	# --- a 30%-hold dodge resets the beam but pauses/refunds the deadline ----
+	minigame.dodge_chance = 1.0
+	door.reset_door()
+	door.begin_targeting(true, 30.0)
+	door.interact(player)
+	if not minigame.is_running():
+		_fail("The dodge case could not start.")
+		return
+	# The restarted encounter owns a freshly-instantiated ghost collider. Let the
+	# physics server register it before testing the real flashlight ray.
+	await physics_frame
+	var dodge_start := minigame.ghost.global_position
+	var dodge_budget := int(ceil(
+		minigame.flashlight_confirm_time * minigame.dodge_trigger_fraction / STEP
+	)) + 2
+	for _step: int in dodge_budget:
+		minigame.debug_aim_at_ghost()
+		minigame.debug_step(STEP)
+		if minigame.state == DoorGhostMinigame.State.DODGE:
+			break
+	if minigame.state != DoorGhostMinigame.State.DODGE \
+		or minigame.get_total_hits() != 0 \
+		or not is_zero_approx(minigame.lit_time):
+		_fail("The forced 30%-hold dodge counted as a hit or did not reset the beam.")
+		return
+	if minigame.get_threat_remaining() < minigame.threat_window - 0.01:
+		_fail("The dodge did not refund the incomplete flashlight hold.")
+		return
+	var dodge_deadline := minigame.get_threat_remaining()
+	minigame.debug_step(minigame.dodge_duration * 0.5)
+	if not is_equal_approx(minigame.get_threat_remaining(), dodge_deadline) \
+		or minigame.ghost.global_position.distance_to(dodge_start) < 0.1:
+		_fail("The deadline moved during the dodge, or the ghost did not sidestep.")
+		return
+	minigame.debug_step(minigame.dodge_duration)
+	if minigame.state != DoorGhostMinigame.State.SEARCH:
+		_fail("The ghost did not return to the search after sidestepping.")
+		return
+	if bool(minigame.call("_flashlight_illuminates_ghost")):
+		_fail("The sidestep left the ghost inside the old flashlight beam.")
+		return
+	if not _land_repel(minigame) or minigame.get_total_hits() != 1:
+		_fail("The ghost dodged more than once in one appearance or could not be reacquired.")
+		return
+	minigame.cancel()
 
 	lit_lamp.queue_free()
 	dark_lamp.queue_free()

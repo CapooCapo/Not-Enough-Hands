@@ -69,13 +69,15 @@ const FACES: Array[Dictionary] = [
 ## not a light to read the room by.
 @export var moonlight_energy: float = 1.35
 @export var moonlight_colour: Color = Color(0.46, 0.58, 0.92)
-@export_range(0, 40, 1) var active_lights: int = 10
-@export_range(0, 12, 1) var shadowed_lights: int = 4
+@export_range(0, 40, 1) var active_lights: int = 6
+@export_range(0, 12, 1) var shadowed_lights: int = 2
 
 var _materials: Dictionary = {}
 var _index: int = 0
 var _lights: Array[SpotLight3D] = []
 var _cooldown: float = 0.0
+var _box_batches: Dictionary = {}
+var _logical_counts: Dictionary = {}
 
 
 func _ready() -> void:
@@ -99,6 +101,12 @@ func _build() -> void:
 	var bays := _window_bays(house)
 	for index: int in bays.size():
 		_build_window(root, bays[index], index % maxi(boarded_every, 1) == boarded_every - 1)
+	_flush_box_batches(root)
+	root.set_meta("window_count", bays.size())
+	root.set_meta("glazed_count", int(_logical_counts.get("WindowPane", 0)))
+	root.set_meta("boarded_count", int(_logical_counts.get("WindowBoardStub", 0)))
+	root.set_meta("logical_mesh_count", _logical_mesh_count())
+	root.set_meta("render_batch_count", root.find_children("*", "MultiMeshInstance3D", true, false).size())
 
 	set_process(not _lights.is_empty())
 
@@ -305,11 +313,10 @@ func _glaze(
 		_size(OPENING_WIDTH, 0.07, 0.09, tangent_is_x), timber
 	)
 
-	var pane := _box(
+	_box(
 		parent, "WindowPane", _at(plane, middle),
-		_size(OPENING_WIDTH, height, 0.03, tangent_is_x), _glass()
+		_size(OPENING_WIDTH, height, 0.03, tangent_is_x), _glass(), Vector3.ZERO, false
 	)
-	pane.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 
 func _board_over(
@@ -320,13 +327,12 @@ func _board_over(
 	var tilts: Array[float] = [-0.14, 0.09, -0.05]
 	for index: int in tilts.size():
 		var offset := (index - 1) * 0.46
-		var box := _box(
-			parent, "WindowBoard", _at(plane, middle + offset),
-			_size(OPENING_WIDTH + 0.24, 0.24, 0.06, tangent_is_x), board
-		)
-		# Rotate about the wall's own normal so the plank stays flat against it.
-		box.rotation = Vector3(0.0, 0.0, tilts[index]) if tangent_is_x \
+		var rotation := Vector3(0.0, 0.0, tilts[index]) if tangent_is_x \
 			else Vector3(tilts[index], 0.0, 0.0)
+		_box(
+			parent, "WindowBoard", _at(plane, middle + offset),
+			_size(OPENING_WIDTH + 0.24, 0.24, 0.06, tangent_is_x), board, rotation
+		)
 	# A plank is missing at the bottom, which is the gap the moon comes through.
 	_box(
 		parent, "WindowBoardStub",
@@ -397,18 +403,60 @@ func _at(plane: Vector3, y: float) -> Vector3:
 
 
 func _box(
-	parent: Node3D, box_name: String, centre: Vector3, size: Vector3, material: Material
-) -> MeshInstance3D:
-	var mesh := BoxMesh.new()
-	mesh.size = size
-	mesh.material = material
-	var instance := MeshInstance3D.new()
+	_parent: Node3D,
+	box_name: String,
+	centre: Vector3,
+	size: Vector3,
+	material: Material,
+	rotation: Vector3 = Vector3.ZERO,
+	cast_shadow: bool = true
+) -> void:
 	_index += 1
-	instance.name = "%s_%04d" % [box_name, _index]
-	instance.mesh = mesh
-	instance.position = centre
-	parent.add_child(instance)
-	return instance
+	_logical_counts[box_name] = int(_logical_counts.get(box_name, 0)) + 1
+	var key := "%d|%s" % [material.get_instance_id(), cast_shadow]
+	if not _box_batches.has(key):
+		_box_batches[key] = {
+			"material": material,
+			"cast_shadow": cast_shadow,
+			"transforms": [],
+		}
+	var batch: Dictionary = _box_batches[key]
+	var basis := Basis.from_euler(rotation) * Basis.from_scale(size)
+	(batch["transforms"] as Array).append(Transform3D(basis, centre))
+
+
+func _flush_box_batches(parent: Node3D) -> void:
+	var keys: Array = _box_batches.keys()
+	keys.sort()
+	for key: String in keys:
+		var batch: Dictionary = _box_batches[key]
+		var transforms: Array = batch["transforms"]
+		var mesh := BoxMesh.new()
+		mesh.size = Vector3.ONE
+		mesh.material = batch["material"] as Material
+		var multimesh := MultiMesh.new()
+		multimesh.transform_format = MultiMesh.TRANSFORM_3D
+		multimesh.mesh = mesh
+		multimesh.instance_count = transforms.size()
+		for index: int in transforms.size():
+			multimesh.set_instance_transform(index, transforms[index] as Transform3D)
+		var instance := MultiMeshInstance3D.new()
+		instance.name = "WindowBatch_%02d" % parent.get_child_count()
+		instance.multimesh = multimesh
+		instance.cast_shadow = (
+			GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+			if bool(batch["cast_shadow"])
+			else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		)
+		parent.add_child(instance)
+	_box_batches.clear()
+
+
+func _logical_mesh_count() -> int:
+	var total := 0
+	for count: Variant in _logical_counts.values():
+		total += int(count)
+	return total
 
 
 func _material(

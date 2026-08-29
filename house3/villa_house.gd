@@ -443,12 +443,22 @@ func _build_exterior_shell(parent: Node3D, level_data: Dictionary) -> void:
 func _build_wall_run(parent: Node3D, run: Dictionary, level: int, wall_name: String) -> void:
 	var direction: Vector2i = run["dir"]
 	var span: int = int(run["to"]) - int(run["from"]) + 1
-	if authoring_granularity == AuthoringGranularity.EDITABLE_MODULES and span > 1:
+	var crosses_entrance := wall_name == "InteriorWall" \
+		and _run_contains_entrance_face(run, level)
+	# A breach cell is walkable, so the generic boundary pass sees its outside
+	# edge as an interior wall. Split a merged run when necessary, then omit the
+	# exact entrance modules. The exterior shell already omits BREACH cells.
+	if span > 1 and (
+		authoring_granularity == AuthoringGranularity.EDITABLE_MODULES
+		or crosses_entrance
+	):
 		for value: int in range(int(run["from"]), int(run["to"]) + 1):
 			var module_run := run.duplicate()
 			module_run["from"] = value
 			module_run["to"] = value
 			_build_wall_run(parent, module_run, level, wall_name)
+		return
+	if crosses_entrance:
 		return
 	var length := span * spec.cell_size
 	var y := level * spec.floor_height
@@ -482,6 +492,26 @@ func _build_wall_run(parent: Node3D, run: Dictionary, level: int, wall_name: Str
 		)
 		module_position.y = y
 		_asset(WALL_3X2, body, wall_name + "Module", module_position, rotation_y, stretch)
+
+
+func _run_contains_entrance_face(run: Dictionary, level: int) -> bool:
+	var direction: Vector2i = run["dir"]
+	var fixed: int = int(run["fixed"])
+	var from: int = int(run["from"])
+	var to: int = int(run["to"])
+	for entrance: Dictionary in spec.entrances():
+		if int(entrance["level"]) != level or bool(entrance.get("overhead", false)):
+			continue
+		var outward := _entrance_outward(entrance)
+		if direction != Vector2i(roundi(outward.x), roundi(outward.z)):
+			continue
+		for cell_pair: Variant in entrance["cells"]:
+			var cell := VillaSpec.to_cell(cell_pair)
+			var cell_fixed := cell.x if direction.x != 0 else cell.y
+			var varying := cell.y if direction.x != 0 else cell.x
+			if cell_fixed == fixed and varying >= from and varying <= to:
+				return true
+	return false
 
 
 func _build_railing_run(parent: Node3D, run: Dictionary, level: int) -> void:

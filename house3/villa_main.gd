@@ -39,6 +39,8 @@ const PLAYER_SPAWN_OFFSETS: Array[Vector3] = [
 ## The stock defense door is built for House2's 3 m storey and 2.2 m opening.
 ## A villa entrance is two 2 m cells wide in a 3.5 m wall.
 const DEFENSE_DOOR_SCALE := Vector3(1.55, 1.2, 1.0)
+const VILLA_CELL := 2.0
+const VILLA_STOREY := 3.5
 
 ## Height of the leaf's centre above the door node's own origin.
 const DEFENSE_DOOR_LEAF_RISE := 1.15
@@ -96,6 +98,7 @@ func _place_defense_doors() -> void:
 	)
 	for anchor_node: Node in anchors:
 		var anchor := anchor_node as Marker3D
+		_clear_baked_entrance_wall(anchor)
 		var door := DEFENSE_DOOR.instantiate() as Node3D
 		door.name = "Entrance%02d%s" % [
 			int(anchor.get_meta("entrance_id")),
@@ -104,6 +107,12 @@ func _place_defense_doors() -> void:
 		door.set("entrance_id", int(anchor.get_meta("entrance_id")))
 		entrances.add_child(door)
 		door.scale = DEFENSE_DOOR_SCALE
+		# The stock door scene was authored for House2, where local -Z means
+		# outside. Villa entrance anchors use +Z for their authored outward
+		# normal. Publish that map-specific direction instead of forcing the
+		# minigame to guess it from a reused mesh's local axes.
+		if not bool(anchor.get_meta("overhead", false)):
+			door.set_meta("exterior_outward", anchor.global_basis.z.normalized())
 		if bool(anchor.get_meta("overhead", false)):
 			# Entrance 07 is a skylight. Tipping the leaf onto its back turns
 			# the stock door into a boarded roof hatch in the attic ceiling,
@@ -121,6 +130,37 @@ func _place_defense_doors() -> void:
 		# through so the far cellar door really is the one worth abandoning.
 		door.set("max_durability", float(anchor.get_meta("layers")) * 40.0)
 		door.set("repair_per_interaction", 60.0 / float(anchor.get_meta("repair_seconds")))
+
+
+## villa_main.tscn contains artist-baked editable architecture. Older bakes
+## include two full-height InteriorWall bodies across each BREACH opening: an
+## artist can delete their visible modules and see outside, but the invisible
+## CollisionShape3D still blocks the flashlight ray and the eventual breach.
+## Disable those exact modules at runtime as a migration for existing bakes;
+## VillaHouse now omits them when geometry is rebuilt.
+func _clear_baked_entrance_wall(anchor: Marker3D) -> void:
+	if bool(anchor.get_meta("overhead", false)):
+		return
+	var outward := anchor.global_basis.z.normalized()
+	var tangent := anchor.global_basis.x.normalized()
+	var expected_centre := anchor.global_position \
+		+ outward * (VILLA_CELL * 0.5 + VillaHouse.WALL_THICKNESS * 0.5) \
+		+ Vector3.UP * (VILLA_STOREY * 0.5)
+	for node: Node in house.find_children("InteriorWall_*", "StaticBody3D", true, false):
+		var wall := node as StaticBody3D
+		var delta := wall.global_position - expected_centre
+		if absf(delta.y) > 0.1 \
+			or absf(delta.dot(outward)) > 0.05 \
+			or absf(delta.dot(tangent)) > VILLA_CELL * 0.5 + 0.05:
+			continue
+		wall.add_to_group("villa_entrance_wall_cutouts")
+		wall.collision_layer = 0
+		wall.collision_mask = 0
+		wall.visible = false
+		for child: Node in wall.get_children():
+			var collision := child as CollisionShape3D
+			if collision:
+				collision.disabled = true
 
 
 ## Every broken entrance adds one hunter at that breach, up to
