@@ -4,9 +4,9 @@ extends CharacterBody3D
 ##
 ## The third ghost, and the only one the night does not summon: this one is
 ## summoned by failure. When a defense door finally breaks, this is the thing
-## that walks in through the hole. Its body is jeff_the_killer.glb, worn through
-## ghosts/jeff_ghost_visual.tscn, which answers the same locomotion/gaze API the
-## previous procedural rig did - so nothing below this line changed with it. A
+## that walks in through the hole. Its body is the Midnight Grin biped, worn
+## through ghosts/ghost_visual.tscn, which answers the same locomotion/gaze API
+## the previous procedural rig did - so nothing below this line changed with it. A
 ## hunched skeleton with arms longer than its legs, a crown of bone spines
 ## around a hole where a face should be, and eyes on its chest, ribs, joints,
 ## back and tail. This file is the hunt; that file is the anatomy.
@@ -386,11 +386,11 @@ var _lantern_energy: float = 0.0
 var _sweep_phase: float = 0.0
 var _sniff_timer: float = 0.0
 
-## The body is `ghosts/jeff_ghost_visual.tscn` (jeff_the_killer.glb): this script owns the
+## The body is `ghosts/ghost_visual.tscn`: this script owns the
 ## hunt and never touches a bone. Everything below is set once per frame in
 ## `_update_presentation`, and the rig works out what two hundred parts should
 ## be doing about it.
-@onready var visual_root: JeffGhostVisual = $VisualRoot
+@onready var visual_root: GhostVisual = $VisualRoot
 ## The gaze cone, which is the creature's own crown of eyes rather than
 ## anything it is carrying. The `lantern_*` tuning names are kept throughout -
 ## the mechanic is unchanged and the README's vocabulary still holds - but the
@@ -1834,7 +1834,7 @@ func _update_presentation(delta: float) -> void:
 
 ## Which clip the body plays, read off the state it is already in - no new
 ## timing and no state of its own, so the AI stays the only thing deciding what
-## the Huntsman is doing. Called every frame; JeffGhostVisual.play_clip() ignores
+## the Huntsman is doing. Called every frame; GhostVisual.play_clip() ignores
 ## a request for the clip already selected, which is what keeps the two one-shots
 ## from restarting while it holds a seize or a roar.
 func _clip_for_state(horizontal_speed: float) -> StringName:

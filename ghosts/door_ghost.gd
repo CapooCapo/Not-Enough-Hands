@@ -12,15 +12,14 @@ extends Node3D
 ##
 ## ## The asset
 ##
-## The body is ghosts/jeff_ghost_visual.tscn, which instances
-## assets/ghosts/model_hunter/jeff_the_killer.glb - the same one file the
-## Huntsman wears, no copy of it. That wrapper owns the scale, the facing and
-## the clip library; this script only says which pose the encounter is in.
+## The body is ghosts/ghost_visual.tscn, which instances the Midnight Grin biped
+## - the same one file the Huntsman wears, no copy of it. That wrapper owns the
+## scale, the facing, the material override and the clip library; this script
+## only says which pose the encounter is in.
 ##
-## The GLB itself is a Sketchfab export with **no animations** - its glTF has no
-## `animations` array at all - so the clips named below are the retargeted ones
-## JeffGhostVisual loads from ghosts/jeff_animations.res; see that class and
-## tools/build_jeff_animations.gd. They are rotation-only, which is why
+## The clips named below are the baked ones GhostVisual loads from
+## ghosts/ghost_animations.res; see that class and
+## tools/build_ghost_animations.gd. They are rotation-only, which is why
 ## `_place_ghost()` in the encounter stays the only thing that moves this body.
 
 
@@ -47,14 +46,9 @@ const HELD_POSES := [Pose.IDLE, Pose.APPROACH]
 ## carried by the rate of the same unsteady walk rather than by a new one.
 @export var calm_speed_scale: float = 0.85
 @export var agitated_speed_scale: float = 1.45
-## Applied to every MeshInstance3D under Model. The asset ships a normal map but
-## no albedo texture, so its stock material is flat white; this is the minimum
-## needed to make it read at night without touching the imported source.
-@export var body_material: Material
-
 var _pose: Pose = Pose.IDLE
 
-@onready var model: JeffGhostVisual = $Model
+@onready var model: GhostVisual = $Model
 @onready var hit_area: Area3D = $HitArea
 @onready var _whisper: AudioStreamPlayer3D = $WhisperAudio
 

@@ -1,7 +1,7 @@
 [gd_scene load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://ghosts/door_ghost.gd" id="1_script"]
-[ext_resource type="PackedScene" path="res://ghosts/jeff_ghost_visual.tscn" id="2_model"]
+[ext_resource type="PackedScene" path="res://ghosts/ghost_visual.tscn" id="2_model"]
 [ext_resource type="AudioStream" path="res://assets/audio/minigame/door_minigame_whispers.mp3" id="4_whispers"]
 
 [sub_resource type="CapsuleShape3D" id="Shape_grin"]
