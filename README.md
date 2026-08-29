@@ -106,7 +106,7 @@ second-floor landing, and a second flight reaches the attic.
 The HUD clock starts at **11:55 PM**. Every 1.5 real seconds advances exactly
 one in-game minute, including the midnight rollover. Reaching **6:00 AM** stops
 the threats, pauses the world, and displays the dawn victory screen. The clock
-is hidden while the door-ghost flashlight minigame owns the screen.
+is hidden while the door-ghost encounter owns the screen.
 
 ## Going down, and being picked back up
 
@@ -152,33 +152,63 @@ Interior partitions use open modular frames so the navigation mesh, player, and
 statue can circulate through every room. The seven exterior entrances remain
 repairable defense doors used by the attack director.
 
-## Door-ghost flashlight minigame
+## Door-ghost encounter
 
 As soon as a door starts rustling, scratching, or being smashed, approach it,
-aim at it, and press E to enter the 30-second flashlight minigame. Winning drives
-the attacker away before it can do more damage. Timing out gives the attacker a
-heavy hit and immediately starts a fresh attempt; repeated failures can still
-break the door while the minigame is active.
+aim at it, and press E. Control does not leave the world: the player is pinned to
+the attacked door with the flashlight forced on, and the attacker is a real 3D
+ghost standing somewhere in the exterior - the `Meshy_AI_Midnight_Grin_biped`
+biped, in `ghosts/door_ghost.tscn`. Find it and hold the beam on it for
+0.18 seconds and it is pushed back one step. **Each of the three phases costs
+five hits of its own**, and the counter resets to `0 / 5` on every transition -
+so the whole encounter is **fifteen** hits. Clearing the third phase hands the
+door back through the same `complete_exorcism()` the previous version used - at
+an intact door that drives the attacker away, at a breached one it unlocks
+physical repairs.
 
-A defense door that reaches zero durability can no longer be repaired
-immediately, but the same E interaction and minigame remain available at the
-breach. The world is covered in darkness and the mouse moves a small light:
-hold it over the hidden face to build an invisible repel meter. Every fifteen
-points the face jumps to another part of the screen and removes three points.
-The balanced assist gives the flashlight a wider beam and face hit area. After
-a 1.25-second grace period with no drain, missing it drains one point every 0.20
-seconds. On first catching the face in the beam there is also a 6-16 percent
-progress-scaled chance that it dodges immediately. Its side-to-side head shake,
-distortion, twitch rate, audio pressure, and instant-dodge chance all intensify
-toward 100 percent. Every relocation remains random among anchors away from the
-current cursor position, so the face never deliberately appears near the light.
+The ghost's approach window is **5 seconds** per search/hit cycle - not per
+phase - and every landed hit resets it in full. Ignore it and it walks in from its spot toward the door, the heartbeat
+tightens, and teeth close in from the edges of the screen. With **1 second** left
+(1.5 in the final phase) it stops where it stands, directly in front of the
+player, and simply looks at them. At zero it attacks: the door takes its own
+single **20-point** hit through `apply_exorcism_failure()` - the same call, so
+durability, the repair ceiling and breaching are still owned entirely by
+`door/defense_door.gd` - and the encounter hands the door back to the normal
+attack flow instead of retrying.
 
-At an intact door, reaching 100 drives the attacker away; at a breached door it
-unlocks physical repairs. A breached-door timeout triggers a jumpscare and
-removes 20 points from the repair ceiling (down to a minimum of 10). The active
-door cannot take normal damage outside these scripted failure hits. A development
-safety switch also suspends statue and crawler attacks until 1.5 seconds after
-the minigame closes.
+The encounter opens up one phase at a time, each cleared by its own five hits:
+
+| | Cost | Look limit | View |
+|---|---|---|---|
+| 1 · LỖ CHỐNG TRỘM | 5 hits | ±45° | behind the leaf, spyhole aperture |
+| 2 · MỞ HÉ CỬA | 5 hits | ±60° | leaf swung 26°, wider opening |
+| 3 · MỞ TOANG CỬA | 5 hits | free | leaf swung 88°, standing in the opening |
+
+The overlay always shows where the player is *in the current phase* -
+`PHASE 2 · MỞ HÉ CỬA` over `SOI MA: 0 / 5` - never a running total. The state is
+`(state, phase)`: the SEARCH → RETREAT → SEARCH loop and the timeout path out of
+it (STARE → JUMPSCARE) are identical in all three phases, so the phase is a
+second axis rather than three copied sets of states.
+
+Whether the beam is on the ghost is decided by the player's own `SpotLight3D` -
+its range, its cone, and **one ray that has to arrive at the ghost's own
+collider**. Being somewhere on screen is never enough, and a wall in the way
+stops a perfectly aimed beam. Caught in it, the ghost stops walking, recoils
+where it stands for a beat, and only then goes.
+
+Its standing positions are `Marker3D`s in the **`door_ghost_positions`** group -
+`DoorGhostPosition_A`…`_E`, authored once in `door/defense_door.tscn`, so both
+maps get them from the shared door scene and the count stays open-ended. Each is
+rebuilt on the encounter's own upright plane, floor-snapped, and pulled back out
+of anything in front of it; a position the beam cannot reach from the doorway is
+discarded, so the ghost can never hide somewhere unwinnable. A development safety
+switch also suspends statue and crawler attacks until 1.5 seconds after the
+encounter closes.
+
+The ghost itself is only a body: `ghosts/door_ghost.gd` holds the model, its
+poses and its hit volume, and is driven entirely by the encounter.
+`ghosts/hunter_ghost.gd` keeps the Huntsman's real behaviour and does not know
+it exists, so nothing here can change how the Huntsman plays.
 
 ## Ghosts
 

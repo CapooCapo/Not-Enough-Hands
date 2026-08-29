@@ -207,13 +207,14 @@ near = 0.02
 far = 45.0
 
 [node name="Flashlight" type="SpotLight3D" parent="CameraPivot/Camera3D"]
-light_color = Color(0.56, 0.67, 0.78, 1)
-light_energy = 1.75
-light_volumetric_fog_energy = 1.5
+light_color = Color(0.82, 0.86, 0.9, 1)
+light_energy = 2.1
+light_volumetric_fog_energy = 0.6
 shadow_enabled = true
-spot_range = 14.0
-spot_angle = 30.0
-spot_angle_attenuation = 2.2
+spot_range = 13.0
+spot_angle = 28.0
+spot_angle_attenuation = 2.0
+spot_attenuation = 1.2
 
 [node name="InteractRay" type="RayCast3D" parent="CameraPivot/Camera3D" unique_id=1694598043]
 target_position = Vector3(0, 0, -2.5)
