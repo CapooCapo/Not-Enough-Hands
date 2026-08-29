@@ -60,7 +60,7 @@ func _wait_for_search(minigame: DoorGhostMinigame) -> void:
 		minigame.debug_step(STEP)
 
 
-## The imported FBX is the encounter's actual ghost, so its scale, orientation
+## The imported GLB is the encounter's actual ghost, so its scale, orientation
 ## and clip names are part of the contract - a reimport that tips it over or
 ## renames a clip has to fail here rather than in a playtest.
 func _check_asset() -> bool:
@@ -73,36 +73,49 @@ func _check_asset() -> bool:
 	ghost.appear(Vector3.ZERO)
 	await process_frame
 
-	# The active body must actually be jeff_the_killer.glb, not merely reference
-	# it: walk the live tree and find the GLB's own meshes under the ghost.
+	# The active body must actually be the Midnight Grin import, not merely
+	# reference it: walk the live tree and find its mesh under the ghost. The
+	# whole character is one skinned surface named `char1`, in every one of the
+	# download's four GLBs.
 	var meshes := ghost.find_children("*", "MeshInstance3D", true, false)
-	if meshes.size() < 10:
-		_fail("The Jeff model contributed only %d meshes; the GLB has 13." % meshes.size())
+	if meshes.size() != 1 or meshes[0].name != "char1":
+		_fail("Expected the Midnight Grin body's single 'char1' mesh, found %d: %s"
+			% [meshes.size(), str(meshes.map(func(m: Node) -> String: return m.name))])
 		return false
-	var textured := 0
-	for node: Node in meshes:
-		var surface_material := (node as MeshInstance3D).mesh.surface_get_material(0)
-		if surface_material is BaseMaterial3D \
-			and (surface_material as BaseMaterial3D).get_texture(BaseMaterial3D.TEXTURE_ALBEDO):
-			textured += 1
-	if textured < 8:
-		_fail("Only %d of Jeff's %d meshes kept an albedo texture." % [textured, meshes.size()])
+	var body := meshes[0] as MeshInstance3D
+	if body.skin == null:
+		_fail("The body mesh is not skinned, so bone motion cannot reach it.")
+		return false
+	# The GLB ships its texture inside a fully-metallic, fully-emissive material
+	# that would render the ghost lit from the inside and deaf to the flashlight,
+	# so the usable material has to arrive as an override. See
+	# assets/ghosts/model_hunter/README.md.
+	var applied := body.material_override as BaseMaterial3D
+	if not applied or not applied.get_texture(BaseMaterial3D.TEXTURE_ALBEDO):
+		_fail("The body mesh has no albedo-textured material override.")
+		return false
+	# The point of the override: emission off, so the beam is what reveals it.
+	if applied is StandardMaterial3D and (applied as StandardMaterial3D).emission_enabled:
+		_fail("The body material is emissive; the ghost would glow in an unlit house.")
 		return false
 
-	# Measured off the skeleton, not the mesh AABB: a static AABB stays the same
-	# whatever pose or orientation the rig is actually in.
+	# Measured off the skeleton, not the mesh AABB. Two reasons: a static AABB
+	# stays the same whatever pose the rig is in, and on this rig it is not even
+	# in the same space as the body - the GLB's `Armature` carries a 0.01 scale
+	# and the skin's bind poses carry the inverse, so `get_aabb()` reports a
+	# 0.017 m figure while the skinned body really stands 1.70 m.
 	#
-	# The bone names are the humanoid-profile ones, not the names in the GLB: the
-	# rig is imported through a BoneMap so that clips authored on other skeletons
-	# can drive it, and renaming its bones is what that costs. See the
-	# `retarget/` block in jeff_the_killer.glb.import.
+	# The bone names are the asset's own. Nothing is retargeted any more: the
+	# clips ship on the very skeleton they drive, so there is no BoneMap and no
+	# humanoid profile renaming `LeftToeBase` to `LeftToes`.
 	var skeleton := ghost.find_child("Skeleton3D", true, false) as Skeleton3D
-	if not skeleton or skeleton.get_bone_count() != 58:
-		_fail("Expected Jeff's 58-bone skeleton, found %d." % (skeleton.get_bone_count() if skeleton else -1))
+	if not skeleton or skeleton.get_bone_count() != 24:
+		_fail("Expected the Midnight Grin 24-bone skeleton, found %d."
+			% (skeleton.get_bone_count() if skeleton else -1))
 		return false
-	for bone in ["Head", "Hips", "LeftToes"]:
+	for bone in ["Head", "head_end", "Hips", "LeftToeBase", "Spine02", "LeftHand"]:
 		if skeleton.find_bone(bone) == -1:
-			_fail("Jeff's rig has no '%s' bone - the humanoid retarget did not run." % bone)
+			_fail("The rig has no '%s' bone - this is not the Midnight Grin skeleton." % bone)
 			return false
 	var head: Vector3 = skeleton.global_transform * skeleton.get_bone_global_pose(
 		skeleton.find_bone("Head")
@@ -111,19 +124,27 @@ func _check_asset() -> bool:
 		skeleton.find_bone("Hips")
 	).origin
 	var toe: Vector3 = skeleton.global_transform * skeleton.get_bone_global_pose(
-		skeleton.find_bone("LeftToes")
+		skeleton.find_bone("LeftToeBase")
 	).origin
-	if head.y < 1.5 or head.y > 1.9:
-		_fail("Jeff is not standing at human height: crown at %.2f m." % head.y)
+	# Standing height is the crown, which is what a player sees and what "spawns
+	# underground or floating" actually means. The head *bone* sits inside the
+	# skull, so `head_end` - the tip of the chain - is the one that reaches it.
+	var crown: Vector3 = skeleton.global_transform * skeleton.get_bone_global_pose(
+		skeleton.find_bone("head_end")
+	).origin
+	if absf(toe.y) > 0.06:
+		_fail("The body's feet are %.2f m off the ghost's own origin." % toe.y)
+		return false
+	if absf(crown.y - ghost.model.target_height) > 0.05:
+		_fail("The body stands %.2f m, not the %.2f m the ghosts are built around."
+			% [crown.y, ghost.model.target_height])
 		return false
 	if head.y <= hips.y or hips.y <= toe.y:
-		_fail("Jeff is not the right way up: crown %.2f, hips %.2f, toe %.2f." % [head.y, hips.y, toe.y])
+		_fail("The body is not the right way up: head %.2f, hips %.2f, toe %.2f."
+			% [head.y, hips.y, toe.y])
 		return false
-	if absf(toe.y) > 0.15:
-		_fail("Jeff's feet are %.2f m off the ghost's own origin." % toe.y)
-		return false
-	if not is_equal_approx(ghost.model.model.rotation_degrees.y, JeffGhostVisual.SOURCE_FORWARD_YAW):
-		_fail("The wrapper did not apply Jeff's forward correction.")
+	if not is_equal_approx(ghost.model.model.rotation_degrees.y, GhostVisual.SOURCE_FORWARD_YAW):
+		_fail("The wrapper did not apply the body's forward correction.")
 		return false
 
 	# Aiming is the node's job and the mesh follows it, so the contract to hold
@@ -134,10 +155,21 @@ func _check_asset() -> bool:
 		_fail("face_point() did not aim the ghost at its target.")
 		return false
 
-	# Whatever clips the GLB supplies are the ones the encounter's poses ask
-	# for. The current export ships none, so this records what is actually
-	# there rather than asserting clips into existence.
-	print("  Jeff animation clips: %s" % str(ghost.model.get_clip_names()))
+	# Every clip the encounter's poses name has to be there, and each pose has to
+	# actually select its own: a body that silently falls back to one animation
+	# is the failure this is guarding against.
+	for pose: int in DoorGhost.POSE_CLIPS:
+		var clip: StringName = DoorGhost.POSE_CLIPS[pose]
+		if not ghost.model.has_clip(clip):
+			_fail("Pose %d asks for clip '%s', which the library does not have." % [pose, clip])
+			return false
+		ghost.set_pose(DoorGhost.Pose.IDLE if pose != DoorGhost.Pose.IDLE else DoorGhost.Pose.LUNGE)
+		ghost.set_pose(pose)
+		var playing := ghost.model.get_current_clip()
+		if playing != clip:
+			_fail("Pose %d selected clip '%s' instead of '%s'." % [pose, playing, clip])
+			return false
+	print("  body animation clips: %s" % str(ghost.model.get_clip_names()))
 	for pose: DoorGhost.Pose in DoorGhost.POSE_CLIPS:
 		ghost.set_pose(pose)
 	if ghost.get_pose() != DoorGhost.Pose.LUNGE:

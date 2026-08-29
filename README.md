@@ -686,13 +686,13 @@ to a kill, losing a player sends it walking away from them rather than back onto
 them, attack safety still blocks that kill, sealing the last breach traps it
 inside, and a wide-open breach and twelve quiet seconds still leave it in the
 house - because it never leaves.
-`stalker_rig_smoke.gd` covers its body instead of its hunt, because a
-procedurally built creature rots silently: that it still fits through a 2.4 m
-doorway in every pose, that its feet still meet the floor the collision capsule
-stands on, that every chain the builder made is still reachable from the
-animation (a limb that exists but stopped moving is the one bug a screenshot
-will not show), and that the gaze light is still inside the crown the player can
-see scanning the corridor.
+`hunter_body_smoke.gd` covers its body instead of its hunt, because a model swap
+rots silently: that the body under `VisualRoot` really is the shared Midnight
+Grin biped, that it still fits through a 2.4 m doorway in every pose, that its
+feet still meet the floor the collision capsule stands on, that every clip the
+hunt can ask for is actually in the library (a clip the library lacks leaves the
+creature holding whichever pose it was already in, which is the one bug a
+screenshot will not show), and that the gaze light is still at head height.
 `crawler_locomotion_smoke.gd` covers how the crawler gets about, as opposed to
 what it wants: that it works its way round an obstruction instead of shoving at
 the face of it, and picks the side the obstruction actually ends on; that
