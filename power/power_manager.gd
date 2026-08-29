@@ -42,6 +42,8 @@ var _visibility_before_outage: Dictionary = {}
 var _global_time_remaining: float = -1.0
 var _regional_time_remaining: float = -1.0
 var _rng := RandomNumberGenerator.new()
+var _manual_blackout_forced := false
+var _zone_blackout_forced := false
 
 
 func _enter_tree() -> void:
@@ -164,7 +166,8 @@ func restore_power(amount: float = -1.0) -> void:
 			max_power
 		)
 
-	if is_blackout and current_power > 0.0:
+	_manual_blackout_forced = false
+	if is_blackout and current_power > 0.0 and not _zone_blackout_forced:
 		_leave_global_blackout()
 
 
@@ -173,10 +176,24 @@ func restore_power(amount: float = -1.0) -> void:
 func trigger_global_blackout(duration: float = -1.0) -> void:
 	_collect_house_lights()
 	_global_time_remaining = duration
+	_manual_blackout_forced = true
 	if is_blackout:
 		_suppress_lights(_house_lights)
 		return
 	_enter_blackout()
+
+
+## Used by ElectricalZoneController. This reason is independent from manual
+## blackouts and battery depletion, so restoring one powered zone does not
+## cancel a separately triggered global blackout.
+func set_zone_blackout(active: bool) -> void:
+	if _zone_blackout_forced == active:
+		return
+	_zone_blackout_forced = active
+	if active:
+		_enter_blackout()
+	elif is_blackout and current_power > 0.0 and not _manual_blackout_forced:
+		_leave_global_blackout()
 
 
 ## Used by the darkness entity: picks one light as the centre of an outage and
@@ -331,6 +348,9 @@ func _release_light_if_powered(light: Light3D) -> void:
 		_visibility_before_outage.erase(light)
 		return
 	if is_blackout or _regional_lights.has(light):
+		return
+	var device := _device_for_light(light)
+	if device and device.is_forced_off():
 		return
 	if _visibility_before_outage.has(light):
 		light.visible = bool(_visibility_before_outage[light])

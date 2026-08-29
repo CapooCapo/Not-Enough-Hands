@@ -9,6 +9,7 @@ signal panel_toggled(open: bool)
 @export var hunter_path: NodePath = NodePath("../HunterGhost")
 @export var door_director_path: NodePath = NodePath("../DoorAttackDirector")
 @export var world_environment_path: NodePath = NodePath("../WorldEnvironment")
+@export var electrical_zones_path: NodePath = NodePath("../ElectricalZones")
 
 ## Colour of the through-wall entrance markers. Bright enough to read against
 ## the horror grade, transparent enough not to hide the door behind it.
@@ -20,6 +21,7 @@ var entrance_xray: bool = false
 var bright_vision: bool = false
 var _environment_before_bright: Environment
 var _mouse_mode_before_open: Input.MouseMode = Input.MOUSE_MODE_CAPTURED
+var _zone_buttons: Dictionary = {}
 
 @onready var panel: PanelContainer = $Panel
 @onready var invincible_toggle: CheckButton = $Panel/Margin/Scroll/Content/Invincible
@@ -31,6 +33,7 @@ var _mouse_mode_before_open: Input.MouseMode = Input.MOUSE_MODE_CAPTURED
 @onready var bladder_value: Label = $Panel/Margin/Scroll/Content/BladderRow/BladderValue
 @onready var entrance_picker: OptionButton = $Panel/Margin/Scroll/Content/DoorRow/Entrance
 @onready var status_label: Label = $Panel/Margin/Scroll/Content/Status
+@onready var zone_controls: VBoxContainer = $Panel/Margin/Scroll/Content/ZoneControls
 
 
 func _ready() -> void:
@@ -46,8 +49,11 @@ func _ready() -> void:
 	$Panel/Margin/Scroll/Content/SpawnCrawler.pressed.connect(spawn_crawler)
 	$Panel/Margin/Scroll/Content/SpawnHunter.pressed.connect(spawn_hunter)
 	$Panel/Margin/Scroll/Content/DoorRow/AttackDoor.pressed.connect(force_selected_door_attack)
+	$Panel/Margin/Scroll/Content/AllZonesOn.pressed.connect(func() -> void: set_all_zones_powered(true))
+	$Panel/Margin/Scroll/Content/AllZonesOff.pressed.connect(func() -> void: set_all_zones_powered(false))
 	$Panel/Margin/Scroll/Content/Close.pressed.connect(func() -> void: set_panel_open(false))
 	_bind_bladder_slider()
+	_build_zone_controls.call_deferred()
 	set_panel_open(false)
 
 
@@ -70,6 +76,7 @@ func set_panel_open(open: bool) -> void:
 		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 		_bind_bladder_slider()
 		_sync_bladder_from_player()
+		refresh_power_zone_controls()
 		status_label.text = "Sẵn sàng. Các thay đổi chỉ dành cho dev."
 	else:
 		Input.set_mouse_mode(_mouse_mode_before_open)
@@ -325,6 +332,83 @@ func force_selected_door_attack() -> bool:
 		else "Không thể tấn công cửa %02d (cửa có thể đã vỡ)." % entrance_id
 	)
 	return started
+
+
+# --- electrical-zone testing -------------------------------------------------
+
+## Builds from the active map's zones rather than hard-coding Villa IDs into a
+## shared UI scene. Maps without zones simply show the explanatory label.
+func _build_zone_controls() -> void:
+	for child: Node in zone_controls.get_children():
+		child.queue_free()
+	_zone_buttons.clear()
+	var zones := _electrical_zones()
+	if zones.is_empty():
+		var unavailable := Label.new()
+		unavailable.text = "Map hiện tại không có electrical zone để test."
+		unavailable.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		zone_controls.add_child(unavailable)
+		return
+	for zone: ElectricalZone in zones:
+		var button := Button.new()
+		button.custom_minimum_size = Vector2(0.0, 34.0)
+		button.pressed.connect(func() -> void: toggle_electrical_zone(zone))
+		zone_controls.add_child(button)
+		_zone_buttons[zone.zone_id] = button
+		if not zone.power_changed.is_connected(_on_zone_power_changed):
+			zone.power_changed.connect(_on_zone_power_changed)
+	refresh_power_zone_controls()
+
+
+func toggle_electrical_zone(zone: ElectricalZone) -> void:
+	if not is_instance_valid(zone):
+		return
+	zone.toggle_power()
+	status_label.text = "%s: %s" % [
+		zone.display_name,
+		"CÓ ĐIỆN" if zone.is_powered else "MẤT ĐIỆN",
+	]
+	refresh_power_zone_controls()
+
+
+func set_all_zones_powered(powered: bool) -> void:
+	var zones := _electrical_zones()
+	if zones.is_empty():
+		status_label.text = "Map hiện tại không có electrical zone để test."
+		return
+	for zone: ElectricalZone in zones:
+		zone.set_powered(powered)
+	status_label.text = "Tất cả %d zone: %s" % [
+		zones.size(),
+		"CÓ ĐIỆN" if powered else "MẤT ĐIỆN (BLACKOUT)",
+	]
+	refresh_power_zone_controls()
+
+
+func refresh_power_zone_controls() -> void:
+	for zone: ElectricalZone in _electrical_zones():
+		var button := _zone_buttons.get(zone.zone_id) as Button
+		if button:
+			button.text = "%s  —  %s" % [
+				zone.display_name,
+				"CÓ ĐIỆN" if zone.is_powered else "MẤT ĐIỆN",
+			]
+
+
+func _on_zone_power_changed(_powered: bool) -> void:
+	refresh_power_zone_controls()
+
+
+func _electrical_zones() -> Array[ElectricalZone]:
+	var container := get_node_or_null(electrical_zones_path)
+	var zones: Array[ElectricalZone] = []
+	if not container:
+		return zones
+	for child: Node in container.get_children():
+		var zone := child as ElectricalZone
+		if zone:
+			zones.append(zone)
+	return zones
 
 
 func _player() -> Node:
