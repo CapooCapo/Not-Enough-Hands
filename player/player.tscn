@@ -15,6 +15,7 @@
 [ext_resource type="Script" path="res://player/player_bladder.gd" id="13_player_bladder"]
 [ext_resource type="Script" path="res://ui/bladder_bar.gd" id="15_bladder_bar"]
 [ext_resource type="PackedScene" path="res://player/player_visual.tscn" id="16_player_visual"]
+[ext_resource type="Script" path="res://ui/downed_indicators.gd" id="17_downed_indicators"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
 
@@ -202,6 +203,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.62, 0)
 [node name="Camera3D" type="Camera3D" parent="CameraPivot" unique_id=663310931]
 current = true
 fov = 70.0
+near = 0.02
 far = 45.0
 
 [node name="Flashlight" type="SpotLight3D" parent="CameraPivot/Camera3D"]
@@ -482,6 +484,19 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 color = Color(1, 1, 1, 1)
+
+[node name="DownedUI" type="CanvasLayer" parent="."]
+layer = 110
+
+[node name="Indicators" type="Control" parent="DownedUI"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("17_downed_indicators")
+player_path = NodePath("../..")
 
 [node name="DoorGhostMinigame" parent="." instance=ExtResource("6_door_minigame")]
 

@@ -2,6 +2,8 @@ extends CharacterBody3D
 
 signal eyes_closed_changed(closed: bool)
 signal killed_by_ghost(ghost: Node3D)
+signal downed_changed(downed: bool)
+signal became_spectator()
 signal door_minigame_started(door: Node)
 signal door_minigame_finished()
 signal hunter_trap_changed(trapped: bool)
@@ -30,6 +32,21 @@ signal toilet_ghost_stun_changed(active: bool)
 ## step-up silently fails every frame.
 @export var step_probe_distance: float = 0.3
 
+@export_category("Downed & Revive")
+## Total time this player may ever spend on the floor. It is a run-long budget,
+## not a per-death timer: it never refills, so each rescue costs the team from
+## the same pool and a third trip down is normally the last one.
+@export var downed_time_budget: float = 180.0
+## Flat charge taken from the budget the moment a ghost puts this player down.
+@export var downed_death_cost: float = 60.0
+## Uninterrupted seconds a teammate must hold the interact key to lift them up.
+@export var revive_duration: float = 10.0
+@export var revive_range: float = 2.4
+## How fast an abandoned rescue unwinds, as a multiple of real time.
+@export var revive_decay_multiplier: float = 2.0
+@export var downed_camera_height: float = -0.6
+@export var downed_camera_roll_degrees: float = 18.0
+
 @export_category("Camera Feel")
 @export var head_bob_frequency: float = 8.0
 @export var head_bob_horizontal: float = 0.012
@@ -57,6 +74,13 @@ var current_stamina: float = max_stamina
 var head_bob_time: float = 0.0
 var eyes_closed: bool = false
 var is_alive: bool = true
+## Downed players are deliberately not alive: every ghost's target scan already
+## skips `is_alive == false`, so going down removes this player from all three
+## of them without adding a fourth condition to each ghost.
+var is_downed: bool = false
+var is_spectator: bool = false
+var downed_time_remaining: float = 180.0
+var revive_progress: float = 0.0
 var blink_time_remaining: float = blink_interval
 var forced_blink_remaining: float = 0.0
 ## Highest threat currently reported by any ghost - drives the horror overlay
@@ -171,6 +195,9 @@ var _network_jump: bool = false
 var _network_crouch: bool = false
 var _network_run: bool = false
 var _network_blink: bool = false
+## Held rather than pressed: reviving a teammate is the one interaction that
+## needs the key's continuous state on the server, not a single edge.
+var _network_interact: bool = false
 var _previous_network_jump: bool = false
 var _network_yaw: float = 0.0
 var _network_pitch: float = 0.0
@@ -187,6 +214,7 @@ func _ready() -> void:
 	add_to_group(&"players")
 	_footstep_rng.randomize()
 	current_stamina = max_stamina
+	downed_time_remaining = downed_time_budget
 	blink_time_remaining = blink_interval
 	var shape := collision_shape.shape as CapsuleShape3D
 	shape.radius = player_radius
@@ -213,7 +241,9 @@ func _process(delta: float) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if not is_local_player():
 		return
-	if not is_alive:
+	# Being down or spectating is not the same as being finished: both still
+	# get to look around, they just lose everything below the look block.
+	if not is_alive and not is_downed and not is_spectator:
 		return
 	if _is_alt_toggle_event(event):
 		toggle_mouse_capture()
@@ -237,6 +267,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		# degrees normally, narrower while a minigame constrains it).
 		camera_pivot.rotate_x(-event.relative.y * mouse_sensitivity)
 		camera_pivot.rotation.x = clamp(camera_pivot.rotation.x, pitch_clamp_min, pitch_clamp_max)
+
+	# A body on the floor cannot reach a door handle, and a spectator has no
+	# body at all - looking is where their input stops.
+	if is_downed or is_spectator:
+		return
 
 	if _is_any_minigame_active():
 		return
@@ -285,6 +320,7 @@ func _configure_player_presentation() -> void:
 		&"BlinkUI",
 		&"BlinkOverlay",
 		&"DoorGhostMinigame",
+		&"DownedUI",
 		&"DeathUI",
 	]:
 		var layer := get_node_or_null(NodePath(node_name)) as CanvasLayer
@@ -310,10 +346,20 @@ func _capture_and_send_network_input() -> void:
 	var crouch := Input.is_action_pressed("crouch")
 	var run_pressed := Input.is_action_pressed("run")
 	var blink_pressed := Input.is_action_pressed("blink")
+	var interact_held := Input.is_action_pressed("interact")
 	var yaw := rotation.y
 	var pitch := camera_pivot.rotation.x
 	if multiplayer.is_server():
-		_apply_network_input(move, jump, crouch, run_pressed, blink_pressed, yaw, pitch)
+		_apply_network_input(
+			move,
+			jump,
+			crouch,
+			run_pressed,
+			blink_pressed,
+			interact_held,
+			yaw,
+			pitch
+		)
 	else:
 		_submit_network_input.rpc_id(
 			NETWORK_SERVER_PEER_ID,
@@ -322,6 +368,7 @@ func _capture_and_send_network_input() -> void:
 			crouch,
 			run_pressed,
 			blink_pressed,
+			interact_held,
 			yaw,
 			pitch
 		)
@@ -334,6 +381,7 @@ func _submit_network_input(
 	crouch: bool,
 	run_pressed: bool,
 	blink_pressed: bool,
+	interact_held: bool,
 	yaw: float,
 	pitch: float
 ) -> void:
@@ -341,7 +389,16 @@ func _submit_network_input(
 		return
 	if not is_finite(yaw) or not is_finite(pitch):
 		return
-	_apply_network_input(move, jump, crouch, run_pressed, blink_pressed, yaw, pitch)
+	_apply_network_input(
+		move,
+		jump,
+		crouch,
+		run_pressed,
+		blink_pressed,
+		interact_held,
+		yaw,
+		pitch
+	)
 
 
 func _apply_network_input(
@@ -350,6 +407,7 @@ func _apply_network_input(
 	crouch: bool,
 	run_pressed: bool,
 	blink_pressed: bool,
+	interact_held: bool,
 	yaw: float,
 	pitch: float
 ) -> void:
@@ -358,6 +416,7 @@ func _apply_network_input(
 	_network_crouch = crouch
 	_network_run = run_pressed
 	_network_blink = blink_pressed
+	_network_interact = interact_held
 	_network_yaw = wrapf(yaw, -PI, PI)
 	_network_pitch = clampf(pitch, -PI * 0.5, PI * 0.5)
 
@@ -379,6 +438,8 @@ func _input_action_pressed(action: StringName) -> bool:
 				return _network_run
 			&"blink":
 				return _network_blink
+			&"interact":
+				return _network_interact
 	return Input.is_action_pressed(action)
 
 
@@ -414,7 +475,11 @@ func _send_network_state(peer_id: int) -> void:
 		current_stamina,
 		eyes_closed,
 		blink_time_remaining,
-		eyelid_closure
+		eyelid_closure,
+		is_downed,
+		is_spectator,
+		downed_time_remaining,
+		revive_progress
 	)
 
 
@@ -429,7 +494,11 @@ func _receive_network_state(
 	server_stamina: float,
 	server_eyes_closed: bool,
 	server_blink_remaining: float,
-	server_eyelid_closure: float
+	server_eyelid_closure: float,
+	server_downed: bool,
+	server_spectator: bool,
+	server_downed_remaining: float,
+	server_revive_progress: float
 ) -> void:
 	if multiplayer.is_server():
 		return
@@ -438,6 +507,13 @@ func _receive_network_state(
 	_snapshot_pitch = server_pitch
 	_snapshot_velocity = server_velocity
 	is_alive = server_alive
+	downed_time_remaining = server_downed_remaining
+	revive_progress = server_revive_progress
+	if server_downed != is_downed:
+		is_downed = server_downed
+		downed_changed.emit(is_downed)
+	if server_spectator and not is_spectator:
+		_enter_spectator()
 	current_stamina = clampf(server_stamina, 0.0, max_stamina)
 	eyes_closed = server_eyes_closed
 	blink_time_remaining = server_blink_remaining
@@ -611,6 +687,19 @@ func _physics_process(delta: float) -> void:
 			_capture_and_send_network_input()
 		rotation.y = _network_yaw
 		camera_pivot.rotation.x = _network_pitch
+
+	if is_spectator:
+		_fly(delta)
+		_finish_network_tick(delta)
+		return
+
+	if is_downed:
+		_update_downed(delta)
+		_settle_downed_body(delta)
+		_update_camera_motion(delta)
+		_stop_footsteps()
+		_finish_network_tick(delta)
+		return
 
 	_update_minigame_ghost_safety(delta)
 	if _is_any_minigame_active():
@@ -840,12 +929,142 @@ func kill_by_ghost(ghost: Node3D) -> void:
 	eyes_closed = false
 	velocity = Vector3.ZERO
 	_stop_footsteps()
-	if death_ui.has_method("show_jumpscare"):
+	# Alone, a kill is still a kill and the jumpscare/game-over runs as before.
+	# With a teammate left standing it becomes a rescue window instead.
+	if _has_available_rescuer():
+		_enter_downed()
+	elif death_ui.has_method("show_jumpscare"):
 		death_ui.call("show_jumpscare", ghost)
 	else:
 		death_ui.visible = true
 		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	killed_by_ghost.emit(ghost)
+
+
+## A rescuer has to be able to walk over here: anyone already on the floor or
+## watching as a spectator cannot pick this player up.
+func _has_available_rescuer() -> bool:
+	for node: Node in get_tree().get_nodes_in_group(&"players"):
+		var other := node as CharacterBody3D
+		if other == self or not is_instance_valid(other):
+			continue
+		if bool(other.get("is_alive")) \
+			and not bool(other.get("is_downed")) \
+			and not bool(other.get("is_spectator")):
+			return true
+	return false
+
+
+func _enter_downed() -> void:
+	# The 60-second charge lands before the clock starts, so a player who is
+	# already near the end of their budget goes straight past the floor.
+	downed_time_remaining = maxf(downed_time_remaining - downed_death_cost, 0.0)
+	if downed_time_remaining <= 0.0:
+		_enter_spectator()
+		return
+	is_downed = true
+	revive_progress = 0.0
+	# _update_blink() no longer runs from here on, so a player caught mid-blink
+	# would lie there behind shut eyelids - the one thing being downed is not
+	# supposed to take away. end_forced_blink() clears the shader directly.
+	end_forced_blink()
+	_clear_all_ghost_threat()
+	downed_changed.emit(true)
+
+
+func _enter_spectator() -> void:
+	if is_spectator:
+		return
+	is_alive = false
+	is_downed = false
+	is_spectator = true
+	downed_time_remaining = 0.0
+	revive_progress = 0.0
+	velocity = Vector3.ZERO
+	# Same reasoning as dev noclip: disable the shape, not the layers, so a
+	# spectator can drift through the house without shoving anything.
+	collision_shape.disabled = true
+	end_forced_blink()
+	_clear_all_ghost_threat()
+	_stop_footsteps()
+	downed_changed.emit(false)
+	became_spectator.emit()
+
+
+## Server-side (or offline) tick for a body on the floor. Written from the
+## downed player's side rather than the rescuer's so the outcome cannot depend
+## on which of the two nodes `_physics_process` happens to reach first.
+func _update_downed(delta: float) -> void:
+	var rescuer := _find_reviver()
+	if rescuer:
+		revive_progress = minf(revive_progress + delta, revive_duration)
+		if revive_progress >= revive_duration:
+			revive()
+		# The bleed-out clock is paused for as long as somebody is holding on.
+		return
+
+	revive_progress = maxf(revive_progress - delta * revive_decay_multiplier, 0.0)
+	downed_time_remaining = maxf(downed_time_remaining - delta, 0.0)
+	if downed_time_remaining <= 0.0:
+		_enter_spectator()
+
+
+## Gravity only, so a player dropped part-way up a staircase ends up lying on
+## the floor a teammate can actually reach.
+func _settle_downed_body(delta: float) -> void:
+	velocity.x = 0.0
+	velocity.z = 0.0
+	if not is_on_floor():
+		velocity.y -= gravity * delta
+	elif velocity.y < 0.0:
+		velocity.y = 0.0
+	move_and_slide()
+
+
+func _find_reviver() -> CharacterBody3D:
+	for node: Node in get_tree().get_nodes_in_group(&"players"):
+		var other := node as CharacterBody3D
+		if other == self or not is_instance_valid(other):
+			continue
+		if bool(other.call("can_revive", self)) and bool(other.call("is_holding_interact")):
+			return other
+	return null
+
+
+## True while this player is close enough and able to lift `target` - also what
+## the downed HUD reads to show the rescue prompt.
+func can_revive(target: Node) -> bool:
+	if not is_alive or is_downed or is_spectator or _is_any_minigame_active():
+		return false
+	var body := target as Node3D
+	if not is_instance_valid(body) or not ("is_downed" in body and body.is_downed):
+		return false
+	return global_position.distance_to(body.global_position) <= revive_range
+
+
+func is_holding_interact() -> bool:
+	return _input_action_pressed(&"interact")
+
+
+func revive() -> void:
+	if not is_downed:
+		return
+	is_downed = false
+	is_alive = true
+	revive_progress = 0.0
+	# Back up with nothing left in the tank: the rescue is a reprieve, not a
+	# reset, and the downed budget itself is never refilled.
+	current_stamina = 0.0
+	blink_time_remaining = blink_interval
+	downed_changed.emit(false)
+
+
+func get_downed_time_ratio() -> float:
+	return clampf(downed_time_remaining / maxf(downed_time_budget, 0.01), 0.0, 1.0)
+
+
+func get_revive_ratio() -> float:
+	return clampf(revive_progress / maxf(revive_duration, 0.01), 0.0, 1.0)
 
 
 ## Public status-effect API used by the Toilet Ghost minigame. Reapplying the
@@ -1023,8 +1242,15 @@ func is_protected_from_ghost_attacks() -> bool:
 		or _minigame_ghost_release_remaining > 0.0
 
 
+## A body on the floor is out of the fight: every ghost drops it as a target
+## the moment it goes down, and picks it up again only after a rescue. The
+## `is_downed`/`is_spectator` terms are redundant with `is_alive` today and
+## stated anyway, because that is the contract, not an implementation detail.
 func can_be_targeted_by_ghosts() -> bool:
-	return is_alive and not is_protected_from_ghost_attacks()
+	return is_alive \
+		and not is_downed \
+		and not is_spectator \
+		and not is_protected_from_ghost_attacks()
 
 
 func apply_hunter_trap(source: Node3D) -> bool:
@@ -1236,6 +1462,8 @@ func _stop_footsteps() -> void:
 
 func _update_camera_motion(delta: float) -> void:
 	var target_height := crouch_camera_height if is_crouching else standing_camera_height
+	if is_downed:
+		target_height = downed_camera_height
 	var bob_offset := Vector2.ZERO
 	var horizontal_speed := Vector2(velocity.x, velocity.z).length()
 
@@ -1249,8 +1477,13 @@ func _update_camera_motion(delta: float) -> void:
 	var threat_wave := sin(Time.get_ticks_msec() * 0.019) * statue_threat
 	target_position.x += threat_wave * 0.008
 	var blend := minf(crouch_transition_speed * delta, 1.0)
+	# A modest roll is enough to read as "lying on the floor". Anything closer
+	# to a real 90 degrees fights mouse-look, which downed players keep.
+	var target_roll := threat_wave * 0.006
+	if is_downed:
+		target_roll += deg_to_rad(downed_camera_roll_degrees)
 	camera_pivot.position = camera_pivot.position.lerp(target_position, blend)
-	camera_pivot.rotation.z = lerpf(camera_pivot.rotation.z, threat_wave * 0.006, blend)
+	camera_pivot.rotation.z = lerpf(camera_pivot.rotation.z, target_roll, blend)
 
 
 func _try_step_up(horizontal_motion: Vector3) -> void:
