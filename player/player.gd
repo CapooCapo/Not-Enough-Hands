@@ -673,6 +673,20 @@ func _drop_selected_item() -> void:
 		item.set_held(false)
 
 
+## Hands `item` back to the world so a consumer can do something with it - the
+## totem brazier uses it to take the totem out of the player's hands before it
+## burns it. Mirrors try_pick_up_item(): the consumer calls into the player,
+## never into the equipment slots. Returns false if it was not being carried.
+func release_held_item(item: Node3D) -> bool:
+	if not is_instance_valid(item) or not equipment.remove_item(item):
+		return false
+	item.reparent(get_tree().root)
+	item.global_position = global_position + Vector3(0, standing_camera_height, 0)
+	if item.has_method("set_held"):
+		item.set_held(false)
+	return true
+
+
 func _physics_process(delta: float) -> void:
 	if _is_network_session():
 		if not multiplayer.is_server():

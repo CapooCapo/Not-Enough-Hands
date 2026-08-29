@@ -59,6 +59,33 @@ Each ghost is built to counter a different player behavior, and each subscribes 
 - `power/main_breaker.gd` is the one physical recovery point for a full-house blackout, instanced in both maps. While the house is dark it highlights itself: the indicator pulses and an `Outline` shell draws a glowing rim around the cabinet, visible from any distance and through walls — a stencil effect (cabinet materials stamp reference 1 with WRITE|WRITE_DEPTH_FAIL, the shell reads it back NOT_EQUAL under `no_depth_test`), grown with camera distance so it never shrinks to nothing. Using it opens `minigames/breaker_minigame.gd` rather than restoring anything: a 10-second countdown wheel where SPACE has to land a reversing, accelerating needle on a white mark, each failure adding 1.5s. `max_repair_seconds` (20s) caps it from both ends — failures stop adding time there, and 20s of actual play auto-completes — and `hit_forgiveness` widens the hit window past the drawn mark. Progress survives a cancel; only `repair_completed` makes the breaker restore the zones and the manager. Same split as the door minigame — the minigame owns no power logic, the breaker owns no minigame logic.
 - `minigames/door_ghost_minigame.gd` is the shared first-person 3D repel encounter fought at the attacked door, used both to drive off an attacker at an intact door and to unlock repairs at a breach. Three phases (peephole → ajar → wide open), each cleared by its own `hits_per_phase` flashlight hits with the counter reset on every transition — never a running total. It owns no durability logic — failure and success both go back through `defense_door.gd`'s `apply_exorcism_failure()`/`complete_exorcism()`. Ghost positions come from `Marker3D`s in the `door_ghost_positions` group authored in `door/defense_door.tscn`, so it stays map-agnostic. The ghost itself is `ghosts/door_ghost.tscn` (the `Meshy_AI_Midnight_Grin_biped` import plus an `Area3D` the flashlight ray must actually reach; the body itself is the shared `ghosts/ghost_visual.tscn`, whose material override cancels the fully-metallic/full-emission material Meshy ships so the beam actually lights it — see `assets/ghosts/model_hunter/README.md`) — a body with poses and no AI, spawned into the running scene for the encounter and freed with it; `hunter_ghost.gd` is untouched by it.
 
+### The totem ritual
+
+`items/totem_ritual.gd` (group `totem_ritual`, one node per map scene) is the
+director for the collect-and-burn objective; `items/totem_brazier.gd` (group
+`totem_braziers`) is the fire it is burned at. Same split as the breaker and its
+minigame: the brazier owns the fire and the three-second hold and knows nothing
+about the clock; the ritual owns how much night a burn is worth, how many items
+exist and when it is over, and never touches the fire. Both are map-agnostic -
+drop points come from the `house2_rooms` markers *both* maps publish, and the villa, which places no
+brazier of its own, gets one dropped at the room nearest the player spawn.
+
+Items are a live population, not a one-off scatter: a restock pass every two
+seconds tops both groups back up to one per player still in the run (carried
+items count, so burning is what puts the next one on the map, not picking one
+up), and a drop point must be at least `min_spawn_distance` (70 m) from every
+player. No map here is that big, so `_pick_far_room()` falls back to a random
+pick from the farthest quarter of the rooms - the rule degrades to "the farthest
+there is", never to "underfoot".
+
+The 4:00 AM ceiling lives in `NightClock.skip_minutes()` (group `night_clock`),
+not in the ritual: it grants only the minutes left below `skip_limit_hour` and
+returns how many it actually gave. `items/ritual_item.gd` is the shared pickup
+for totems and firewood - it adds `slot_cost` (which `PlayerEquipment` reads to
+reserve both hands for a totem) and the seen-by-camera highlight. Consumers take
+an item out of a player's hands through `Player.release_held_item()`, the
+counterpart to `try_pick_up_item()`; nothing reaches into the equipment slots.
+
 ### Player & threat reporting
 
 `player/player.gd` owns movement, camera, stamina, and blink. All three ghosts report danger through `Player.set_threat_from(...)`, which the horror overlay (`ui/`) uses to always reflect whichever threat is currently worse — new ghosts/hazards should report through this same call rather than driving the overlay directly.

@@ -9,6 +9,11 @@ signal victory_reached()
 @export_range(0, 59, 1) var start_minute: int = 55
 @export_range(0, 23, 1) var victory_hour: int = 6
 @export_range(0, 59, 1) var victory_minute: int = 0
+## Ceiling for skip_minutes(). Time granted by the totem ritual stops here:
+## the night can still run past 4:00 AM on its own, but nothing can be burned
+## to jump it there.
+@export_range(0, 23, 1) var skip_limit_hour: int = 4
+@export_range(0, 59, 1) var skip_limit_minute: int = 0
 ## The night advances one in-game minute every 1.5 seconds of real time.
 @export var real_seconds_per_game_minute: float = 1.5
 
@@ -30,6 +35,7 @@ var _player: Node
 
 
 func _ready() -> void:
+	add_to_group(&"night_clock")
 	_player = get_node_or_null(player_path)
 	reset_clock()
 
@@ -76,6 +82,27 @@ func get_minutes_remaining() -> int:
 	return maxi(_minutes_until_victory - elapsed_game_minutes, 0)
 
 
+## In-game minutes that skip_minutes() can still hand out before the night hits
+## its skip ceiling (4:00 AM by default, and never past dawn).
+func get_minutes_until_skip_limit() -> int:
+	var ceiling := mini(_skip_limit_elapsed(), _minutes_until_victory)
+	return maxi(ceiling - elapsed_game_minutes, 0)
+
+
+## Jumps the night forward by up to `minutes`, stopping dead at the skip
+## ceiling, and returns how many minutes were actually granted. A 30-minute
+## burn at 3:50 AM is handed 10. One at 4:00 AM is handed nothing.
+## Every minute is stepped through rather than assigned, so minute_changed
+## listeners see the jump the same way they see the night pass.
+func skip_minutes(minutes: int) -> int:
+	if not running or won or minutes <= 0:
+		return 0
+	var granted := mini(minutes, get_minutes_until_skip_limit())
+	for i: int in granted:
+		_advance_one_game_minute()
+	return granted
+
+
 func _advance_one_game_minute() -> void:
 	elapsed_game_minutes += 1
 	current_minutes_of_day = (current_minutes_of_day + 1) % (24 * 60)
@@ -110,6 +137,18 @@ func _player_is_in_door_minigame() -> bool:
 	return _player != null \
 		and _player.has_method("is_door_minigame_active") \
 		and bool(_player.call("is_door_minigame_active"))
+
+
+## The skip ceiling expressed the way elapsed_game_minutes is - minutes since
+## the night started - so a ceiling after midnight compares cleanly.
+func _skip_limit_elapsed() -> int:
+	var delta := (
+		_clock_minutes(skip_limit_hour, skip_limit_minute)
+		- _clock_minutes(start_hour, start_minute)
+	)
+	if delta <= 0:
+		delta += 24 * 60
+	return delta
 
 
 func _clock_minutes(hour: int, minute: int) -> int:

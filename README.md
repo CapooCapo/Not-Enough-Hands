@@ -108,6 +108,47 @@ one in-game minute, including the midnight rollover. Reaching **6:00 AM** stops
 the threats, pauses the world, and displays the dawn victory screen. The clock
 is hidden while the door-ghost encounter owns the screen.
 
+## The totem ritual - buying the night back
+
+The clock can also be pushed forward by hand. A lit **brazier**
+(`items/totem_brazier.tscn`) waits near where the players start. Hold **E** at
+it for three uninterrupted seconds with a **totem** in hand (Kenney stone head,
+`items/totem.tscn`) and it burns: the night jumps **+30 minutes**.
+
+Four rules make it a job rather than a button:
+
+- **A totem needs both hands.** It declares `slot_cost = 2`, so carrying one
+  fills the whole two-slot inventory - no flashlight fuel, no firewood, nothing.
+- **The fire dies with every totem it eats.** Burning one puts the brazier out,
+  and the next totem cannot go in until somebody has carried a piece of
+  **firewood** (`items/firewood.tscn`, one slot) back to it and held **E** for
+  1.5 seconds to relight it. Because a totem takes both hands, that is always a
+  separate trip.
+- **The map holds one totem and one log per player still in the run**, and
+  nothing is scattered up front. Picking an item up does not replace it -
+  burning it does, and the replacement appears somewhere else entirely.
+- **4:00 AM is a ceiling, not a target.** A burn is granted only the minutes
+  that are left below 4:00 AM, so burning at 3:50 buys ten minutes and lands on
+  4:00 exactly. Once the night is there - burned to it or simply arrived at it -
+  every totem and log still lying around vanishes and the brazier reads
+  `NGHI LỄ ĐÃ HOÀN TẤT`. Dawn is still 6:00 AM; the ritual only ever shortens
+  the two hours before it.
+
+Every drop point has to be **at least 70 m from every player**, chosen at random
+among the rooms that qualify. Neither map is really that big - House2 is
+18 x 12 m, and the villa's farthest room is about 57 m from the player spawn -
+so in practice the rule falls back to picking at random from the farthest
+quarter of the rooms. It degrades to "as far away as this map gets", never to
+"next to the player". `min_spawn_distance` on the `TotemRitual` node is the
+knob; drop it to ~40 m if you want the villa to use the literal rule instead of
+the fallback.
+
+Totems and firewood **glow only while you can actually see them**: inside the
+camera frustum, within 22 m (16 m for firewood), and with nothing solid in the
+way. The check is a frustum test plus one world-masked raycast every 0.12 s, so
+the glow is a reward for sweeping a room with your eyes and never an x-ray
+through a wall.
+
 ## Going down, and being picked back up
 
 Being caught by a ghost is only the end of the run when nobody is left to come

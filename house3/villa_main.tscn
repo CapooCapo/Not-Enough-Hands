@@ -46,6 +46,7 @@
 [ext_resource type="Script" uid="uid://01w221wpws42" path="res://house3/villa_windows.gd" id="79_villa_windows"]
 [ext_resource type="Script" uid="uid://jn7ag6n0ntnt" path="res://house3/villa_exterior.gd" id="80_villa_exterior"]
 [ext_resource type="PackedScene" path="res://power/main_breaker.tscn" id="81_main_breaker"]
+[ext_resource type="Script" path="res://items/totem_ritual.gd" id="82_totem_ritual"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_villa"]
 sky_top_color = Color(0.22, 0.38, 0.58, 1)
@@ -79330,3 +79331,6 @@ patrol_point_timeout = 26.0
 
 [node name="HunterGhost" parent="." unique_id=149705737 instance=ExtResource("11_hunter")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 40, 0, -12)
+
+[node name="TotemRitual" type="Node" parent="."]
+script = ExtResource("82_totem_ritual")
