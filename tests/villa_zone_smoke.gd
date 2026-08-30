@@ -76,6 +76,31 @@ func _run() -> void:
 		and darkness_ghost._pending_expansion_zone.zone_id == StringName(expected_next_zone_ids[0]),
 		"DarknessGhost did not choose the first authored neighbouring zone to approach"
 	)
+	# Walking to the next zone is not hunting. A player who was in reach and then
+	# left must not keep wearing this ghost's threat for the rest of the trip -
+	# the horror overlay reads the worst live threat, so a latched value never
+	# comes back down.
+	var threatened := villa.get_node("Player") as CharacterBody3D
+	var threatened_home := threatened.global_position
+	threatened.global_position = darkness_ghost.global_position \
+		+ Vector3(darkness_ghost.hunt_range + 25.0, 0.0, 0.0)
+	_assert(
+		not darkness_ghost._player_is_within_hunt_range(threatened)
+		and not darkness_ghost._player_is_in_active_zone(threatened),
+		"Latch check needs the player genuinely out of reach to mean anything"
+	)
+	threatened.set_threat_from(&"darkness_ghost", 0.8)
+	_assert(
+		threatened.threat_sources.has(&"darkness_ghost"),
+		"Player did not take the darkness threat this check depends on"
+	)
+	darkness_ghost._physics_process(0.016)
+	_assert(
+		not threatened.threat_sources.has(&"darkness_ghost"),
+		"DarknessGhost left its threat latched on a player outside hunt_range"
+	)
+	threatened.global_position = threatened_home
+
 	darkness_ghost.global_position = darkness_ghost._pending_expansion_position
 	darkness_ghost._physics_process(0.016)
 	_assert(dark_zone.darkened_zones.size() >= 2, "DarknessGhost did not expand into an adjacent zone")

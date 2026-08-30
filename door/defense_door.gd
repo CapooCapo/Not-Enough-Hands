@@ -36,18 +36,24 @@ enum AttackPhase {
 @export var stalking_wait_min: float = 4.0
 @export var stalking_wait_max: float = 7.0
 @export var weak_phase_duration: float = 8.0
-## One apparition only takes a bounded bite out of the door, then leaves. A
-## damaged door can still be breached, but a fresh door is never erased by one
-## unattended event.
-@export var attack_damage_min: float = 20.0
-@export var attack_damage_max: float = 40.0
+## One apparition only takes a bounded bite out of the door, then leaves. Two
+## unanswered visits open any entrance in either map - and one is enough where an
+## entrance is thinner than this floor: the villa's attic skylight carries 40
+## points (spec `layers: 1` x 40) and so always falls to the first attack that
+## lands on it. Every other entrance - 80-120 in the villa, the stock 100 in
+## House2 - survives one visit and goes down to the second.
+@export var attack_damage_min: float = 50.0
+@export var attack_damage_max: float = 70.0
 ## Scratches are deliberately spaced out so players have time to hear, locate,
-## and answer the attacked entrance.
-@export var damage_tick_interval: float = 2.0
+## and answer the attacked entrance. The bite above is more than twice what it
+## was, so the interval was shortened and the strong tick raised to match -
+## otherwise one visit would occupy its door for the best part of half a minute
+## and the director could never run the waves any denser than it already does.
+@export var damage_tick_interval: float = 1.5
 @export var weak_damage_min: float = 3.0
 @export var weak_damage_max: float = 5.0
-@export var strong_damage_min: float = 7.0
-@export var strong_damage_max: float = 10.0
+@export var strong_damage_min: float = 10.0
+@export var strong_damage_max: float = 14.0
 
 @export_category("Audio variation")
 @export var warning_pitch_min: float = 0.88

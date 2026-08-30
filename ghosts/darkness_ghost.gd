@@ -16,10 +16,21 @@ signal killed_player(player: Node3D)
 @export_range(2.0, 30.0, 0.5) var threat_range := 12.0
 @export_range(0.5, 4.0, 0.05) var kill_distance := 1.15
 @export_range(0.1, 10.0, 0.1) var minimum_spawn_distance := 7.0
-@export_range(0.5, 5.0, 0.05) var patrol_speed := 1.35
+## How far it will come for somebody. Standing in a lit room is no longer a
+## sanctuary: once it is manifested it hunts the nearest living player inside
+## this radius wherever they are, and only falls back to spreading the darkness
+## when nobody is within reach. Its own zone always counts, however far away -
+## a player in the dark is being hunted regardless of this number.
+@export_range(2.0, 60.0, 0.5) var hunt_range := 22.0
+## Patrolling and spreading are the *fast* half of this ghost. It crosses the
+## house at well above a sprint when it is not chasing anybody, so the quiet
+## between hauntings is short and it is already somewhere else by the time the
+## lights come back. The chase itself stays at `chase_speed`, which is under a
+## player's sprint - being caught is a mistake, never a foregone conclusion.
+@export_range(0.5, 15.0, 0.05) var patrol_speed := 8.0
 @export_range(0.5, 15.0, 0.1) var patrol_retarget_seconds := 3.0
-@export_range(2.0, 120.0, 0.5) var zone_expansion_seconds := 15.0
-@export_range(0.3, 3.0, 0.05) var zone_expansion_walk_speed := 1.0
+@export_range(2.0, 120.0, 0.5) var zone_expansion_seconds := 6.0
+@export_range(0.3, 15.0, 0.05) var zone_expansion_walk_speed := 8.0
 @export_range(0.5, 5.0, 0.05) var zone_blackout_arrival_distance := 1.4
 ## Used only when a manifest attempt fails outright (e.g. no powered zone
 ## could be found near the player). Short on purpose: manifest_interval is
@@ -97,17 +108,15 @@ func _physics_process(delta: float) -> void:
 		return
 	var player := _nearest_player()
 	var player_in_dark_zone := _player_is_in_active_zone(player)
+	# Somebody within reach outranks the next light switch. Spreading is what it
+	# does with the time nobody gives it, not something it finishes first while a
+	# player stands two rooms away.
+	var hunting := player_in_dark_zone or _player_is_within_hunt_range(player)
+	# The next zone stays lit while the ghost is on its way, and is cut the
+	# moment the ghost is standing in it. That arrival is checked even mid-chase:
+	# it costs no time, so being chased across the threshold puts the lights out
+	# exactly as walking there deliberately would.
 	if _pending_expansion_zone:
-		# The ghost is still a hunting threat while walking to its next zone: a
-		# player standing right next to it in already-dark territory should
-		# still register threat/be at risk, not get a free pass just because
-		# the ghost's current goal is a waypoint instead of the player.
-		if player_in_dark_zone:
-			_update_player_threat_and_contact(player)
-			if not _is_manifested:
-				return
-		# The next zone remains lit while the ghost approaches it. It is cut only
-		# after the ghost has physically crossed into the target area.
 		if global_position.distance_to(_pending_expansion_position) <= zone_blackout_arrival_distance:
 			_power_effect.cause_zone_outage(_pending_expansion_zone)
 			_pending_expansion_zone = null
@@ -115,12 +124,20 @@ func _physics_process(delta: float) -> void:
 			_patrol_retarget_in = 0.0
 			_stuck_timer = 0.0
 			return
-		_pursue(_pending_expansion_position, zone_expansion_walk_speed, delta, &"expansion")
-		return
-	var target := player if player_in_dark_zone else null
-	if target:
-		_pursue(target.global_position, chase_speed, delta, &"chase")
-		_update_player_threat_and_contact(target)
+		if not hunting:
+			# Same contract as the patrol branch below: nobody is being hunted, so
+			# nobody may be left wearing this ghost's threat. Without this a player
+			# who walks out of hunt_range while a zone is pending keeps the horror
+			# overlay latched at whatever it read on the last frame it was chased.
+			_clear_player_threat()
+			_pursue(_pending_expansion_position, zone_expansion_walk_speed, delta, &"expansion")
+			return
+	if hunting:
+		# The pending zone is kept rather than dropped: the walk to it resumes
+		# from wherever the chase ends, so a player who keeps the ghost busy
+		# delays the next blackout instead of cancelling it.
+		_pursue(player.global_position, chase_speed, delta, &"chase")
+		_update_player_threat_and_contact(player)
 	else:
 		_clear_player_threat()
 		_patrol_retarget_in -= delta
@@ -388,6 +405,14 @@ func _zone_near_player() -> ElectricalZone:
 				closest = zone
 				closest_distance = distance
 	return closest
+
+
+## The straight-line half of the hunt. A wall does not call the chase off - the
+## navigation agent still has to walk around it - but a player on the far side of
+## the villa is somebody else's problem.
+func _player_is_within_hunt_range(player: Node3D) -> bool:
+	return player != null \
+		and global_position.distance_to(player.global_position) <= hunt_range
 
 
 func _player_is_in_active_zone(player: Node3D) -> bool:

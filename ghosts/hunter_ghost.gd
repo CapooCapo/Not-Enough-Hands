@@ -63,8 +63,8 @@ extends CharacterBody3D
 ##   2. It never leaves. There is no hunt timer, no giving up and no walking
 ##      back out through the hole it came in by: once it is inside, it is inside
 ##      until dawn. Rebuilding every breach behind it does not lock it out of
-##      anything it was going to do anyway - it only makes it faster and
-##      sharper-nosed for the rest of the night.
+##      anything it was going to do anyway - it only makes it faster for the
+##      rest of the night.
 ##
 ## It also has ears. Not the crawler's - that creature *is* its hearing - but
 ## good enough that walking upright near it brings it over. Crouching is the only
@@ -117,7 +117,7 @@ signal killed_player(player: Node3D)
 ## no more: it still needs a couple of metres to get moving and still cannot take
 ## a corner, which is where the whole escape lives.
 @export var acceleration: float = 10.0
-@export var turn_speed: float = 4.8 
+@export var turn_speed: float = 4.8
 ## How much of its speed survives moving in a direction it is not yet facing.
 ## This is what turns a doorway into cover rather than a formality.
 @export_range(0.0, 1.0) var off_axis_speed_floor: float = 0.34
@@ -128,10 +128,14 @@ signal killed_player(player: Node3D)
 @export_category('Entry')
 ## Whether a breached defense door lets it into the house at all.
 @export var entry_enabled: bool = true
-## The gap between the door breaking and the huntsman arriving at it. This is
-## the window the player has to rebuild thedoor and keep it out entirely.
-@export var entry_delay_min: float = 6.0
-@export var entry_delay_max: float = 10.0
+## The gap between the door breaking and the huntsman arriving at it. Shipped at
+## zero: a breach is answered on the next physics tick, so the hole opening and
+## the thing coming through it are one event rather than two. Raising either
+## value restores the old grace period, in which rebuilding the door before the
+## timer elapses keeps it out entirely - that is still what the mechanism does,
+## it is simply not what the night is tuned to any more.
+@export var entry_delay_min: float = 0.0
+@export var entry_delay_max: float = 0.0
 ## How far outside the doorway it materialises, so it is always seen walking in.
 @export var entry_offset: float = 2.6
 @export var entry_timeout: float = 18.0
@@ -265,6 +269,12 @@ signal killed_player(player: Node3D)
 
 ## Below this it is standing, above it is on its feet - the only number the clip
 ## choice adds, and it only picks between clips.
+## How close to the inside of a doorway counts as having walked in. It is also
+## what makes a doorway "overhead": a threshold whose two sides are less than
+## this far apart horizontally cannot be walked across at all, because arrival
+## is already true on the first frame. _begin_entry() and _update_entering()
+## both read it so those two can never disagree about what crossing means.
+const ENTRY_ARRIVE_DISTANCE := 0.7
 const WALK_SPEED_THRESHOLD := 0.15
 ## Clips that fire once and hold their last frame instead of looping.
 const ONE_SHOT_CLIPS := [&"Attack", &"Skill 3"]
@@ -544,8 +554,6 @@ func _lock_on(player: CharacterBody3D) -> void:
 	current_target = player
 	last_seen_position = player.global_position
 	_sight_timer = lose_sight_time
-	# Once it has seen you it has your scent for the rest of the night.
-	prey_marked = true
 	WorldNet.play_shared(horn_audio)
 	# It roars first and runs second. That one second is the whole warning, and
 	# it is heard in every room, so the players it has *not* seen get it too.
@@ -554,7 +562,7 @@ func _lock_on(player: CharacterBody3D) -> void:
 
 
 ## Once a player has been seen, chase is the highest-priority behavior. This is
-## deliberately enforced every physics frame so scent tracking, hunt expiry,
+## deliberately enforced every physics frame so patrol, hunt expiry,
 ## and unsticking can never silently overwrite it.
 func _enforce_chase_override() -> void:
 	if not is_instance_valid(current_target):
@@ -642,9 +650,8 @@ func _update_entering(delta: float) -> void:
 	_state_timer += delta
 	var flat_offset := _travel_target - global_position
 	flat_offset.y = 0.0
-	if flat_offset.length() <= 0.7 or _state_timer >= entry_timeout:
+	if flat_offset.length() <= ENTRY_ARRIVE_DISTANCE or _state_timer >= entry_timeout:
 		inside_house = true
-		_trail_time = -1.0
 		entered_house.emit(entry_door)
 		# It stops in the doorway and sweeps the room before it commits. This is
 		# the announcement the player gets, and it is the only one.
@@ -654,72 +661,24 @@ func _update_entering(delta: float) -> void:
 	_steer_toward(delta, _travel_target, _non_chase_speed(walk_speed), false)
 
 
-## The core of the creature: read the floor, walk to the mark, read again.
+## Investigates only direct evidence: a heard sound or the last visible position.
 func _update_tracking(delta: float) -> void:
-
-	# A broken line of sight is resolved before any scent decision. This keeps a
-	# corner dodge local: reach the doorway/corner where the player disappeared,
-	# then read the fresh marks in that room instead of an older floor below.
 	if _has_last_seen_lead:
 		var to_last_seen := _last_seen_lead - global_position
 		var flat_last_seen := Vector2(to_last_seen.x, to_last_seen.z).length()
-		if flat_last_seen <= trail_arrive_distance * 2.0 \
-			and absf(to_last_seen.y) <= trail_arrive_height:
+		if flat_last_seen <= investigate_arrive_distance \
+			and absf(to_last_seen.y) <= investigate_height_range:
 			_has_last_seen_lead = false
 		else:
 			_steer_toward(delta, _last_seen_lead, _non_chase_speed(track_speed))
 			return
 
-	var sample_index := _pick_trail_sample()
-	if sample_index >= 0:
-		var sample := _spoor[sample_index]
-		if not _has_trail_target or _trail_target.distance_to(sample['position']) > 0.35:
-			_trail_target = sample['position']
-			_trail_target_time = float(sample['time'])
-			# The allowance has to include the walk. A mark in the bedroom above is
-			# a thirty-metre route through the hall and up two flights, and a flat
-			# timeout threw away perfectly good marks halfway up the stairs.
-			_trail_point_timer = trail_point_timeout \
-				+ global_position.distance_to(_trail_target) / maxf(track_speed, 0.5) * 1.6
-			if not _has_trail_target:
-				trail_picked_up.emit(_trail_target)
-			_has_trail_target = true
-
-		# Arrival is horizontal, with a vertical band. A mark left on the landing
-		# above its head is not somewhere it can ever stand, and testing straight
-		# 3D distance meant it could walk to directly underneath a motionless
-		# player and then hold that pose until dawn.
-		var to_mark := _trail_target - global_position
-		var flat_distance := Vector2(to_mark.x, to_mark.z).length()
-		if flat_distance <= trail_arrive_distance and absf(to_mark.y) <= trail_arrive_height:
-			# Consuming the mark is what stops it from reading its own past.
-			_trail_time = _trail_target_time
-			_has_trail_target = false
-
-		_trail_point_timer -= delta
-		if _trail_point_timer <= 0.0:
-			# This one is not resolving. Burn it and read the next rather than
-			# spending the rest of the night walking at a wall.
-			_abandon_goal()
-			return
-
-		_steer_toward(delta, _trail_target, _non_chase_speed(track_speed))
-		return
-
-	if _has_trail_target:
-		_has_trail_target = false
-		trail_lost.emit()
-
 	if _has_noise_lead:
-		# Something ran nearby, or a long scent pointed this way. It does not know
-		# what or where, only that the floor over there is worth reading.
-		if global_position.distance_to(_noise_lead) <= trail_arrive_distance * 2.0:
+		var to_noise := _noise_lead - global_position
+		var flat_noise := Vector2(to_noise.x, to_noise.z).length()
+		if flat_noise <= investigate_arrive_distance \
+			and absf(to_noise.y) <= investigate_height_range:
 			_has_noise_lead = false
-			# Retire the mark that sent it here, so arriving is progress rather
-			# than the start of the same walk again.
-			if _noise_lead_time > _trail_time:
-				_trail_time = _noise_lead_time
-			_noise_lead_time = -1.0
 			_set_state(HunterState.CASTING)
 			return
 		_steer_toward(delta, _noise_lead, _non_chase_speed(track_speed))
@@ -728,8 +687,7 @@ func _update_tracking(delta: float) -> void:
 	_set_state(HunterState.CASTING)
 
 
-## Lost it. It stands where the trail ran out, turns on the spot, sniffs, and
-## sweeps the lantern - and then it goes back to quartering the house.
+## Pauses between patrol legs, listening and sweeping its gaze around the room.
 func _update_casting(delta: float) -> void:
 	_brake(delta)
 
@@ -743,25 +701,24 @@ func _update_casting(delta: float) -> void:
 	# rather than one wall of it.
 	rotation.y += cast_turn_speed * delta * (1.0 if int(_clock * 0.25) % 2 == 0 else -1.0)
 
-	if _pick_trail_sample() >= 0:
+	if _has_last_seen_lead or _has_noise_lead:
 		_set_state(HunterState.TRACKING)
 		return
 
 	_state_timer -= delta
 	if _state_timer <= 0.0:
-		# Nothing here. Move on to the next room and read that floor instead.
+		# Nothing here. Move on to the next patrol point.
 		_set_state(HunterState.SWEEPING)
 
 
-## Walking away. It deliberately does not read the floor while it does this: the
-## whole point is that the player who just broke line of sight gets the room to
+## Walking away. The player who just broke line of sight gets the room to
 ## be somewhere else. Sight is still live, so stepping back out in front of it
 ## during the retreat starts the whole thing again.
 func _update_disengaging(delta: float) -> void:
 	_state_timer -= delta
 	var flat_offset := _disengage_point - global_position
 	flat_offset.y = 0.0
-	if _state_timer <= 0.0 or flat_offset.length() <= trail_arrive_distance * 1.5:
+	if _state_timer <= 0.0 or flat_offset.length() <= investigate_arrive_distance:
 		_set_state(HunterState.CASTING)
 		return
 	_steer_toward(delta, _disengage_point, _non_chase_speed(walk_speed))
@@ -772,21 +729,7 @@ func _update_disengaging(delta: float) -> void:
 ## whole building, which is why hiding in one room forever is not a plan.
 func _update_sweeping(delta: float) -> void:
 
-	if _pick_trail_sample() >= 0 or _has_noise_lead:
-		_set_state(HunterState.TRACKING)
-		return
-
-	# Nothing underfoot. It lifts its head and takes the longest scent it has,
-	# then walks to where that was. Against a player who keeps moving this is
-	# always one address out of date and costs them nothing; against a player who
-	# has stopped, it is the thing that eventually opens their door.
-	var lead_index := _pick_cold_lead()
-	if lead_index >= 0:
-		_noise_lead = _spoor[lead_index]['position']
-		_noise_lead_time = float(_spoor[lead_index]['time'])
-		_has_noise_lead = true
-		if not sniff_audio.playing:
-			WorldNet.play_shared(sniff_audio)
+	if _has_last_seen_lead or _has_noise_lead:
 		_set_state(HunterState.TRACKING)
 		return
 
@@ -915,24 +858,16 @@ func _update_recovering(delta: float) -> void:
 func _drop_target(walk_away: bool = false) -> void:
 	var seen_at := last_seen_position
 	current_target = null
-	_has_trail_target = false
-	# A live sighting is stronger evidence than any sound/cold-cast lead that was
-	# queued before the lock, so none of those may resume after this.
+	# A live sighting is stronger evidence than any sound queued before the lock.
 	_has_noise_lead = false
-	_noise_lead_time = -1.0
 
 	if walk_away and _begin_disengage(seen_at):
-		# It has given up on that corner entirely, and the trail clock is reset to
-		# now, so the marks the player laid getting away are already too old to
-		# read. It can only pick up wherever they go next.
+		# It has deliberately given up on that corner and resumes patrol afterward.
 		_has_last_seen_lead = false
-		_trail_time = _clock
 		target_lost.emit(seen_at)
 		return
 
-	# Otherwise it goes to where you were before reading anything else: the trail
-	# is hottest exactly at the corner where it lost you.
-	_trail_time = _clock - 6.0
+	# Target invalidation still permits one check of the last visible position.
 	_last_seen_lead = seen_at
 	_has_last_seen_lead = true
 	_set_state(HunterState.TRACKING)
@@ -941,7 +876,7 @@ func _drop_target(walk_away: bool = false) -> void:
 
 ## Picks somewhere to walk that is directly away from where the prey was last
 ## seen, and returns false if the geometry does not offer one - in which case the
-## caller falls back to the ordinary "go and read that corner" behaviour rather
+## caller falls back to checking that corner once rather
 ## than standing still.
 func _begin_disengage(seen_at: Vector3) -> bool:
 	var away := global_position - seen_at
@@ -1081,6 +1016,22 @@ func _begin_entry(door: Node3D) -> void:
 	_pending_entry_door = null
 	_travel_target = _door_side_point(door, true)
 	var outside_point := _door_side_point(door, false)
+	# An overhead entrance - the villa's attic skylight - stacks its two sides
+	# vertically instead of across a threshold, so there is no walk-in to play.
+	# _update_entering() measures arrival horizontally, so a body started above
+	# the opening is "inside" on its very first frame while it is in fact
+	# standing on the roof, and then patrols the roof until dawn. Dropping
+	# through the hole is what breaching a skylight means, so it starts on the
+	# inside instead, snapped to real floor. The test is the arrival distance
+	# rather than zero: any doorway too narrow to register a walk belongs here,
+	# not only the perfectly vertical one.
+	var threshold := _travel_target - outside_point
+	threshold.y = 0.0
+	if threshold.length() <= ENTRY_ARRIVE_DISTANCE:
+		var landing := _standable_point(_travel_target)
+		if landing != Vector3.INF:
+			_travel_target = landing
+		outside_point = _travel_target
 	# Its origin is at its boots, like the statue's, so this is a small clearance
 	# hop rather than a drop from head height.
 	global_position = outside_point + Vector3.UP * 0.15
@@ -1097,13 +1048,11 @@ func _begin_entry(door: Node3D) -> void:
 
 
 ## Every breach rebuilt behind it. It was never going to walk out on its own, but
-## now it could not even if it wanted to - and being sealed in makes it faster
-## and sharper-nosed for the rest of the night.
+## now it could not even if it wanted to - and being sealed in makes it faster.
 func _become_trapped() -> void:
 	if trapped:
 		return
 	trapped = true
-	prey_marked = true
 	WorldNet.play_shared(horn_audio)
 	WorldNet.play_shared(breach_audio)
 	sealed_inside.emit()
@@ -1246,19 +1195,7 @@ func _abandon_goal() -> void:
 
 	match state:
 		HunterState.TRACKING:
-			# Burn the mark it could not reach, along with everything older, and
-			# write off the ground under it - otherwise a player standing still
-			# prints a fresh mark in the same impossible place every 0.4 s and it
-			# re-fixates immediately.
-			if _has_trail_target:
-				_write_off_ground(_trail_target)
-				if _trail_target_time > _trail_time:
-					_trail_time = _trail_target_time
-			elif _has_last_seen_lead:
-				_write_off_ground(_last_seen_lead)
-			elif _has_noise_lead:
-				_write_off_ground(_noise_lead)
-			_has_trail_target = false
+			# Drop an unreachable one-shot investigation and resume the route.
 			_has_last_seen_lead = false
 			_has_noise_lead = false
 			_set_state(HunterState.CASTING)
@@ -1490,6 +1427,12 @@ func spawn_from_breached_door(door: Node3D) -> bool:
 	var doorway_position := door.global_position
 	if inward.length_squared() > 0.0001:
 		doorway_position += inward.normalized() * minf(entry_offset, 0.45)
+	else:
+		# An overhead entrance has no horizontal inward direction at all, so the
+		# clearance nudge above cannot find one and the threshold itself is the
+		# roof. "Just inside" a skylight is the room below it - the same reason
+		# _begin_entry() drops through rather than walking in.
+		doorway_position = inside_reference
 	var landing := _standable_point(doorway_position)
 	global_position = landing + Vector3.UP * 0.1 if landing != Vector3.INF \
 		else doorway_position + Vector3.UP * 0.15
@@ -1507,13 +1450,8 @@ func spawn_from_breached_door(door: Node3D) -> bool:
 
 func _reset_hunt_memory() -> void:
 	current_target = null
-	_trail_time = -1.0
-	_trail_target_time = -1.0
-	_trail_point_timer = 0.0
-	_has_trail_target = false
 	_has_last_seen_lead = false
 	_has_noise_lead = false
-	_noise_lead_time = -1.0
 	_has_goal = false
 	_last_progress_position = global_position
 	_no_progress_time = 0.0
@@ -1789,14 +1727,6 @@ func begin_entry_at(door: Node3D) -> bool:
 		return false
 	_begin_entry(door)
 	return true
-
-
-func get_trail_size() -> int:
-	return _spoor.size()
-
-
-func has_trail_lead() -> bool:
-	return _pick_trail_sample() >= 0
 
 
 ## There is no spotting meter any more - it either has line of sight or it does

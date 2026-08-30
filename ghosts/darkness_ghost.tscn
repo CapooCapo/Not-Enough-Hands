@@ -6,7 +6,7 @@
 
 [node name="DarknessGhost" instance=ExtResource("1_woman")]
 script = ExtResource("2_darkness")
-chase_speed = 2.2
+chase_speed = 6.5
 stopping_distance = 0.75
 
 [node name="DarknessEntityPowerEffect" type="Node" parent="."]
