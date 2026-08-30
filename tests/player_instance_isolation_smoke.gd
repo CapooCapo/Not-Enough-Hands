@@ -55,10 +55,61 @@ func _run() -> void:
 	if not is_equal_approx(remote_shape.height, remote_player.crouch_height):
 		return _fail("The remote player's own capsule did not enter crouch height.")
 
+	# A new authoritative correction replaces an old pending one, and applying it
+	# moves every unacknowledged prediction into the same coordinate space. This
+	# prevents the same error being rediscovered and accumulated every snapshot.
+	local_player.global_position = Vector3(10.0, 0.0, 0.0)
+	local_player.set("_prediction_history", {
+		10: Vector3(8.0, 0.0, 0.0),
+		11: Vector3(10.0, 0.0, 0.0),
+	})
+	local_player.set("_pending_reconciliation", Vector3(50.0, 0.0, 0.0))
+	local_player.call(
+		"_reconcile_predicted_position",
+		Vector3(8.25, 0.0, 0.0),
+		Vector3.ZERO,
+		10
+	)
+	var pending: Vector3 = local_player.get("_pending_reconciliation")
+	if not pending.is_equal_approx(Vector3(0.25, 0.0, 0.0)):
+		return _fail("A fresh prediction correction accumulated the stale pending error.")
+	local_player.call("_apply_pending_reconciliation", 0.1)
+	var history: Dictionary = local_player.get("_prediction_history")
+	if not local_player.global_position.is_equal_approx(Vector3(10.25, 0.0, 0.0)):
+		return _fail("Smooth reconciliation did not move the local player correctly.")
+	if not (history[11] as Vector3).is_equal_approx(Vector3(10.25, 0.0, 0.0)):
+		return _fail("Smooth reconciliation left future prediction history stale.")
+	local_player.call(
+		"_reconcile_predicted_position",
+		Vector3(10.25, 0.0, 0.0),
+		Vector3.ZERO,
+		11
+	)
+	pending = local_player.get("_pending_reconciliation")
+	if not pending.is_zero_approx():
+		return _fail("The next matching snapshot rediscovered an already-applied correction.")
+
+	local_player.global_position = Vector3(20.0, 0.0, 0.0)
+	local_player.set("_prediction_history", {
+		12: Vector3(20.0, 0.0, 0.0),
+		13: Vector3(21.0, 0.0, 0.0),
+	})
+	local_player.call(
+		"_reconcile_predicted_position",
+		Vector3.ZERO,
+		Vector3(1.0, 0.0, 0.0),
+		12
+	)
+	history = local_player.get("_prediction_history")
+	if not local_player.global_position.is_equal_approx(Vector3.ZERO):
+		return _fail("A large authoritative correction did not hard-snap the player.")
+	if not (history[13] as Vector3).is_equal_approx(Vector3(1.0, 0.0, 0.0)):
+		return _fail("Hard reconciliation left future prediction history stale.")
+
 	manager.set("session_active", false)
 	print(
 		"Player instance isolation smoke test passed: crouch capsules are unique "
-		+ "and remote replicas cannot steal the local camera."
+		+ "and remote replicas cannot steal the local camera; reconciliation stays bounded."
 	)
 	quit()
 

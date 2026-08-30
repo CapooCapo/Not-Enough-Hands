@@ -186,8 +186,38 @@ func _on_repair_session_ended(success: bool) -> void:
 func _report_repair_session(success: bool) -> void:
 	if not WorldNet.is_world_authority() or interactable.can_interact():
 		return
+	var sender_id := multiplayer.get_remote_sender_id()
+	var sender_owns_session := false
+	for node: Node in get_tree().get_nodes_in_group(&"players"):
+		if int(node.get("owner_peer_id")) != sender_id:
+			continue
+		if node.has_method(&"owns_remote_encounter") \
+			and bool(node.call(&"owns_remote_encounter", self, &"start_breaker_minigame")):
+			sender_owns_session = true
+			break
+	if not sender_owns_session:
+		return
+	complete_remote_session(success)
+
+
+## Applies the already-validated result once. Player also routes its encounter
+## completion here, so the breaker cannot remain locked if signal/RPC ordering
+## differs between peers; the can_interact guard makes duplicate delivery safe.
+func complete_remote_session(success: bool) -> void:
+	if not WorldNet.is_world_authority() or interactable.can_interact():
+		return
 	if success:
 		_restore_power()
+	interactable.unlock()
+	_update_presentation()
+
+
+## Called by the authoritative Player when its owning peer disconnects before
+## reporting an outcome. This prevents one abandoned client session from
+## leaving the only breaker permanently locked for everybody else.
+func cancel_remote_session() -> void:
+	if not WorldNet.is_world_authority():
+		return
 	interactable.unlock()
 	_update_presentation()
 

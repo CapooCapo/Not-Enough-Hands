@@ -46,7 +46,7 @@ func _run() -> void:
 		_fail("The local player should not see their own name tag.")
 		return
 	var death_ui := player.get_node_or_null("DeathUI") as CanvasLayer
-	var door_minigame := player.get_node_or_null("DoorGhostMinigame") as CanvasLayer
+	var door_minigame := player.get_node_or_null("DoorGhostMinigame/Overlay") as CanvasLayer
 	if not death_ui or death_ui.visible:
 		_fail("The local player's death jumpscare must start hidden.")
 		return
@@ -73,9 +73,18 @@ func _run() -> void:
 		_fail("Player visual did not lower its silhouette for crouching.")
 		return
 
+	player.is_crouching = false
+	player.is_alive = false
+	player.is_downed = false
+	player.is_spectator = false
+	visual.call("_physics_process", 1.0)
+	if absf(character.rotation.x + PI * 0.5) > 0.01:
+		_fail("A final-dead remote body stayed upright instead of using the fallen pose.")
+		return
+
 	print(
 		"Player visual smoke test passed: Kenney skin applied, idle/run/jump loaded, "
-		+ "%.2f m body aligned to capsule, local body shadows-only, crouch silhouette lowers."
+		+ "%.2f m body aligned to capsule, local body shadows-only, crouch lowers, death falls."
 		% bounds.size.y
 	)
 	quit()

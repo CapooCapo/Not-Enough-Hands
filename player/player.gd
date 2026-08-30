@@ -211,6 +211,10 @@ var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 
 const NETWORK_STATE_INTERVAL := 1.0 / 20.0
 const NETWORK_SERVER_PEER_ID := 1
+const PREDICTION_HISTORY_LIMIT := 180
+const PREDICTION_HARD_SNAP_DISTANCE := 2.0
+const PREDICTION_CORRECTION_DEAD_ZONE := 0.03
+const PREDICTION_RECONCILIATION_SPEED := 10.0
 
 ## What an encounter played on somebody's own machine reports back to the door.
 enum DoorOutcome {
@@ -232,6 +236,7 @@ const REMOTE_ENCOUNTER_STARTERS: Array[StringName] = [
 ## machine. Set only on the peer holding the *replica* - which is the server -
 ## and null everywhere the encounter is actually being played.
 var _remote_encounter_target: Node = null
+var _remote_encounter_starter: StringName = &""
 
 var _network_move := Vector2.ZERO
 var _network_jump: bool = false
@@ -250,6 +255,16 @@ var _snapshot_yaw: float = 0.0
 var _snapshot_pitch: float = 0.0
 var _snapshot_velocity := Vector3.ZERO
 var _has_network_snapshot: bool = false
+var _snapshot_age: float = 0.0
+var _local_input_sequence: int = 0
+var _last_processed_input_sequence: int = -1
+var _prediction_history: Dictionary = {}
+var _pending_reconciliation := Vector3.ZERO
+## Life-cycle changes use a reliable side channel in addition to the regular
+## 20 Hz snapshot. The revision keeps a late, pre-death unreliable packet from
+## briefly putting a player back on their feet after the reliable update.
+var _life_state_revision: int = 0
+var _last_received_life_state_revision: int = -1
 
 func _ready() -> void:
 	# Interior doors query this group for a light physical push. Keeping the
@@ -274,6 +289,11 @@ func _ready() -> void:
 		_flashlight_base_range = flashlight.spot_range
 	if jumpscare:
 		jumpscare.jumpscare_finished.connect(_on_hunter_jumpscare_finished)
+
+
+func _exit_tree() -> void:
+	if WorldNet.is_world_authority():
+		_release_remote_encounter_target()
 
 
 ## Status visuals keep ticking while a minigame temporarily disables this
@@ -463,11 +483,18 @@ func _configure_player_presentation() -> void:
 		&"DownedUI",
 		&"DeathUI",
 	]:
-		var layer := get_node_or_null(NodePath(node_name)) as CanvasLayer
+		var presentation_node := get_node_or_null(NodePath(node_name))
 		# Local UI nodes own their initial visibility (DeathUI and minigames
 		# deliberately start hidden). Only remote players need a forced hide.
-		if layer and not local:
-			layer.visible = false
+		if presentation_node and not local:
+			if presentation_node is CanvasLayer or presentation_node is CanvasItem \
+				or presentation_node is Node3D:
+				presentation_node.set("visible", false)
+			presentation_node.process_mode = Node.PROCESS_MODE_DISABLED
+	if bladder:
+		# The server owns every player's passive fill. ToiletMinigame drains through
+		# explicit methods, so a client copy needs no second physics simulation.
+		bladder.set_physics_process(not _is_network_session() or multiplayer.is_server())
 	set_process_unhandled_input(local)
 
 
@@ -495,6 +522,7 @@ func _capture_and_send_network_input() -> void:
 	var interact_held := Input.is_action_pressed("interact")
 	var yaw := rotation.y
 	var pitch := camera_pivot.rotation.x
+	_local_input_sequence += 1
 	if multiplayer.is_server():
 		_apply_network_input(
 			move,
@@ -504,7 +532,8 @@ func _capture_and_send_network_input() -> void:
 			blink_pressed,
 			interact_held,
 			yaw,
-			pitch
+			pitch,
+			_local_input_sequence
 		)
 	else:
 		_submit_network_input.rpc_id(
@@ -516,7 +545,8 @@ func _capture_and_send_network_input() -> void:
 			blink_pressed,
 			interact_held,
 			yaw,
-			pitch
+			pitch,
+			_local_input_sequence
 		)
 
 
@@ -529,11 +559,15 @@ func _submit_network_input(
 	blink_pressed: bool,
 	interact_held: bool,
 	yaw: float,
-	pitch: float
+	pitch: float,
+	input_sequence: int
 ) -> void:
 	if not multiplayer.is_server() or not _rpc_sender_owns_player():
 		return
-	if not is_finite(yaw) or not is_finite(pitch):
+	if not is_finite(move.x) or not is_finite(move.y) \
+		or not is_finite(yaw) or not is_finite(pitch):
+		return
+	if input_sequence <= _last_processed_input_sequence:
 		return
 	_apply_network_input(
 		move,
@@ -543,7 +577,8 @@ func _submit_network_input(
 		blink_pressed,
 		interact_held,
 		yaw,
-		pitch
+		pitch,
+		input_sequence
 	)
 
 
@@ -555,7 +590,8 @@ func _apply_network_input(
 	blink_pressed: bool,
 	interact_held: bool,
 	yaw: float,
-	pitch: float
+	pitch: float,
+	input_sequence: int = -1
 ) -> void:
 	_network_move = move.limit_length(1.0)
 	_network_jump = jump
@@ -565,6 +601,8 @@ func _apply_network_input(
 	_network_interact = interact_held
 	_network_yaw = wrapf(yaw, -PI, PI)
 	_network_pitch = clampf(pitch, -PI * 0.5, PI * 0.5)
+	if input_sequence >= 0:
+		_last_processed_input_sequence = input_sequence
 
 
 func _movement_input() -> Vector2:
@@ -615,6 +653,15 @@ func _finish_network_tick(delta: float) -> void:
 		_send_network_state(ready_peer)
 
 
+func _finish_player_tick(delta: float) -> void:
+	if _is_network_client() and is_local_player():
+		_prediction_history[_local_input_sequence] = global_position
+		while _prediction_history.size() > PREDICTION_HISTORY_LIMIT:
+			var oldest_sequence: int = _prediction_history.keys().min()
+			_prediction_history.erase(oldest_sequence)
+	_finish_network_tick(delta)
+
+
 func _send_network_state(peer_id: int) -> void:
 	_receive_network_state.rpc_id(
 		peer_id,
@@ -631,7 +678,10 @@ func _send_network_state(peer_id: int) -> void:
 		is_downed,
 		is_spectator,
 		downed_time_remaining,
-		revive_progress
+		revive_progress,
+		bladder.get_bladder() if bladder else 0.0,
+		_last_processed_input_sequence,
+		_life_state_revision
 	)
 
 
@@ -650,7 +700,10 @@ func _receive_network_state(
 	server_downed: bool,
 	server_spectator: bool,
 	server_downed_remaining: float,
-	server_revive_progress: float
+	server_revive_progress: float,
+	server_bladder: float,
+	ack_input_sequence: int,
+	server_life_state_revision: int
 ) -> void:
 	if multiplayer.is_server():
 		return
@@ -658,15 +711,18 @@ func _receive_network_state(
 	_snapshot_yaw = server_yaw
 	_snapshot_pitch = server_pitch
 	_snapshot_velocity = server_velocity
-	is_alive = server_alive
-	downed_time_remaining = server_downed_remaining
-	revive_progress = server_revive_progress
-	if server_downed != is_downed:
-		is_downed = server_downed
-		downed_changed.emit(is_downed)
-	if server_spectator and not is_spectator:
-		_enter_spectator()
+	_snapshot_age = 0.0
+	_apply_remote_life_state(
+		server_alive,
+		server_downed,
+		server_spectator,
+		server_downed_remaining,
+		server_revive_progress,
+		server_life_state_revision
+	)
 	current_stamina = clampf(server_stamina, 0.0, max_stamina)
+	if bladder and not is_toilet_minigame_active():
+		bladder.set_bladder(server_bladder)
 	eyes_closed = server_eyes_closed
 	blink_time_remaining = server_blink_remaining
 	eyelid_closure = server_eyelid_closure
@@ -680,17 +736,129 @@ func _receive_network_state(
 		rotation.y = server_yaw
 		if not is_local_player():
 			camera_pivot.rotation.x = server_pitch
+		_prediction_history.clear()
+		_pending_reconciliation = Vector3.ZERO
 		_has_network_snapshot = true
+	elif is_local_player():
+		_reconcile_predicted_position(server_position, server_velocity, ack_input_sequence)
+
+
+func _reconcile_predicted_position(
+	server_position: Vector3,
+	server_velocity: Vector3,
+	ack_input_sequence: int
+) -> void:
+	if not _prediction_history.has(ack_input_sequence):
+		return
+	var predicted_position: Vector3 = _prediction_history[ack_input_sequence]
+	var correction := server_position - predicted_position
+
+	# Once the authority acknowledges an input, older predictions can never be
+	# useful again. Prune them before shifting the still-unacknowledged future.
+	for sequence_value: Variant in _prediction_history.keys():
+		if int(sequence_value) <= ack_input_sequence:
+			_prediction_history.erase(sequence_value)
+
+	var correction_distance := correction.length()
+	if correction_distance <= PREDICTION_CORRECTION_DEAD_ZONE:
+		_pending_reconciliation = Vector3.ZERO
+		return
+	if correction_distance > PREDICTION_HARD_SNAP_DISTANCE:
+		_shift_prediction_space(correction)
+		velocity = server_velocity
+		_pending_reconciliation = Vector3.ZERO
+		return
+
+	# This snapshot supersedes the previous target. Adding corrections here made
+	# an unapplied remainder grow on every 20 Hz packet until the player flew far
+	# beyond both the client and server positions.
+	_pending_reconciliation = correction
+
+
+## Death/down/revive is gameplay-critical and cannot wait for an unreliable
+## movement packet. This reliable update is broadcast by the server whenever a
+## life-cycle transition happens; periodic snapshots still carry the same data
+## so a newly replication-ready peer receives the complete current state.
+func _publish_life_state() -> void:
+	if not _is_network_session() or not multiplayer.is_server():
+		return
+	_life_state_revision += 1
+	var manager := get_node_or_null("/root/NetworkManager")
+	if manager == null:
+		return
+	for ready_peer: int in manager.get("replication_ready_peers"):
+		if ready_peer == NETWORK_SERVER_PEER_ID:
+			continue
+		_receive_life_state.rpc_id(
+			ready_peer,
+			is_alive,
+			is_downed,
+			is_spectator,
+			downed_time_remaining,
+			revive_progress,
+			_life_state_revision
+		)
+
+
+@rpc("authority", "call_remote", "reliable", 2)
+func _receive_life_state(
+	server_alive: bool,
+	server_downed: bool,
+	server_spectator: bool,
+	server_downed_remaining: float,
+	server_revive_progress: float,
+	server_life_state_revision: int
+) -> void:
+	if multiplayer.is_server():
+		return
+	_apply_remote_life_state(
+		server_alive,
+		server_downed,
+		server_spectator,
+		server_downed_remaining,
+		server_revive_progress,
+		server_life_state_revision
+	)
+
+
+func _apply_remote_life_state(
+	server_alive: bool,
+	server_downed: bool,
+	server_spectator: bool,
+	server_downed_remaining: float,
+	server_revive_progress: float,
+	server_life_state_revision: int
+) -> void:
+	if server_life_state_revision < _last_received_life_state_revision:
+		return
+	_last_received_life_state_revision = server_life_state_revision
+	var was_downed := is_downed
+	if server_spectator and not is_spectator:
+		# Keep the established collision, audio and signal side effects instead of
+		# duplicating a partial spectator transition on clients.
+		_enter_spectator()
+	else:
+		is_alive = server_alive
+		is_downed = server_downed
+		is_spectator = server_spectator
+		if was_downed != is_downed:
+			downed_changed.emit(is_downed)
+	downed_time_remaining = server_downed_remaining
+	revive_progress = server_revive_progress
 
 
 func _interpolate_network_snapshot(delta: float) -> void:
 	if not _has_network_snapshot:
 		return
-	var distance := global_position.distance_to(_snapshot_position)
+	_snapshot_age += delta
+	var extrapolated_position := _snapshot_position
+	var horizontal_velocity := Vector3(_snapshot_velocity.x, 0.0, _snapshot_velocity.z)
+	extrapolated_position += horizontal_velocity * minf(_snapshot_age, NETWORK_STATE_INTERVAL * 2.0)
+	var distance := global_position.distance_to(extrapolated_position)
 	if distance > 3.0:
-		global_position = _snapshot_position
+		global_position = extrapolated_position
 	else:
-		global_position = global_position.lerp(_snapshot_position, minf(delta * 14.0, 1.0))
+		global_position = global_position.lerp(extrapolated_position, minf(delta * 16.0, 1.0))
 	if not is_local_player():
 		rotation.y = lerp_angle(rotation.y, _snapshot_yaw, minf(delta * 16.0, 1.0))
 		camera_pivot.rotation.x = lerpf(
@@ -704,6 +872,30 @@ func _interpolate_network_snapshot(delta: float) -> void:
 		var eyelid_material := blink_overlay.material as ShaderMaterial
 		if eyelid_material:
 			eyelid_material.set_shader_parameter("closure", eyelid_closure)
+
+
+func _apply_pending_reconciliation(delta: float) -> void:
+	if _pending_reconciliation.is_zero_approx():
+		return
+	var applied := _pending_reconciliation * minf(
+		delta * PREDICTION_RECONCILIATION_SPEED, 1.0
+	)
+	_shift_prediction_space(applied)
+	_pending_reconciliation -= applied
+	if _pending_reconciliation.length_squared() < 0.000001:
+		_pending_reconciliation = Vector3.ZERO
+
+
+func _shift_prediction_space(offset: Vector3) -> void:
+	if offset.is_zero_approx():
+		return
+	global_position += offset
+	# Every future prediction was recorded in the old coordinate space. Moving
+	# only the body leaves those entries stale, so the next snapshot rediscovers
+	# the same error and applies it again.
+	for sequence_value: Variant in _prediction_history.keys():
+		var predicted_position: Vector3 = _prediction_history[sequence_value]
+		_prediction_history[sequence_value] = predicted_position + offset
 
 
 func toggle_mouse_capture() -> void:
@@ -801,10 +993,20 @@ func _request_drop_item() -> void:
 func _request_select_slot(slot_index: int) -> void:
 	if multiplayer.is_server() and _rpc_sender_owns_player() and slot_index in [0, 1]:
 		equipment.select_slot(slot_index)
+		_confirm_selected_slot.rpc_id(owner_peer_id, slot_index)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _confirm_selected_slot(slot_index: int) -> void:
+	if is_local_player() and slot_index in [0, 1]:
+		equipment.select_slot(slot_index)
 
 
 func _request_or_select_slot(slot_index: int) -> void:
 	if _is_network_client():
+		# Selecting locally keeps the equipment wheel responsive. The server
+		# confirms the same bounded value over the reliable channel.
+		equipment.select_slot(slot_index)
 		_request_select_slot.rpc_id(NETWORK_SERVER_PEER_ID, slot_index)
 	else:
 		equipment.select_slot(slot_index)
@@ -825,6 +1027,7 @@ func try_pick_up_item(item: Node3D) -> bool:
 	if item.has_method("set_held"):
 		item.set_held(true)
 	item.reparent(self)
+	WorldNet.report_holder(item, owner_peer_id)
 	return true
 
 
@@ -843,6 +1046,7 @@ func _drop_selected_item() -> void:
 	item.global_rotation = Vector3.ZERO
 	if item.has_method("set_held"):
 		item.set_held(false)
+	WorldNet.report_holder(item, 0)
 
 
 ## Hands `item` back to the world so a consumer can do something with it - the
@@ -856,27 +1060,31 @@ func release_held_item(item: Node3D) -> bool:
 	item.global_position = global_position + Vector3(0, standing_camera_height, 0)
 	if item.has_method("set_held"):
 		item.set_held(false)
+	WorldNet.report_holder(item, 0)
 	return true
 
 
 func _physics_process(delta: float) -> void:
 	if _is_network_session():
-		if not multiplayer.is_server():
+		if multiplayer.is_server():
+			if owner_peer_id == NETWORK_SERVER_PEER_ID and not _is_dedicated_server():
+				_capture_and_send_network_input()
+			# Only the authority consumes the input state received over RPC. A local
+			# client already rotated itself in _unhandled_input(); assigning these
+			# server-side fields there would undo mouse-look every physics frame.
+			rotation.y = _network_yaw
+			camera_pivot.rotation.x = _network_pitch
+		else:
 			if is_local_player():
 				_capture_and_send_network_input()
-				# Blink is a first-person visual, so the owner animates it without
-				# waiting a round-trip while the same held state goes to the server.
-				_update_blink(delta)
-			_interpolate_network_snapshot(delta)
-			return
-		if owner_peer_id == NETWORK_SERVER_PEER_ID and not _is_dedicated_server():
-			_capture_and_send_network_input()
-		rotation.y = _network_yaw
-		camera_pivot.rotation.x = _network_pitch
+				_apply_pending_reconciliation(delta)
+			else:
+				_interpolate_network_snapshot(delta)
+				return
 
 	if is_spectator:
 		_fly(delta)
-		_finish_network_tick(delta)
+		_finish_player_tick(delta)
 		return
 
 	if is_downed:
@@ -884,7 +1092,7 @@ func _physics_process(delta: float) -> void:
 		_settle_downed_body(delta)
 		_update_camera_motion(delta)
 		_stop_footsteps()
-		_finish_network_tick(delta)
+		_finish_player_tick(delta)
 		return
 
 	_update_minigame_ghost_safety(delta)
@@ -892,19 +1100,19 @@ func _physics_process(delta: float) -> void:
 		_open_eyes_for_minigame()
 		velocity = Vector3.ZERO
 		_stop_footsteps()
-		_finish_network_tick(delta)
+		_finish_player_tick(delta)
 		return
 
 	_update_blink(delta)
 	if not is_alive:
 		velocity = Vector3.ZERO
 		_stop_footsteps()
-		_finish_network_tick(delta)
+		_finish_player_tick(delta)
 		return
 
 	if dev_noclip:
 		_fly(delta)
-		_finish_network_tick(delta)
+		_finish_player_tick(delta)
 		return
 
 	var was_on_floor := is_on_floor()
@@ -917,7 +1125,7 @@ func _physics_process(delta: float) -> void:
 			velocity.y = 0.0
 		move_and_slide()
 		_stop_footsteps()
-		_finish_network_tick(delta)
+		_finish_player_tick(delta)
 		return
 
 	# Add the gravity.
@@ -988,7 +1196,7 @@ func _physics_process(delta: float) -> void:
 
 	move_and_slide()
 	_update_footsteps(delta, is_sprinting)
-	_finish_network_tick(delta)
+	_finish_player_tick(delta)
 
 
 func _update_blink(delta: float) -> void:
@@ -1131,6 +1339,7 @@ func kill_by_ghost(ghost: Node3D) -> void:
 		_enter_downed()
 	else:
 		_present_death(ghost)
+		_publish_life_state()
 	killed_by_ghost.emit(ghost)
 
 
@@ -1175,7 +1384,9 @@ func _start_hunter_jumpscare(ghost: Node3D) -> bool:
 		_pending_hunter_killer = null
 		return false
 	var active_scene := get_tree().current_scene
-	if active_scene and active_scene.is_ancestor_of(self):
+	if active_scene \
+			and active_scene.is_ancestor_of(self) \
+			and not _is_network_session():
 		get_tree().paused = true
 	return true
 
@@ -1225,6 +1436,7 @@ func _enter_downed() -> void:
 	end_forced_blink()
 	_clear_all_ghost_threat()
 	downed_changed.emit(true)
+	_publish_life_state()
 
 
 func _enter_spectator() -> void:
@@ -1244,6 +1456,7 @@ func _enter_spectator() -> void:
 	_stop_footsteps()
 	downed_changed.emit(false)
 	became_spectator.emit()
+	_publish_life_state()
 
 
 ## Server-side (or offline) tick for a body on the floor. Written from the
@@ -1312,6 +1525,7 @@ func revive() -> void:
 	current_stamina = 0.0
 	blink_time_remaining = blink_interval
 	downed_changed.emit(false)
+	_publish_life_state()
 
 
 func get_downed_time_ratio() -> float:
@@ -1443,7 +1657,22 @@ func start_toilet_minigame(toilet: Node) -> bool:
 	if not bool(minigame.call("start", self, toilet)):
 		return false
 	_active_toilet_minigame = minigame
+	minigame.connect(
+		&"session_ended", _on_toilet_session_ended.bind(toilet), CONNECT_ONE_SHOT
+	)
 	return true
+
+
+func _on_toilet_session_ended(success: bool, toilet: Node) -> void:
+	_active_toilet_minigame = null
+	if _is_network_client():
+		_report_remote_encounter_finished.rpc_id(
+			NETWORK_SERVER_PEER_ID,
+			_scene_path_of(toilet),
+			&"start_toilet_minigame",
+			success,
+			get_bladder()
+		)
 
 
 func is_toilet_minigame_active() -> bool:
@@ -1470,7 +1699,22 @@ func start_breaker_minigame(breaker: Node) -> bool:
 	if not bool(minigame.call("start", self, breaker)):
 		return false
 	_active_breaker_minigame = minigame
+	minigame.connect(
+		&"session_ended", _on_breaker_session_ended.bind(breaker), CONNECT_ONE_SHOT
+	)
 	return true
+
+
+func _on_breaker_session_ended(success: bool, breaker: Node) -> void:
+	_active_breaker_minigame = null
+	if _is_network_client():
+		_report_remote_encounter_finished.rpc_id(
+			NETWORK_SERVER_PEER_ID,
+			_scene_path_of(breaker),
+			&"start_breaker_minigame",
+			success,
+			get_bladder()
+		)
 
 
 func is_breaker_minigame_active() -> bool:
@@ -1484,6 +1728,12 @@ func is_breaker_minigame_active() -> bool:
 ## the server walking it and stops a second minigame starting on top.
 func is_remote_encounter_active() -> bool:
 	return is_instance_valid(_remote_encounter_target)
+
+
+func owns_remote_encounter(target: Node, starter: StringName = &"") -> bool:
+	return is_instance_valid(target) \
+		and _remote_encounter_target == target \
+		and (starter.is_empty() or _remote_encounter_starter == starter)
 
 
 func _is_any_minigame_active() -> bool:
@@ -1504,7 +1754,30 @@ func _encounter_belongs_elsewhere() -> bool:
 
 func _hand_encounter_to_owner(target: Node, starter: StringName) -> void:
 	_remote_encounter_target = target
+	_remote_encounter_starter = starter
 	_begin_remote_encounter.rpc_id(owner_peer_id, _scene_path_of(target), starter)
+
+
+func _clear_remote_encounter() -> void:
+	_remote_encounter_target = null
+	_remote_encounter_starter = &""
+
+
+func _release_remote_encounter_target() -> void:
+	if not is_instance_valid(_remote_encounter_target):
+		_clear_remote_encounter()
+		return
+	match _remote_encounter_starter:
+		&"start_door_minigame":
+			if _remote_encounter_target.has_method("cancel_exorcism"):
+				_remote_encounter_target.call("cancel_exorcism")
+		&"start_toilet_minigame":
+			if _remote_encounter_target.has_method("end_session"):
+				_remote_encounter_target.call("end_session")
+		&"start_breaker_minigame":
+			if _remote_encounter_target.has_method("cancel_remote_session"):
+				_remote_encounter_target.call("cancel_remote_session")
+	_clear_remote_encounter()
 
 
 ## Re-enters the same public API on the machine that pressed E, where
@@ -1538,7 +1811,7 @@ func report_door_outcome(door: Node, outcome: DoorOutcome) -> float:
 
 func _apply_door_outcome(door: Node, outcome: DoorOutcome) -> float:
 	if _remote_encounter_target == door:
-		_remote_encounter_target = null
+		_clear_remote_encounter()
 	match outcome:
 		DoorOutcome.CLEARED:
 			if door.has_method("complete_exorcism"):
@@ -1556,10 +1829,37 @@ func _apply_door_outcome(door: Node, outcome: DoorOutcome) -> float:
 func _report_door_outcome(entrance_id: int, outcome: int) -> void:
 	if not multiplayer.is_server() or not _rpc_sender_owns_player():
 		return
+	if outcome < DoorOutcome.CLEARED or outcome > DoorOutcome.CANCELLED:
+		return
 	for node: Node in get_tree().get_nodes_in_group("defense_doors"):
-		if int(node.get("entrance_id")) == entrance_id:
+		if int(node.get("entrance_id")) == entrance_id \
+			and owns_remote_encounter(node, &"start_door_minigame"):
 			_apply_door_outcome(node, outcome as DoorOutcome)
 			return
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _report_remote_encounter_finished(
+	target_path: NodePath,
+	starter: StringName,
+	success: bool,
+	reported_bladder: float
+) -> void:
+	if not multiplayer.is_server() or not _rpc_sender_owns_player():
+		return
+	if starter not in [&"start_toilet_minigame", &"start_breaker_minigame"]:
+		return
+	var target := _scene_node(target_path)
+	if not owns_remote_encounter(target, starter):
+		return
+	if starter == &"start_toilet_minigame":
+		if is_finite(reported_bladder):
+			set_bladder(reported_bladder)
+		if target.has_method("end_session"):
+			target.call("end_session")
+	elif target.has_method("complete_remote_session"):
+		target.call("complete_remote_session", success)
+	_clear_remote_encounter()
 
 
 ## Node paths travel relative to the current scene, so they mean the same thing

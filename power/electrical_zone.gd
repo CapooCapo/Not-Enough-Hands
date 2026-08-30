@@ -103,6 +103,39 @@ func get_devices() -> Array[ElectricalDevice]:
 	return result
 
 
+func get_network_state() -> Array:
+	var reset_ids := PackedStringArray()
+	for device_id: Variant in _switch_reset_device_ids.keys():
+		reset_ids.append(String(device_id))
+	return [String(zone_id), is_powered, requires_switch_restore, reset_ids]
+
+
+func apply_network_state(
+	powered: bool,
+	restore_required: bool,
+	reset_device_ids: PackedStringArray
+) -> void:
+	var required_changed := requires_switch_restore != restore_required
+	requires_switch_restore = restore_required
+	_switch_reset_device_ids.clear()
+	for device_id: String in reset_device_ids:
+		_switch_reset_device_ids[StringName(device_id)] = true
+
+	var power_will_change := is_powered != powered
+	is_powered = powered
+	# The setter deliberately skips work when the bool is unchanged. A late
+	# snapshot still needs to reapply the per-device switch-reset subset.
+	if not power_will_change:
+		_apply_power_state()
+	if restore_required and not powered:
+		for device_value: Variant in _devices.values():
+			var device := device_value as ElectricalDevice
+			if device and _switch_reset_device_ids.has(device.device_id):
+				device.release_forced_off(_force_reason())
+	if required_changed:
+		switch_restore_required_changed.emit(restore_required)
+
+
 func _bind_existing_devices() -> void:
 	if not _power_manager:
 		return

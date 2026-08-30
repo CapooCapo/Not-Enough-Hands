@@ -379,7 +379,16 @@ func _collect_power() -> Array:
 		bool(power.get("is_blackout")),
 		bool(power.get("is_regional_blackout")),
 		power.get("regional_blackout_center") as Vector3,
+		_collect_electrical_zones(),
 	]
+
+
+func _collect_electrical_zones() -> Array:
+	var out: Array = []
+	for node: Node in get_tree().get_nodes_in_group(&"electrical_zones"):
+		if node.has_method(&"get_network_state"):
+			out.append(node.call(&"get_network_state"))
+	return out
 
 
 ## There is only ever one brazier in a map, so it needs no id.
@@ -563,6 +572,17 @@ func _apply_power(power: Array) -> void:
 	var manager := _power()
 	if manager and manager.has_method(&"apply_network_state"):
 		manager.call(&"apply_network_state", power[0], power[1], power[2], power[3])
+	if power.size() < 5:
+		return
+	var zones_by_id: Dictionary = {}
+	for node: Node in get_tree().get_nodes_in_group(&"electrical_zones"):
+		zones_by_id[String(node.get("zone_id"))] = node
+	for row: Variant in power[4]:
+		if not row is Array or row.size() < 4:
+			continue
+		var zone: Node = zones_by_id.get(String(row[0]))
+		if zone and zone.has_method(&"apply_network_state"):
+			zone.call(&"apply_network_state", bool(row[1]), bool(row[2]), row[3])
 
 
 @rpc("authority", "call_remote", "reliable")

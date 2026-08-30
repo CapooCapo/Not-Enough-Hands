@@ -404,10 +404,10 @@ func _remove_network_player(peer_id: int) -> void:
 ## Is anybody still in the night?
 ##
 ## Asked here rather than in NetworkManager because "still in the run" is a
-## gameplay question - a downed player is still in it and can be picked back up,
-## a spectator is not - and this is where the session's players are made and
-## unmade. NetworkManager owns what to *do* about it; the same split as the
-## breaker and its minigame.
+## gameplay question. A downed player only has a rescue window while somebody
+## else is still standing; once no living player remains, nobody can complete a
+## revive and the run is over. NetworkManager owns what to *do* about it; the
+## same split as the breaker and its minigame.
 func _check_run_over() -> void:
 	if _run_over_pending or not _network_session_active() or not multiplayer.is_server():
 		return
@@ -419,7 +419,7 @@ func _check_run_over() -> void:
 	for node: Node in players:
 		if node.is_queued_for_deletion():
 			continue
-		if bool(node.get("is_alive")) or bool(node.get("is_downed")):
+		if bool(node.get("is_alive")):
 			return
 	_end_run_after_pause("Cả đội đã ngã xuống. Về phòng chờ để chơi lại.")
 

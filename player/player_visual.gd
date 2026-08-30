@@ -299,7 +299,12 @@ func _update_crouch_visual(delta: float) -> void:
 ## its back around its own feet. The small lift keeps the lying body above the
 ## floor plane instead of half inside it.
 func _update_downed_pose(delta: float) -> void:
-	var target := 1.0 if _player_flag("is_downed") else 0.0
+	# A final death is neither downed nor spectating: the run-over card owns the
+	# victim's UI, but other peers still need to see a body rather than an upright
+	# idle character. Reuse the downed pose until the lobby replaces the scene.
+	var incapacitated := _player_flag("is_downed") \
+		or (not _player_flag("is_alive") and not _player_flag("is_spectator"))
+	var target := 1.0 if incapacitated else 0.0
 	if is_equal_approx(_downed_pose, target):
 		return
 	_downed_pose = move_toward(_downed_pose, target, downed_pose_speed * delta)
@@ -310,7 +315,8 @@ func _update_downed_pose(delta: float) -> void:
 func _update_locomotion_animation() -> void:
 	if not _animation_player:
 		return
-	if _player_flag("is_downed"):
+	if _player_flag("is_downed") \
+			or (not _player_flag("is_alive") and not _player_flag("is_spectator")):
 		_play_animation(&"idle")
 		return
 	var horizontal_speed := Vector2(_player.velocity.x, _player.velocity.z).length()

@@ -60,7 +60,19 @@ func _run() -> void:
 	_assert(not manager.is_blackout, "Restoring one zone must leave the all-zones blackout")
 	_assert(light_a.visible and not light_b.visible, "Only the restored zone should regain power")
 
-	print("Electrical zone smoke test passed: independent zone outage and global blackout overlap.")
+	zone_b.apply_network_state(false, true, PackedStringArray())
+	var replicated_state := zone_b.get_network_state()
+	_assert(replicated_state.size() == 4, "Electrical zone network state has the wrong shape")
+	_assert(
+		not bool(replicated_state[1]) and bool(replicated_state[2]),
+		"Electrical zone did not retain the replicated outage/restore gate"
+	)
+	zone_b.apply_network_state(true, false, PackedStringArray())
+	await process_frame
+	_assert(light_b.visible, "Replicated zone restore did not restore its fixture")
+	_assert(not zone_b.requires_switch_restore, "Replicated zone restore left the switch gate set")
+
+	print("Electrical zone smoke test passed: outages, global overlap, and network state apply.")
 	test_root.queue_free()
 	quit(0)
 
