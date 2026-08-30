@@ -183,6 +183,14 @@ func spawn(
 		return null
 	if not NetworkManager.is_world_authority():
 		return null
+	if NetworkManager.session_active:
+		# Runtime systems may spawn during their deferred startup, before this
+		# autoload's first physics tick. Binding now prevents that first tick from
+		# clearing the new registry and resetting _next_entity_id back to 1.
+		_bind_scene_if_changed()
+		if _scene_root == null:
+			push_warning("WorldReplicator: cannot spawn before a current scene exists")
+			return null
 	var node := scene.instantiate()
 	if not node_name.is_empty():
 		node.name = node_name
@@ -202,9 +210,19 @@ func spawn(
 	_entity_ids[node.get_instance_id()] = id
 	_entity_scene[id] = scene_path if not scene_path.is_empty() else scene.resource_path
 	_holders[id] = 0
-	_spawn_entity.rpc(
-		id, str(_entity_scene[id]), _path_from_scene(parent), position, rotation_y, str(node.name)
-	)
+	var parent_path := _path_from_scene(parent)
+	for peer_id: int in NetworkManager.replication_ready_peers:
+		if peer_id == NetworkManager.SERVER_PEER_ID:
+			continue
+		_spawn_entity.rpc_id(
+			peer_id,
+			id,
+			str(_entity_scene[id]),
+			parent_path,
+			position,
+			rotation_y,
+			str(node.name)
+		)
 	return node
 
 
@@ -347,7 +365,7 @@ func _collect_entities() -> Array:
 		# A huntsman that came through a breach is spawned rather than authored,
 		# so it travels as an entity - but it is still a body with a walk cycle.
 		# The longer row is what lets a client animate it instead of sliding it.
-		if node.has_method(&"_update_presentation"):
+		if node.is_in_group(&"hostile_ghosts"):
 			out.append([id] + _ghost_state(node))
 			continue
 		out.append([id, node.global_position, node.rotation.y])
@@ -450,6 +468,7 @@ func _build_snapshot() -> Dictionary:
 			node.rotation.y,
 			int(_holders.get(id, 0)),
 			str(node.name),
+			_ghost_state(node) if node.is_in_group(&"hostile_ghosts") else [],
 		])
 	return {
 		"entities": spawned,
@@ -499,11 +518,12 @@ func _sync_fast(ghosts: Array, entities: Array) -> void:
 			continue
 		# A ghost entity carries the whole ghost state behind its id; a loose
 		# totem carries only a transform.
-		if row.size() > 3:
+		if row.size() >= 7 and node.is_in_group(&"hostile_ghosts"):
 			_apply_ghost(node, row.slice(1))
 			continue
-		node.global_position = row[1]
-		node.rotation.y = row[2]
+		if row.size() == 3:
+			node.global_position = row[1]
+			node.rotation.y = row[2]
 
 
 ## The ghost is placed rather than simulated, and then asked to present itself.
@@ -602,8 +622,19 @@ func _spawn_entity(
 	node_name: String = ""
 ) -> void:
 	_bind_scene_if_changed()
-	if _entities.has(id) or scene_path.is_empty():
+	if scene_path.is_empty():
 		return
+	var existing := _entities.get(id) as Node
+	if is_instance_valid(existing):
+		var same_scene := str(_entity_scene.get(id, "")) == scene_path
+		var same_name := node_name.is_empty() or str(existing.name) == node_name
+		if same_scene and same_name:
+			return
+		# An id must never change identity. Older builds could reset the server's
+		# id counter after spawning the ritual fire, leaving a client with a brazier
+		# under the id now assigned to a breach hunter. Replace that stale identity
+		# instead of letting the hunter's fast state animate the brazier.
+		_remove_client_entity(id)
 	var scene := load(scene_path) as PackedScene
 	if scene == null:
 		push_warning("WorldReplicator: cannot load replicated scene " + scene_path)
@@ -622,6 +653,9 @@ func _spawn_entity(
 		(node as RigidBody3D).freeze = true
 	parent.add_child(node)
 	_entities[id] = node
+	_entity_ids[node.get_instance_id()] = id
+	_entity_scene[id] = scene_path
+	_holders[id] = 0
 	var node_3d := node as Node3D
 	if node_3d:
 		node_3d.global_position = position
@@ -630,10 +664,17 @@ func _spawn_entity(
 
 @rpc("authority", "call_remote", "reliable")
 func _despawn_entity(id: int) -> void:
+	_remove_client_entity(id)
+
+
+func _remove_client_entity(id: int) -> void:
 	var node: Node = _entities.get(id)
-	_entities.erase(id)
 	if is_instance_valid(node):
+		_entity_ids.erase(node.get_instance_id())
 		node.queue_free()
+	_entities.erase(id)
+	_entity_scene.erase(id)
+	_holders.erase(id)
 
 
 ## Mirrors a pickup or a hand-over on the client, through the player's own
@@ -668,12 +709,24 @@ func _player_for_peer(peer_id: int) -> Node:
 @rpc("authority", "call_remote", "reliable")
 func _apply_snapshot(snapshot: Dictionary) -> void:
 	_bind_scene_if_changed()
-	for row: Array in snapshot.get("entities", []):
+	var entity_rows: Array = snapshot.get("entities", [])
+	var snapshot_entity_ids: Dictionary = {}
+	for row: Array in entity_rows:
+		if not row.is_empty():
+			snapshot_entity_ids[int(row[0])] = true
+	for existing_id: Variant in _entities.keys():
+		if not snapshot_entity_ids.has(int(existing_id)):
+			_remove_client_entity(int(existing_id))
+	for row: Array in entity_rows:
 		if row.size() < 7:
 			continue
 		_spawn_entity(int(row[0]), str(row[1]), str(row[2]), row[3], row[4], str(row[6]))
 		if int(row[5]) != 0:
 			_set_entity_holder(int(row[0]), int(row[5]))
+		if row.size() >= 8 and row[7] is Array and not (row[7] as Array).is_empty():
+			var entity := _entities.get(int(row[0])) as Node3D
+			if entity and entity.is_in_group(&"hostile_ghosts"):
+				_apply_ghost(entity, row[7])
 	var ghosts: Array = snapshot.get("ghosts", [])
 	for index: int in mini(ghosts.size(), _ghosts.size()):
 		var state: Array = ghosts[index]
