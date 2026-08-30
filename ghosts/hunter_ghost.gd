@@ -17,12 +17,9 @@ extends CharacterBody3D
 ##   statue  - hunts by SIGHT, and freezes for as long as you keep looking.
 ##   crawler - hunts by SOUND, and loses you completely if you hold still.
 ##
-## The huntsman hunts by TRACK, and then by SIGHT the moment it has one. It does
-## not need to see you to find you: it is reading the floor you already walked
-## on. Staring at it does nothing. Holding still does nothing either - worse than
-## nothing, because the trail that leads to where you are standing is still lying
-## there. Every habit the player has built against the other two is worthless
-## here, which is the entire reason it exists.
+## The huntsman is a permanent roaming threat. It patrols the authored route,
+## investigates noises and the last place it saw somebody, then returns to its
+## rounds. It never reads invisible footprints or player history through walls.
 ##
 ## The loop the player actually experiences is short. It patrols at 2 m/s -
 ## slower than a walk, so while it has not seen you it is beatable on foot in any
@@ -35,15 +32,12 @@ extends CharacterBody3D
 ## seconds are worth about eighteen metres at a sprint, and eighteen metres is
 ## the whole reason the charge is survivable. Breaking line of sight does not
 ## shake it; staying out of sight for a full `lose_sight_time` does - and when it
-## does give up, it walks the other way instead of reading the trail you just
-## laid, which is the only concession this creature makes to being beatable.
+## does give up, it walks the other way before returning to patrol.
 ##
 ##   ENTERING  it walks in through the breach, on foot, in plain view, and
 ##             stops in the doorway to sweep the house with its gaze once.
-##   TRACKING  it picks up the freshest spoor inside nose range and follows it,
-##             room to room, at a walk. It is never in a hurry until it sees you.
-##   CASTING   trail lost: it stops dead, sniffs, turns on the spot, then quarters
-##             the house along its sweep route until it cuts the trail again.
+##   TRACKING  it investigates a heard noise or the last place it saw somebody.
+##   CASTING   it stops, listens and turns on the spot before resuming patrol.
 ##   DISENGAGING  it lost somebody it was chasing. It walks away from where they
 ##             went, reading nothing, for `disengage_duration` - the one place
 ##             it is deliberately stupid, and the reason breaking line of sight
@@ -69,8 +63,8 @@ extends CharacterBody3D
 ##   2. It never leaves. There is no hunt timer, no giving up and no walking
 ##      back out through the hole it came in by: once it is inside, it is inside
 ##      until dawn. Rebuilding every breach behind it does not lock it out of
-##      anything it was going to do anyway - it only makes it faster and
-##      sharper-nosed for the rest of the night.
+##      anything it was going to do anyway - it only makes it faster for the
+##      rest of the night.
 ##
 ## It also has ears. Not the crawler's - that creature *is* its hearing - but
 ## good enough that walking upright near it brings it over. Crouching is the only
@@ -96,8 +90,6 @@ signal entry_scheduled(door: Node, delay: float)
 signal entered_house(door: Node)
 ## Every breach was rebuilt while it was still inside. It cannot leave now.
 signal sealed_inside()
-signal trail_picked_up(position: Vector3)
-signal trail_lost()
 signal locked_on(player: Node3D)
 signal target_lost(last_seen: Vector3)
 signal seize_started(player: Node3D)
@@ -112,13 +104,13 @@ signal killed_player(player: Node3D)
 @export var walk_speed: float = 2.0
 ## Same as the patrol pace. It does not hurry until it has seen somebody.
 @export var track_speed: float = 2.0
-## The charge, and it is deliberately only a shade above a sprinting player
-## (3.0 * 2.5 = 7.5 m/s). A corridor is a slow loss rather than an instant one:
+## The charge is still faster than a sprinting player, but slow enough that the
+## warning below gives them a real chance to reach a corner:
 ## you keep the head start you already had and give it up a little at a time,
 ## which leaves room to actually reach the corner you were running for. The
 ## escape is still breaking line of sight and staying broken for
 ## `lose_sight_time`.
-@export var charge_speed: float = 8.0
+@export var charge_speed: float = 7.2
 ## Left at 1.0 so the patrol pace above is exactly the speed it walks at.
 @export var non_chase_speed_multiplier: float = 1.0
 ## Enough that the charge speed above is a real number and not an aspiration, and
@@ -147,45 +139,11 @@ signal killed_player(player: Node3D)
 ## starts. This is the announcement, and it is the only one you get.
 @export var entry_scan_duration: float = 3.5
 
-@export_category('Tracking')
-## How often a player's position is written into the trail. Everything about the
-## creature's difficulty is really this number against its nose range.
-@export var spoor_interval: float = 0.4
-## Marks older than this are gone. Roughly two minutes of your own movement is
-## therefore on the floor at any time.
-@export var spoor_lifetime: float = 110.0
-@export_range(32, 1024, 1) var spoor_capacity: int = 400
-## Player speed treated as a full-strength mark.
-@export var spoor_reference_speed: float = 2.6
-## What standing perfectly still still leaves behind. Not zero, and that is the
-## whole difference between this and the crawler: holding your breath does not
-## erase the floor you are standing on.
-@export_range(0.0, 1.0) var spoor_idle_strength: float = 0.22
-@export_range(0.0, 1.0) var crouch_spoor_multiplier: float = 0.45
-## Marks weaker than this are unreadable, so faint old crouch-marks go cold long
-## before a sprint down the same corridor does.
-@export_range(0.0, 1.0) var cold_trail_strength: float = 0.12
-## How far it can read the floor while it is walking a trail. Small on purpose:
-## following a route is close work, done with its head down.
-@export var nose_range: float = 8.5
-## Close spoor is something it reads from the floor under its feet, not through
-## a ceiling. Other floors remain discoverable by the long cast after it stops
-## and sniffs, but can never steal a close trail from the floor it is on.
-@export var nose_height_range: float = 1.6
-## Added permanently once it has had a lock on you. It has your scent now.
-@export var marked_nose_bonus: float = 4.0
-## The long sense, used only when there is nothing readable underfoot: it stops,
-## lifts its head, takes the strongest mark anywhere in this radius and walks to
-## where that was. It is always walking to where you *were*, so it costs a moving
-## player nothing - and it is exactly why standing still is not a plan.
-@export var cast_lead_range: float = 30.0
-@export var trail_arrive_distance: float = 1.2
-## A mark on the landing above its head is not something it can stand on. Marks
-## are only counted as reached within this vertical band.
-@export var trail_arrive_height: float = 1.5
-## Give up on a single mark that will not resolve, so one unreachable spot cannot
-## strand the whole hunt.
-@export var trail_point_timeout: float = 9.0
+@export_category('Investigation')
+## Noise and last-seen positions are short-lived destinations, never a stored
+## history of where players have walked.
+@export var investigate_arrive_distance: float = 2.4
+@export var investigate_height_range: float = 1.6
 
 @export_category('Sight')
 ## It has eyes on its chest, its ribs, its joints, its back and its tail, so
@@ -195,21 +153,16 @@ signal killed_player(player: Node3D)
 @export var sight_range: float = 15.0
 ## The roar. It stops dead, it is heard everywhere in the house, and only then
 ## does it start moving - which is the entire warning the player gets, so it is
-## also the entire head start. At a sprint this is worth about eighteen metres,
-## and since the charge only closes half a metre a second on a sprinting player,
-## eighteen metres is enough room to actually reach a corner and break the line
-## of sight. Shorten this and the creature stops being escapable.
-@export var roar_duration: float = 2.5
+## also the entire head start. Keep it long enough to identify the direction of
+## the sound and reach nearby cover before the charge begins.
+@export var roar_duration: float = 3.5
 ## How long it keeps charging after losing sight. Breaking line of sight does
 ## not shake it: you have to stay out of sight for this whole stretch.
 @export var lose_sight_time: float = 5.0
 ## Deliberate fair play, and the one place this creature is allowed to be stupid.
-## When it finally loses somebody it has been chasing, the *correct* move for it
-## is to read the very fresh trail it is standing on and walk straight back onto
-## them - which is unbeatable and therefore not a game. Instead it turns around
-## and walks this far in the opposite direction, ignoring the trail entirely
-## while it does, which is what converts "I broke line of sight" into actually
-## getting away.
+## When it finally loses somebody it has been chasing, it turns around and walks
+## this far in the opposite direction before resuming patrol, which converts
+## "I broke line of sight" into actually getting away.
 @export var disengage_distance: float = 11.0
 @export var disengage_duration: float = 7.0
 @export_flags_3d_physics var sight_blocking_mask: int = 1
@@ -224,10 +177,10 @@ signal killed_player(player: Node3D)
 @export_range(0.025, 0.25, 0.005) var sight_update_interval: float = 0.067
 
 @export_category('Casting')
-## Standing still, sniffing, turning on the spot after the trail runs out.
+## Standing still, listening and turning on the spot between patrol legs.
 @export var cast_duration: float = 5.5
 @export var cast_turn_speed: float = 1.4
-## Route markers it quarters the house along when it has no trail at all.
+## Route markers it follows while patrolling the house.
 @export var sweep_point_group: StringName = 'hunter_sweep_points'
 @export var sweep_arrive_distance: float = 2.0
 ## Abandon a sweep marker that will not resolve, so one unreachable room cannot
@@ -239,7 +192,7 @@ signal killed_player(player: Node3D)
 ## same shape as the crawler's, on a smaller radius: a sprint carries the full
 ## `hearing_range`, walking upright carries about half of it, and crouching does
 ## not reach the floor below. Hearing never locks on; it only ever hands the
-## creature somewhere new to go and start reading the ground.
+## creature a position to investigate.
 @export var hearing_range: float = 13.0
 ## The speed treated as maximum loudness. Set to a sprint, so ordinary walking
 ## sits well down the scale instead of pinning it.
@@ -252,8 +205,8 @@ signal killed_player(player: Node3D)
 
 @export_category('Unsticking')
 ## How long it may make no progress toward whatever it is walking to before it
-## accepts that it cannot get there. Without this a single unreachable mark - one
-## on the landing above its head, one behind a bannister - fixates it forever,
+## accepts that it cannot get there. Without this a single unreachable destination
+## on a landing or behind a bannister can fixate it forever,
 ## and the whole hunt quietly ends with it standing on the stairs.
 @export var stuck_release_time: float = 2.0
 ## After giving up it walks off at an angle for this long instead of straight at
@@ -273,13 +226,6 @@ signal killed_player(player: Node3D)
 ## drops navigation for this long and pushes straight at them instead, which is
 ## what gets it around a rail rather than dithering along one.
 @export var direct_press_duration: float = 2.5
-## How long a place it failed to reach stays written off. Burning the single mark
-## is not enough: a player standing still keeps printing fresh marks in the same
-## impossible spot, and it would pick the next one up and fixate again forever.
-## Writing off the ground itself is what sends it away to hunt elsewhere.
-@export var give_up_memory: float = 25.0
-@export var give_up_radius: float = 2.5
-
 @export_category('Seize')
 ## Reach. It is two and a half metres of hunched shoulders with a butcher's hook
 ## on the end of one arm, and this is deliberately longer than a person's: over a
@@ -301,7 +247,6 @@ signal killed_player(player: Node3D)
 @export_category('Sealed in')
 ## What being locked in with you is worth to it.
 @export var trapped_speed_bonus: float = 0.5
-@export var trapped_nose_bonus: float = 3.0
 @export_range(0.1, 1.0) var trapped_cast_scale: float = 0.6
 
 @export_category('Presentation')
@@ -328,8 +273,6 @@ var state: HunterState = HunterState.DORMANT
 var inside_house: bool = false
 ## Every breach was sealed behind it. It is in here until dawn now.
 var trapped: bool = false
-## It has had a lock on a player at least once tonight.
-var prey_marked: bool = false
 var manifested: bool = false
 var current_target: CharacterBody3D
 var last_seen_position: Vector3
@@ -338,16 +281,6 @@ var dev_attack_suspended: bool = false
 var attack_resume_grace_remaining: float = 0.0
 
 var _clock: float = 0.0
-var _spoor: Array[Dictionary] = []
-var _spoor_timer: float = 0.0
-## Timestamp of the last mark it committed to. It only ever reads marks newer
-## than this, so it walks your route forwards and can never be sent in a circle
-## by its own history.
-var _trail_time: float = -1.0
-var _trail_target: Vector3
-var _trail_target_time: float = -1.0
-var _trail_point_timer: float = 0.0
-var _has_trail_target: bool = false
 var _goal_position: Vector3
 var _has_goal: bool = false
 var _last_progress_position: Vector3
@@ -358,7 +291,6 @@ var _direct_press_timer: float = 0.0
 var _unstick_timer: float = 0.0
 var _unstick_sign: float = 1.0
 var _failed_goals: int = 0
-var _dead_spots: Array[Dictionary] = []
 var _sight_timer: float = 0.0
 var _target_visible_now: bool = false
 var _sight_update_timer: float = 0.0
@@ -376,13 +308,8 @@ var _sweep_timer: float = 0.0
 var _sweep_points: Array[Vector3] = []
 var _noise_lead: Vector3
 var _has_noise_lead: bool = false
-## Timestamp of the mark a long-range lead came from, or -1 for a lead that came
-## from an actual noise. Reaching a lead has to retire the mark behind it, or the
-## same mark is picked again the moment it arrives and it paces there forever.
-var _noise_lead_time: float = -1.0
-## After live sight is broken it must first reach the exact place where the
-## player vanished. Reading arbitrary spoor before that made a nearby mark under
-## the floor send it down a staircase, only for it to climb straight back up.
+## After live sight is broken it first checks the exact place where the player
+## vanished, then returns to its ordinary patrol.
 var _last_seen_lead: Vector3
 var _disengage_point: Vector3
 var _has_last_seen_lead: bool = false
@@ -487,11 +414,6 @@ func _physics_process(delta: float) -> void:
 		velocity = Vector3.ZERO
 		return
 
-	# The trail is recorded whether or not it is in the house. That is the point:
-	# when it finally walks in, an hour of your movement is already on the floor
-	# waiting for it.
-	_record_spoor(delta)
-
 	if state == HunterState.DORMANT:
 		velocity = Vector3.ZERO
 		_update_dormant(delta)
@@ -544,131 +466,9 @@ func _physics_process(delta: float) -> void:
 	_update_presentation(delta)
 
 
-# --- The trail ----------------------------------------------------------------
-
-
-## Writes one mark per living player per interval. A mark is a position, a time
-## and a strength, and strength is everything: it is what separates a sprint
-## down a corridor from a crouched player who has not moved in a minute.
-func _record_spoor(delta: float) -> void:
-	_spoor_timer -= delta
-	if _spoor_timer > 0.0:
-		return
-	_spoor_timer = maxf(spoor_interval, 0.05)
-
-	for player: CharacterBody3D in _living_players():
-		_spoor.append({
-			'position': player.global_position,
-			'time': _clock,
-			'strength': _spoor_strength(player),
-		})
-
-	while _spoor.size() > spoor_capacity:
-		_spoor.remove_at(0)
-	while not _spoor.is_empty() and _clock - float(_spoor[0]['time']) > spoor_lifetime:
-		_spoor.remove_at(0)
-
-
-## How much of a mark a player is currently leaving. Sprinting prints hard,
-## crouching barely prints at all, and standing still still prints - faintly,
-## and directly under your feet.
-func _spoor_strength(player: CharacterBody3D) -> float:
-	var real_velocity := player.get_real_velocity()
-	var horizontal_speed := Vector2(real_velocity.x, real_velocity.z).length()
-	var effort := clampf(horizontal_speed / maxf(spoor_reference_speed, 0.01), 0.0, 1.0)
-	var strength := lerpf(spoor_idle_strength, 1.0, effort)
-	if 'is_crouching' in player and player.is_crouching:
-		strength *= crouch_spoor_multiplier
-	return clampf(strength, 0.0, 1.0)
-
-
-func _effective_nose_range() -> float:
-	var reach := nose_range
-	if prey_marked:
-		reach += marked_nose_bonus
-	if trapped:
-		reach += trapped_nose_bonus
-	return reach
-
-
-## The freshest readable mark within nose range that it has not already used.
-## Newest rather than oldest on purpose: it cuts the corner toward wherever you
-## went next instead of pedantically retracing every footprint, and it can still
-## only ever act on ground it is physically standing near.
-func _pick_trail_sample() -> int:
-	var reach := _effective_nose_range()
-	var best_index := -1
-	var best_time := _trail_time
-	for index: int in _spoor.size():
-		var sample := _spoor[index]
-		var sample_time := float(sample['time'])
-		if sample_time <= best_time:
-			continue
-		var age := _clock - sample_time
-		if age > spoor_lifetime:
-			continue
-		var effective := float(sample['strength']) * (1.0 - age / maxf(spoor_lifetime, 0.01))
-		if effective < cold_trail_strength:
-			continue
-		var sample_position: Vector3 = sample['position']
-		if absf(sample_position.y - global_position.y) > nose_height_range:
-			continue
-		if global_position.distance_to(sample_position) > reach:
-			continue
-		if _is_written_off(sample_position):
-			continue
-		best_index = index
-		best_time = sample_time
-	return best_index
-
-
-## Ground it has already proved it cannot walk to, and how long ago it proved it.
-func _write_off_ground(position: Vector3) -> void:
-	_dead_spots.append({'position': position, 'time': _clock})
-	while _dead_spots.size() > 8:
-		_dead_spots.remove_at(0)
-
-
-func _is_written_off(position: Vector3) -> bool:
-	for spot: Dictionary in _dead_spots:
-		if _clock - float(spot['time']) > give_up_memory:
-			continue
-		if position.distance_to(spot['position']) <= give_up_radius:
-			return true
-	return false
-
-
-## The long sense. Same readability rules as the close one, over a much larger
-## radius, and used only when there is nothing to follow underfoot - so it never
-## overrides an actual trail, it just stops the hunt from ever going dead.
-func _pick_cold_lead() -> int:
-	var best_index := -1
-	var best_time := _trail_time
-	for index: int in _spoor.size():
-		var sample := _spoor[index]
-		var sample_time := float(sample['time'])
-		if sample_time <= best_time:
-			continue
-		var age := _clock - sample_time
-		if age > spoor_lifetime:
-			continue
-		var effective := float(sample['strength']) * (1.0 - age / maxf(spoor_lifetime, 0.01))
-		if effective < cold_trail_strength:
-			continue
-		if global_position.distance_to(sample['position']) > cast_lead_range:
-			continue
-		if _is_written_off(sample['position']):
-			continue
-		best_index = index
-		best_time = sample_time
-	return best_index
-
-
 ## Public noise channel, mirroring the crawler's so that anything in the level
-## that already reports noise can report to this too. It does not hunt sound the
-## way the crawler does - a noise only ever gives it a place to go and start
-## reading the floor - but it is not deaf, and standing near it while upright is
-## enough to bring it over.
+## that already reports noise can report to this too. A sound gives it one place
+## to investigate; it does not create a trail or reveal future movement.
 func report_noise(position: Vector3, loudness: float, _source: Node = null) -> void:
 	if not inside_house or loudness < hearing_loudness_floor:
 		return
@@ -677,7 +477,6 @@ func report_noise(position: Vector3, loudness: float, _source: Node = null) -> v
 	if global_position.distance_to(position) > hearing_range * clampf(loudness, 0.0, 1.0):
 		return
 	_noise_lead = position
-	_noise_lead_time = -1.0
 	_has_noise_lead = true
 
 
@@ -744,8 +543,6 @@ func _lock_on(player: CharacterBody3D) -> void:
 	current_target = player
 	last_seen_position = player.global_position
 	_sight_timer = lose_sight_time
-	# Once it has seen you it has your scent for the rest of the night.
-	prey_marked = true
 	WorldNet.play_shared(horn_audio)
 	# It roars first and runs second. That one second is the whole warning, and
 	# it is heard in every room, so the players it has *not* seen get it too.
@@ -754,7 +551,7 @@ func _lock_on(player: CharacterBody3D) -> void:
 
 
 ## Once a player has been seen, chase is the highest-priority behavior. This is
-## deliberately enforced every physics frame so scent tracking, hunt expiry,
+## deliberately enforced every physics frame so patrol, hunt expiry,
 ## and unsticking can never silently overwrite it.
 func _enforce_chase_override() -> void:
 	if not is_instance_valid(current_target):
@@ -844,7 +641,6 @@ func _update_entering(delta: float) -> void:
 	flat_offset.y = 0.0
 	if flat_offset.length() <= 0.7 or _state_timer >= entry_timeout:
 		inside_house = true
-		_trail_time = -1.0
 		entered_house.emit(entry_door)
 		# It stops in the doorway and sweeps the room before it commits. This is
 		# the announcement the player gets, and it is the only one.
@@ -854,72 +650,24 @@ func _update_entering(delta: float) -> void:
 	_steer_toward(delta, _travel_target, _non_chase_speed(walk_speed), false)
 
 
-## The core of the creature: read the floor, walk to the mark, read again.
+## Investigates only direct evidence: a heard sound or the last visible position.
 func _update_tracking(delta: float) -> void:
-
-	# A broken line of sight is resolved before any scent decision. This keeps a
-	# corner dodge local: reach the doorway/corner where the player disappeared,
-	# then read the fresh marks in that room instead of an older floor below.
 	if _has_last_seen_lead:
 		var to_last_seen := _last_seen_lead - global_position
 		var flat_last_seen := Vector2(to_last_seen.x, to_last_seen.z).length()
-		if flat_last_seen <= trail_arrive_distance * 2.0 \
-			and absf(to_last_seen.y) <= trail_arrive_height:
+		if flat_last_seen <= investigate_arrive_distance \
+			and absf(to_last_seen.y) <= investigate_height_range:
 			_has_last_seen_lead = false
 		else:
 			_steer_toward(delta, _last_seen_lead, _non_chase_speed(track_speed))
 			return
 
-	var sample_index := _pick_trail_sample()
-	if sample_index >= 0:
-		var sample := _spoor[sample_index]
-		if not _has_trail_target or _trail_target.distance_to(sample['position']) > 0.35:
-			_trail_target = sample['position']
-			_trail_target_time = float(sample['time'])
-			# The allowance has to include the walk. A mark in the bedroom above is
-			# a thirty-metre route through the hall and up two flights, and a flat
-			# timeout threw away perfectly good marks halfway up the stairs.
-			_trail_point_timer = trail_point_timeout \
-				+ global_position.distance_to(_trail_target) / maxf(track_speed, 0.5) * 1.6
-			if not _has_trail_target:
-				trail_picked_up.emit(_trail_target)
-			_has_trail_target = true
-
-		# Arrival is horizontal, with a vertical band. A mark left on the landing
-		# above its head is not somewhere it can ever stand, and testing straight
-		# 3D distance meant it could walk to directly underneath a motionless
-		# player and then hold that pose until dawn.
-		var to_mark := _trail_target - global_position
-		var flat_distance := Vector2(to_mark.x, to_mark.z).length()
-		if flat_distance <= trail_arrive_distance and absf(to_mark.y) <= trail_arrive_height:
-			# Consuming the mark is what stops it from reading its own past.
-			_trail_time = _trail_target_time
-			_has_trail_target = false
-
-		_trail_point_timer -= delta
-		if _trail_point_timer <= 0.0:
-			# This one is not resolving. Burn it and read the next rather than
-			# spending the rest of the night walking at a wall.
-			_abandon_goal()
-			return
-
-		_steer_toward(delta, _trail_target, _non_chase_speed(track_speed))
-		return
-
-	if _has_trail_target:
-		_has_trail_target = false
-		trail_lost.emit()
-
 	if _has_noise_lead:
-		# Something ran nearby, or a long scent pointed this way. It does not know
-		# what or where, only that the floor over there is worth reading.
-		if global_position.distance_to(_noise_lead) <= trail_arrive_distance * 2.0:
+		var to_noise := _noise_lead - global_position
+		var flat_noise := Vector2(to_noise.x, to_noise.z).length()
+		if flat_noise <= investigate_arrive_distance \
+			and absf(to_noise.y) <= investigate_height_range:
 			_has_noise_lead = false
-			# Retire the mark that sent it here, so arriving is progress rather
-			# than the start of the same walk again.
-			if _noise_lead_time > _trail_time:
-				_trail_time = _noise_lead_time
-			_noise_lead_time = -1.0
 			_set_state(HunterState.CASTING)
 			return
 		_steer_toward(delta, _noise_lead, _non_chase_speed(track_speed))
@@ -928,8 +676,7 @@ func _update_tracking(delta: float) -> void:
 	_set_state(HunterState.CASTING)
 
 
-## Lost it. It stands where the trail ran out, turns on the spot, sniffs, and
-## sweeps the lantern - and then it goes back to quartering the house.
+## Pauses between patrol legs, listening and sweeping its gaze around the room.
 func _update_casting(delta: float) -> void:
 	_brake(delta)
 
@@ -943,25 +690,24 @@ func _update_casting(delta: float) -> void:
 	# rather than one wall of it.
 	rotation.y += cast_turn_speed * delta * (1.0 if int(_clock * 0.25) % 2 == 0 else -1.0)
 
-	if _pick_trail_sample() >= 0:
+	if _has_last_seen_lead or _has_noise_lead:
 		_set_state(HunterState.TRACKING)
 		return
 
 	_state_timer -= delta
 	if _state_timer <= 0.0:
-		# Nothing here. Move on to the next room and read that floor instead.
+		# Nothing here. Move on to the next patrol point.
 		_set_state(HunterState.SWEEPING)
 
 
-## Walking away. It deliberately does not read the floor while it does this: the
-## whole point is that the player who just broke line of sight gets the room to
+## Walking away. The player who just broke line of sight gets the room to
 ## be somewhere else. Sight is still live, so stepping back out in front of it
 ## during the retreat starts the whole thing again.
 func _update_disengaging(delta: float) -> void:
 	_state_timer -= delta
 	var flat_offset := _disengage_point - global_position
 	flat_offset.y = 0.0
-	if _state_timer <= 0.0 or flat_offset.length() <= trail_arrive_distance * 1.5:
+	if _state_timer <= 0.0 or flat_offset.length() <= investigate_arrive_distance:
 		_set_state(HunterState.CASTING)
 		return
 	_steer_toward(delta, _disengage_point, _non_chase_speed(walk_speed))
@@ -972,21 +718,7 @@ func _update_disengaging(delta: float) -> void:
 ## whole building, which is why hiding in one room forever is not a plan.
 func _update_sweeping(delta: float) -> void:
 
-	if _pick_trail_sample() >= 0 or _has_noise_lead:
-		_set_state(HunterState.TRACKING)
-		return
-
-	# Nothing underfoot. It lifts its head and takes the longest scent it has,
-	# then walks to where that was. Against a player who keeps moving this is
-	# always one address out of date and costs them nothing; against a player who
-	# has stopped, it is the thing that eventually opens their door.
-	var lead_index := _pick_cold_lead()
-	if lead_index >= 0:
-		_noise_lead = _spoor[lead_index]['position']
-		_noise_lead_time = float(_spoor[lead_index]['time'])
-		_has_noise_lead = true
-		if not sniff_audio.playing:
-			WorldNet.play_shared(sniff_audio)
+	if _has_last_seen_lead or _has_noise_lead:
 		_set_state(HunterState.TRACKING)
 		return
 
@@ -1115,24 +847,16 @@ func _update_recovering(delta: float) -> void:
 func _drop_target(walk_away: bool = false) -> void:
 	var seen_at := last_seen_position
 	current_target = null
-	_has_trail_target = false
-	# A live sighting is stronger evidence than any sound/cold-cast lead that was
-	# queued before the lock, so none of those may resume after this.
+	# A live sighting is stronger evidence than any sound queued before the lock.
 	_has_noise_lead = false
-	_noise_lead_time = -1.0
 
 	if walk_away and _begin_disengage(seen_at):
-		# It has given up on that corner entirely, and the trail clock is reset to
-		# now, so the marks the player laid getting away are already too old to
-		# read. It can only pick up wherever they go next.
+		# It has deliberately given up on that corner and resumes patrol afterward.
 		_has_last_seen_lead = false
-		_trail_time = _clock
 		target_lost.emit(seen_at)
 		return
 
-	# Otherwise it goes to where you were before reading anything else: the trail
-	# is hottest exactly at the corner where it lost you.
-	_trail_time = _clock - 6.0
+	# Target invalidation still permits one check of the last visible position.
 	_last_seen_lead = seen_at
 	_has_last_seen_lead = true
 	_set_state(HunterState.TRACKING)
@@ -1141,7 +865,7 @@ func _drop_target(walk_away: bool = false) -> void:
 
 ## Picks somewhere to walk that is directly away from where the prey was last
 ## seen, and returns false if the geometry does not offer one - in which case the
-## caller falls back to the ordinary "go and read that corner" behaviour rather
+## caller falls back to checking that corner once rather
 ## than standing still.
 func _begin_disengage(seen_at: Vector3) -> bool:
 	var away := global_position - seen_at
@@ -1297,13 +1021,11 @@ func _begin_entry(door: Node3D) -> void:
 
 
 ## Every breach rebuilt behind it. It was never going to walk out on its own, but
-## now it could not even if it wanted to - and being sealed in makes it faster
-## and sharper-nosed for the rest of the night.
+## now it could not even if it wanted to - and being sealed in makes it faster.
 func _become_trapped() -> void:
 	if trapped:
 		return
 	trapped = true
-	prey_marked = true
 	WorldNet.play_shared(horn_audio)
 	WorldNet.play_shared(breach_audio)
 	sealed_inside.emit()
@@ -1446,19 +1168,7 @@ func _abandon_goal() -> void:
 
 	match state:
 		HunterState.TRACKING:
-			# Burn the mark it could not reach, along with everything older, and
-			# write off the ground under it - otherwise a player standing still
-			# prints a fresh mark in the same impossible place every 0.4 s and it
-			# re-fixates immediately.
-			if _has_trail_target:
-				_write_off_ground(_trail_target)
-				if _trail_target_time > _trail_time:
-					_trail_time = _trail_target_time
-			elif _has_last_seen_lead:
-				_write_off_ground(_last_seen_lead)
-			elif _has_noise_lead:
-				_write_off_ground(_noise_lead)
-			_has_trail_target = false
+			# Drop an unreachable one-shot investigation and resume the route.
 			_has_last_seen_lead = false
 			_has_noise_lead = false
 			_set_state(HunterState.CASTING)
@@ -1707,13 +1417,8 @@ func spawn_from_breached_door(door: Node3D) -> bool:
 
 func _reset_hunt_memory() -> void:
 	current_target = null
-	_trail_time = -1.0
-	_trail_target_time = -1.0
-	_trail_point_timer = 0.0
-	_has_trail_target = false
 	_has_last_seen_lead = false
 	_has_noise_lead = false
-	_noise_lead_time = -1.0
 	_has_goal = false
 	_last_progress_position = global_position
 	_no_progress_time = 0.0
@@ -1989,14 +1694,6 @@ func begin_entry_at(door: Node3D) -> bool:
 		return false
 	_begin_entry(door)
 	return true
-
-
-func get_trail_size() -> int:
-	return _spoor.size()
-
-
-func has_trail_lead() -> bool:
-	return _pick_trail_sample() >= 0
 
 
 ## There is no spotting meter any more - it either has line of sight or it does

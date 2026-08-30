@@ -17,6 +17,11 @@ func _run() -> void:
 	player.set_physics_process(false)
 	player.velocity = Vector3(1.0, 0.0, 0.0)
 	player.call('force_blink', 20.0)
+	# This legacy compact-house fixture cannot supply the production 15 m
+	# safety radius. Keep it focused on navmesh/route validity; the default
+	# distance contract is covered by statue_hunt_cycle_smoke.gd.
+	statue.set('ambush_min_distance', 6.0)
+	statue.set('ambush_max_distance', 10.0)
 	statue.set('hidden_timer', 100.0)
 	statue.set('hunt_activation_chance', 1.0)
 

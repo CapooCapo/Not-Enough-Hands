@@ -678,10 +678,13 @@ func _finish_network_tick(delta: float) -> void:
 
 func _finish_player_tick(delta: float) -> void:
 	if _is_network_client() and is_local_player():
-		_prediction_history[_local_input_sequence] = global_position
-		while _prediction_history.size() > PREDICTION_HISTORY_LIMIT:
-			var oldest_sequence: int = _prediction_history.keys().min()
-			_prediction_history.erase(oldest_sequence)
+		if _is_local_transform_encounter_active():
+			_discard_prediction_reconciliation()
+		else:
+			_prediction_history[_local_input_sequence] = global_position
+			while _prediction_history.size() > PREDICTION_HISTORY_LIMIT:
+				var oldest_sequence: int = _prediction_history.keys().min()
+				_prediction_history.erase(oldest_sequence)
 	_finish_network_tick(delta)
 
 
@@ -754,7 +757,16 @@ func _receive_network_state(
 			_crouch()
 		else:
 			_stand_up()
-	if not _has_network_snapshot:
+	# Door/toilet/breaker encounters deliberately move the owning client's real
+	# camera while the authoritative body stays parked where interaction began.
+	# Applying that parked server transform here pulls the flashlight away from
+	# the door and makes a multiplayer-only encounter impossible to aim.
+	var encounter_owns_transform := is_local_player() \
+		and _is_local_transform_encounter_active()
+	if encounter_owns_transform:
+		_discard_prediction_reconciliation()
+		_has_network_snapshot = true
+	elif not _has_network_snapshot:
 		global_position = server_position
 		rotation.y = server_yaw
 		if not is_local_player():
@@ -771,6 +783,9 @@ func _reconcile_predicted_position(
 	server_velocity: Vector3,
 	ack_input_sequence: int
 ) -> void:
+	if _is_local_transform_encounter_active():
+		_discard_prediction_reconciliation()
+		return
 	if not _prediction_history.has(ack_input_sequence):
 		return
 	var predicted_position: Vector3 = _prediction_history[ack_input_sequence]
@@ -918,6 +933,9 @@ func _update_replica_footsteps(delta: float) -> void:
 
 
 func _apply_pending_reconciliation(delta: float) -> void:
+	if _is_local_transform_encounter_active():
+		_discard_prediction_reconciliation()
+		return
 	if _pending_reconciliation.is_zero_approx():
 		return
 	var applied := _pending_reconciliation * minf(
@@ -927,6 +945,20 @@ func _apply_pending_reconciliation(delta: float) -> void:
 	_pending_reconciliation -= applied
 	if _pending_reconciliation.length_squared() < 0.000001:
 		_pending_reconciliation = Vector3.ZERO
+
+
+## These encounters temporarily own the local body transform because the real
+## first-person camera is their playfield. The server continues to own every
+## gameplay outcome and keeps its replica parked at the interaction point.
+func _is_local_transform_encounter_active() -> bool:
+	return is_door_minigame_active() \
+		or is_toilet_minigame_active() \
+		or is_breaker_minigame_active()
+
+
+func _discard_prediction_reconciliation() -> void:
+	_prediction_history.clear()
+	_pending_reconciliation = Vector3.ZERO
 
 
 func _shift_prediction_space(offset: Vector3) -> void:
@@ -1653,13 +1685,21 @@ func set_toilet_ghost_presence(present: bool) -> void:
 		overlay_material.set_shader_parameter("toilet_presence", 1.0 if present else 0.0)
 
 
-func start_door_minigame(door: Node) -> bool:
+func start_door_minigame(door: Node, authority_already_claimed: bool = false) -> bool:
 	if not is_alive \
 		or not door_minigame \
 		or _is_any_minigame_active() \
 		or not is_instance_valid(door):
+		if authority_already_claimed and is_instance_valid(door):
+			report_door_outcome(door, DoorOutcome.CANCELLED)
 		return false
-	if not door.has_method("begin_exorcism") or not bool(door.call("begin_exorcism")):
+	# A remote encounter reaches its owner only after the server has claimed the
+	# authoritative door. Its replicated client copy may already say
+	# `minigame_active`, so asking begin_exorcism() a second time creates a race:
+	# a fast door snapshot rejects the same session the RPC is trying to open.
+	if not authority_already_claimed and (
+		not door.has_method("begin_exorcism") or not bool(door.call("begin_exorcism"))
+	):
 		return false
 	# The encounter is aimed with a flashlight through this player's camera, so
 	# it can only be played where that camera is. On the server another player's
@@ -1670,7 +1710,10 @@ func start_door_minigame(door: Node) -> bool:
 		door_minigame_started.emit(door)
 		return true
 	if not door_minigame.has_method("start") or not bool(door_minigame.call("start", self, door)):
-		door.call("cancel_exorcism")
+		if authority_already_claimed:
+			report_door_outcome(door, DoorOutcome.CANCELLED)
+		elif door.has_method("cancel_exorcism"):
+			door.call("cancel_exorcism")
 		return false
 	door_minigame_started.emit(door)
 	return true
@@ -1836,7 +1879,12 @@ func _begin_remote_encounter(target_path: NodePath, starter: StringName) -> void
 	var target := _scene_node(target_path)
 	if target == null:
 		return
-	callv(starter, [target])
+	if starter == &"start_door_minigame":
+		# The server already owns this door session. Start only the local camera,
+		# flashlight and ghost presentation; never try to claim the replica again.
+		start_door_minigame(target, true)
+	else:
+		callv(starter, [target])
 
 
 ## The one way an encounter's result reaches the door.

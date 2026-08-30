@@ -45,13 +45,11 @@ const VILLA_STOREY := 3.5
 ## Height of the leaf's centre above the door node's own origin.
 const DEFENSE_DOOR_LEAF_RISE := 1.15
 
-## The villa has seven entrances and every one of them can break, so "one hunter
-## per breach" had no ceiling at all. It matters more now than it used to for two
-## reasons: a huntsman never leaves the house any more, so they only ever
-## accumulate; and each one is a three-hundred-part body, so the fourth is a
-## frame-rate problem before it is a difficulty problem. Three of them in a
-## building this size is already everywhere at once.
-const MAX_BREACH_HUNTERS := 3
+## One huntsman is present from the beginning. A second is the only reinforcement
+## the villa can ever create, and it stays out until three in-game hours have
+## elapsed. This keeps the threat count deterministic in local and multiplayer.
+const MAX_HUNTERS := 2
+const SECOND_HUNTER_UNLOCK_MINUTES := 180
 
 ## These wall-hung and hand-sized props are visual dressing. Giving them a
 ## physics body costs memory and ray-query work without changing movement.
@@ -80,8 +78,9 @@ var _two_sided_cache: Dictionary = {}
 ## at the opening instead of trying to search without a navigation map.
 var _hunters_waiting_for_navigation: Array[CharacterBody3D] = []
 var _breach_hunter_serial: int = 0
-## Every huntsman this level has spawned at a breach and not since freed.
-var _breach_hunters: Array[CharacterBody3D] = []
+var _second_hunter: CharacterBody3D = null
+var _deferred_second_hunter_door: Node3D = null
+var _night_clock: Node = null
 ## Set once the run has been decided, so the several things that can notice it
 ## in the same frame only end it once.
 var _run_over_pending: bool = false
@@ -96,6 +95,9 @@ func _ready() -> void:
 	_watch_breached_entrances()
 	_setup_player_replication()
 	_place_ghosts()
+	_night_clock = get_tree().get_first_node_in_group(&"night_clock")
+	if _night_clock and _night_clock.has_signal(&"minute_changed"):
+		_night_clock.connect(&"minute_changed", _on_hunter_clock_minute_changed)
 
 	_prepare_runtime_geometry()
 
@@ -188,10 +190,8 @@ func _clear_baked_entrance_wall(anchor: Marker3D) -> void:
 				collision.disabled = true
 
 
-## Every broken entrance adds one hunter at that breach, up to
-## `MAX_BREACH_HUNTERS`.  The dormant hunter in the scene remains for DevTools
-## only, so a door event produces one new threat rather than waking a global
-## singleton as well.
+## The authored hunter listens to these doors itself and answers the first open
+## breach. The villa only remembers a breach for the delayed second hunter.
 func _watch_breached_entrances() -> void:
 	for node: Node in get_tree().get_nodes_in_group("defense_doors"):
 		if node.has_signal("breached") and not node.is_connected("breached", _on_entrance_breached):
@@ -199,23 +199,34 @@ func _watch_breached_entrances() -> void:
 
 
 func _on_entrance_breached(door: Node) -> void:
-	# DefenseDoor disables its collider deferred during this signal.  Spawn on
-	# the next idle step so the CharacterBody enters an actually open doorway.
-	_spawn_hunter_at_breach.call_deferred(door)
-
-
-func _spawn_hunter_at_breach(door: Node) -> void:
 	var doorway := door as Node3D
-	if not is_instance_valid(doorway) or not HUNTER_GHOST:
+	if not is_instance_valid(doorway):
 		return
+	_deferred_second_hunter_door = doorway
+	# DefenseDoor disables its collider deferred during this signal. Spawn on the
+	# next idle step so the CharacterBody enters an actually open doorway.
+	_try_spawn_second_hunter.call_deferred()
+
+
+func _on_hunter_clock_minute_changed(_minutes_of_day: int, _formatted: String) -> void:
+	_try_spawn_second_hunter.call_deferred()
+
+
+func _try_spawn_second_hunter() -> void:
 	# A client hears `breached` too - apply_network_state() emits it when the
 	# server's durability arrives - but the huntsman that answers it is one
 	# body for the whole session, spawned here and replicated to everyone.
 	if not WorldNet.is_world_authority():
 		return
-	if live_breach_hunter_count() >= MAX_BREACH_HUNTERS:
-		# The house is already full. Every further breach is still a hole the
-		# player has to live with - it just does not add a fourth body.
+	if is_instance_valid(_second_hunter) and not _second_hunter.is_queued_for_deletion():
+		return
+	if _night_clock == null \
+		or int(_night_clock.get("elapsed_game_minutes")) < SECOND_HUNTER_UNLOCK_MINUTES:
+		return
+	var doorway := _deferred_second_hunter_door
+	if not _door_is_breached(doorway):
+		doorway = _first_breached_door()
+	if not is_instance_valid(doorway) or not HUNTER_GHOST:
 		return
 
 	_breach_hunter_serial += 1
@@ -224,18 +235,19 @@ func _spawn_hunter_at_breach(door: Node) -> void:
 		self,
 		doorway.global_position,
 		0.0,
-		"BreachHunter%02d" % _breach_hunter_serial
+		"BreachHunter%02d" % (_breach_hunter_serial + 1)
 	) as CharacterBody3D
 	if not hunter:
 		return
-	# This hunter belongs to one particular breach and must never let itself back
-	# in through a different one, which would put it outside the cap.
+	# This is the one delayed reinforcement. It enters this breach immediately and
+	# never subscribes to later doors, so no third hunter can be created.
 	hunter.set("entry_enabled", false)
 	if not hunter.has_method("spawn_from_breached_door") \
 		or not bool(hunter.call("spawn_from_breached_door", doorway)):
 		hunter.queue_free()
 		return
-	_breach_hunters.append(hunter)
+	_second_hunter = hunter
+	_deferred_second_hunter_door = null
 
 	if navigation_is_ready:
 		return
@@ -243,14 +255,26 @@ func _spawn_hunter_at_breach(door: Node) -> void:
 	_hunters_waiting_for_navigation.append(hunter)
 
 
-## How many breach huntsmen are actually still in the world. Prunes as it counts,
-## so a hunter that was freed for any reason gives its slot back.
-func live_breach_hunter_count() -> int:
-	for index: int in range(_breach_hunters.size() - 1, -1, -1):
-		var hunter := _breach_hunters[index]
-		if not is_instance_valid(hunter) or hunter.is_queued_for_deletion():
-			_breach_hunters.remove_at(index)
-	return _breach_hunters.size()
+func _door_is_breached(door: Node3D) -> bool:
+	return is_instance_valid(door) \
+		and "current_durability" in door \
+		and float(door.get("current_durability")) <= 0.0
+
+
+func _first_breached_door() -> Node3D:
+	for node: Node in get_tree().get_nodes_in_group(&"defense_doors"):
+		var door := node as Node3D
+		if _door_is_breached(door):
+			return door
+	return null
+
+
+func live_hunter_count() -> int:
+	var count := 0
+	for node: Node in get_tree().get_nodes_in_group(&"hunter_ghosts"):
+		if is_instance_valid(node) and not node.is_queued_for_deletion():
+			count += 1
+	return count
 
 
 func _activate_waiting_hunters() -> void:
@@ -389,7 +413,7 @@ func _build_player_from_spawn_data(data: Variant) -> Node:
 		# timer running out. Either can be the one that empties the house.
 		player.killed_by_ghost.connect(func(_ghost: Node3D) -> void: _check_run_over())
 		player.became_spectator.connect(_check_run_over)
-	player.walk_speed = 2.6
+	player.walk_speed = 2.8
 	player.crouch_speed = 1.45
 	player.sprint_speed_multiplier = 1.35
 	player.forced_blink_duration = 0.25
@@ -489,12 +513,12 @@ func _place_ghosts() -> void:
 		# where that room's own table stands.
 		statue.global_position = chapel.get_meta("clear_point", chapel.global_position)
 
-	# Keep the authored huntsman outside as a dormant DevTools template.  Live
-	# villa breaches create a fresh hunter at the affected door instead.
+	# The first hunter is a real threat: it waits outside, listens to the authored
+	# defense doors and begins patrolling after it walks through a breach.
 	var hunter := get_node_or_null("HunterGhost") as Node3D
 	if hunter:
 		hunter.global_position = Vector3(40.0, 0.0, -12.0)
-		hunter.set("entry_enabled", false)
+		hunter.set("entry_enabled", true)
 
 
 func _room_marker(room_id: String) -> Node3D:

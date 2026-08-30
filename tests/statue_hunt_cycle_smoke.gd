@@ -28,6 +28,9 @@ func _run() -> void:
 
 	var statue_scene := load('res://ghosts/statue_ghost.tscn') as PackedScene
 	var statue := statue_scene.instantiate() as CharacterBody3D
+	if float(statue.get('ambush_min_distance')) < 15.0:
+		_fail('Production statue ambushes must stay at least 15 m from players.')
+		return
 	statue.set('initial_hidden_delay_min', 100.0)
 	statue.set('initial_hidden_delay_max', 100.0)
 	statue.set('isolation_radius', 3.0)
@@ -146,7 +149,10 @@ func _run() -> void:
 
 	observer.rotation.y = PI
 	watched_statue.set('spotted_disappear_timer', 0.08)
-	await create_timer(0.12).timeout
+	# Count fixed simulation frames here: a process timer can complete before
+	# enough physics ticks run under an uncapped headless renderer.
+	for _frame: int in 12:
+		await physics_frame
 	if watched_statue.get('state') != 1:
 		_fail('Statue did not disappear after its post-sighting countdown.')
 		return

@@ -9,9 +9,9 @@ extends Node
 ## maps publish, so the same node works in House2 and in the villa with no
 ## map-specific coordinates anywhere.
 ##
-## Nothing is scattered once at boot. The world holds one totem per player still
-## in the run and a flat handful of logs, each replacement is dropped only after
-## the last one was consumed, and every drop point is chosen at random from the
+## Nothing is scattered once at boot. The world always holds four totems and a
+## flat handful of logs; each burned totem is replaced at a new random drop, and
+## every drop point is chosen at random from the
 ## rooms that are far from *everybody* - the objective is a trip, so an item is
 ## never allowed to appear at somebody's feet. Within one restock pass the rooms
 ## already used are avoided, so a handful of logs is a handful of places.
@@ -28,11 +28,9 @@ const TOTEM_SCENE: PackedScene = preload("res://items/totem.tscn")
 const FIREWOOD_SCENE: PackedScene = preload("res://items/firewood.tscn")
 const BRAZIER_SCENE: PackedScene = preload("res://items/totem_brazier.tscn")
 
-## Totems in the world at once, per player still in the run.
-## One means every player has exactly one to go and find, and burning it is what
-## puts the next one on the map. Logs are counted separately - see
-## `firewood_in_world`.
-@export_range(0, 8, 1) var items_per_player: int = 1
+## Fixed shared population. Picking one up still counts it; burning it is what
+## creates a replacement elsewhere on the map.
+@export_range(0, 8, 1) var totems_in_world: int = 4
 ## Logs kept in the world at once, as a flat count rather than one per player.
 ## The fire needs one after every burn, and a single log dropped somewhere in an
 ## 80 x 60 m villa is not a trip back, it is a search: three of them means there
@@ -123,6 +121,11 @@ func on_totem_burned() -> int:
 	totems_burned += 1
 	totem_burned.emit(granted)
 	_check_completion()
+	if not is_complete:
+		# The brazier queued the consumed item for deletion just before this call.
+		# Deferring lets that item leave its group before the replacement count is
+		# measured, while the regular timer remains a fallback if no room is legal.
+		restock.call_deferred()
 	return granted
 
 
@@ -130,9 +133,8 @@ func totems_remaining() -> int:
 	return get_tree().get_nodes_in_group(&"totems").size()
 
 
-## Brings both item populations back to one per player still in the run. Public
-## so a restock can be forced right after somebody joins, dies or is revived
-## instead of waiting out the timer.
+## Brings the shared totem population back to four and replenishes the flat log
+## supply. Public so tests and map setup can force a pass without waiting.
 ##
 ## Only the authority scatters. The items are replicated entities, so a client
 ## that ran its own restock would put a second, invisible-to-everyone-else totem
@@ -140,15 +142,21 @@ func totems_remaining() -> int:
 func restock() -> void:
 	if is_complete or not WorldNet.is_world_authority():
 		return
-	var target := _players_in_run().size() * items_per_player
-	_restock_group(TOTEM_SCENE, &"totems", target)
-	_restock_group(FIREWOOD_SCENE, &"fire_fuel", maxi(firewood_in_world, target))
+	_restock_group(TOTEM_SCENE, &"totems", totems_in_world)
+	_restock_group(
+		FIREWOOD_SCENE,
+		&"fire_fuel",
+		maxi(firewood_in_world, _players_in_run().size())
+	)
 
 
 ## Carried items count towards the population: picking a totem up is not what
 ## puts the next one on the map, burning it is.
 func _restock_group(scene: PackedScene, group: StringName, target: int) -> void:
-	var existing := get_tree().get_nodes_in_group(group)
+	var existing: Array[Node] = []
+	for node: Node in get_tree().get_nodes_in_group(group):
+		if not node.is_queued_for_deletion():
+			existing.append(node)
 	var used: Array[Node3D] = []
 	for i: int in maxi(target - existing.size(), 0):
 		var room := _pick_far_room(used)

@@ -106,6 +106,27 @@ func _run() -> void:
 	if not (history[13] as Vector3).is_equal_approx(Vector3(1.0, 0.0, 0.0)):
 		return _fail("Hard reconciliation left future prediction history stale.")
 
+	# A networked first-person minigame owns the local camera/body transform.
+	# The server parks its replica at the interaction point, so reconciling to
+	# that position during the encounter used to drag the flashlight off-door.
+	var door_minigame := local_player.get_node("DoorGhostMinigame") as DoorGhostMinigame
+	door_minigame.active = true
+	local_player.global_position = Vector3(12.0, 0.0, 3.0)
+	local_player.set("_prediction_history", {20: local_player.global_position})
+	local_player.set("_pending_reconciliation", Vector3(4.0, 0.0, 0.0))
+	local_player.call(
+		"_reconcile_predicted_position",
+		Vector3.ZERO,
+		Vector3.ZERO,
+		20
+	)
+	if not local_player.global_position.is_equal_approx(Vector3(12.0, 0.0, 3.0)):
+		return _fail("Server reconciliation pulled a running door minigame away from its camera.")
+	if not (local_player.get("_pending_reconciliation") as Vector3).is_zero_approx() \
+		or not (local_player.get("_prediction_history") as Dictionary).is_empty():
+		return _fail("A door minigame kept stale prediction corrections queued for its exit.")
+	door_minigame.active = false
+
 	# A replica is placed rather than simulated, so get_real_velocity() and
 	# is_on_floor() both read empty on it. Deriving its footsteps from anything
 	# else leaves every teammate walking the house in total silence.

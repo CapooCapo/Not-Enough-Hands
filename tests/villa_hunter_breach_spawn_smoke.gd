@@ -1,9 +1,8 @@
 extends SceneTree
 
-## Each destroyed villa defense door creates one additional active hunter at
-## that breach, up to `MAX_BREACH_HUNTERS` and no further. The scene's dormant
-## HunterGhost is retained for DevTools but must not turn the first breach into
-## two hunters.
+## The villa owns exactly two hunters. The authored first hunter can answer a
+## breach immediately; the only reinforcement cannot enter before 180 in-game
+## minutes, even if several entrances have already been destroyed.
 
 const VILLA_SCENE := preload("res://house3/villa_main.tscn")
 
@@ -15,48 +14,77 @@ func _init() -> void:
 func _run() -> void:
 	var game := VILLA_SCENE.instantiate()
 	root.add_child(game)
+	var director := game.get_node_or_null("DoorAttackDirector")
+	if director:
+		director.set("automatic_waves", false)
+	var clock := game.get_node_or_null("NightClock") as NightClock
+	if not clock:
+		_fail("Villa is missing its NightClock.")
+		return
+	clock.real_seconds_per_game_minute = 9999.0
+	var first := game.get_node_or_null("HunterGhost") as CharacterBody3D
+	if not first or not bool(first.get("entry_enabled")):
+		_fail("The villa's first HunterGhost is not enabled for breach entry.")
+		return
+	first.set("entry_delay_min", 0.05)
+	first.set("entry_delay_max", 0.05)
+
 	if not await _wait_for_navigation(game):
 		_fail("Villa navigation did not become ready.")
 		return
 
-	var director := game.get_node_or_null("DoorAttackDirector")
-	if director:
-		director.set("automatic_waves", false)
-	var template := game.get_node_or_null("HunterGhost") as CharacterBody3D
-	if not template or bool(template.get("entry_enabled")):
-		_fail("The villa's dormant HunterGhost template can still enter on a breach.")
+	if int(game.get("MAX_HUNTERS")) != 2 \
+		or int(game.get("SECOND_HUNTER_UNLOCK_MINUTES")) != 180:
+		_fail("Villa hunter count or three-hour unlock contract changed.")
 		return
-
-	var cap := int(game.get("MAX_BREACH_HUNTERS"))
 	var doors := get_nodes_in_group("defense_doors")
-	if doors.size() < cap + 1:
-		_fail("Villa needs more exterior defense doors than the hunter cap for this test.")
+	if doors.size() < 3:
+		_fail("Villa needs at least three exterior defense doors for this test.")
 		return
-	var initial_hunters := get_nodes_in_group("hunter_ghosts").size()
-	for index: int in range(cap):
-		if not await _breach_and_expect_one(doors[index] as Node, initial_hunters + index):
-			return
+	if int(game.call("live_hunter_count")) != 1:
+		_fail("Villa did not start with exactly one hunter.")
+		return
 
-	# The cap is the point: the villa has seven entrances and a huntsman never
-	# leaves, so without it every door the player loses is another body in the
-	# building for the rest of the night.
-	var at_cap := get_nodes_in_group("hunter_ghosts").size()
-	(doors[cap] as Node).call("take_damage", 10000.0, true)
+	(doors[0] as Node).call("take_damage", 10000.0, true)
+	if not await _wait_until_inside(first, 180):
+		_fail("The first hunter did not enter through the initial breach.")
+		return
+
+	# An early second breach is remembered, but must not spawn a reinforcement.
+	(doors[1] as Node).call("take_damage", 10000.0, true)
+	for _attempt: int in 20:
+		await physics_frame
+	if int(game.call("live_hunter_count")) != 1:
+		_fail("The second hunter entered before three in-game hours elapsed.")
+		return
+
+	var until_last_minute := 179 - clock.elapsed_game_minutes
+	if until_last_minute > 0:
+		clock.skip_minutes(until_last_minute)
+	await process_frame
+	if int(game.call("live_hunter_count")) != 1:
+		_fail("The second hunter entered at minute 179 instead of after minute 180.")
+		return
+	clock.skip_minutes(1)
+	var second := await _wait_for_second_hunter()
+	if not second:
+		_fail("The second hunter did not enter after three in-game hours.")
+		return
+	if not bool(second.get("inside_house")) or not bool(second.get("manifested")):
+		_fail("The delayed second hunter spawned without entering the breached doorway.")
+		return
+
+	# Further destroyed entrances never create a third body.
+	(doors[2] as Node).call("take_damage", 10000.0, true)
 	for _attempt: int in 30:
 		await physics_frame
-	if get_nodes_in_group("hunter_ghosts").size() != at_cap:
-		_fail(
-			"Breaching a %dth door spawned a huntsman past the cap of %d."
-			% [cap + 1, cap]
-		)
-		return
-	if int(game.call("live_breach_hunter_count")) != cap:
-		_fail("Villa is not tracking exactly %d live breach huntsmen." % cap)
+	if int(game.call("live_hunter_count")) != 2:
+		_fail("A third hunter appeared after another villa entrance was breached.")
 		return
 
 	game.queue_free()
 	await process_frame
-	print("Villa hunter breach spawn smoke test passed: %d hunters, capped at %d." % [cap, cap])
+	print("Villa hunter breach spawn smoke test passed: exactly two, second unlocked at 180 minutes.")
 	quit()
 
 
@@ -68,23 +96,21 @@ func _wait_for_navigation(game: Node) -> bool:
 	return false
 
 
-func _breach_and_expect_one(door: Node, expected_before: int) -> bool:
-	if not door or not door.has_method("take_damage"):
-		_fail("Selected villa entrance cannot be breached.")
-		return false
-	door.call("take_damage", 10000.0, true)
-	for _attempt: int in 20:
+func _wait_until_inside(hunter: CharacterBody3D, attempts: int) -> bool:
+	for _attempt: int in attempts:
 		await physics_frame
-		var hunters := get_nodes_in_group("hunter_ghosts")
-		if hunters.size() != expected_before + 1:
-			continue
-		for node: Node in hunters:
-			if node.name.begins_with("BreachHunter"):
-				var hunter := node as CharacterBody3D
-				if hunter and bool(hunter.get("inside_house")) and bool(hunter.get("manifested")):
-					return true
-	_fail("Breaching %s did not add one active huntsman inside the villa." % door.name)
+		if is_instance_valid(hunter) and bool(hunter.get("inside_house")):
+			return true
 	return false
+
+
+func _wait_for_second_hunter() -> CharacterBody3D:
+	for _attempt: int in 60:
+		await physics_frame
+		for node: Node in get_nodes_in_group("hunter_ghosts"):
+			if node.name.begins_with("BreachHunter"):
+				return node as CharacterBody3D
+	return null
 
 
 func _fail(message: String) -> void:

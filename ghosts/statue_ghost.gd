@@ -52,8 +52,11 @@ signal spotted_jumpscare_started()
 ## within this radius. This naturally selects a lone moving player.
 @export var moving_target_speed: float = 0.2
 @export var isolation_radius: float = 7.0
-@export var ambush_min_distance: float = 6.0
-@export var ambush_max_distance: float = 10.0
+## Never manifest close enough to give the selected player an unavoidable
+## point-blank encounter. Distances are measured horizontally on the target's
+## navigation floor.
+@export var ambush_min_distance: float = 15.0
+@export var ambush_max_distance: float = 22.0
 @export_range(4, 32, 1) var ambush_candidate_count: int = 16
 
 @export_category('Observation')
