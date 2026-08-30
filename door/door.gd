@@ -68,6 +68,15 @@ static var _ghost_cache_frame: int = -1
 ## sight and hands your position to the thing that hunts by sound.
 @export_range(0.0, 1.0) var noise_loudness: float = 0.7
 
+func _ready() -> void:
+	# Working the handle is an event only the server sees, so it is echoed to
+	# every peer. The other two ways this leaf moves need no such call: the
+	# ghost shoulder and the player push are both driven off ghost and player
+	# positions, which are already replicated, so each peer reaches the same
+	# angle on its own and the push stays smooth instead of arriving at 5 Hz.
+	add_to_group(&"replicated_interactions")
+
+
 func interact(player: Node3D = null) -> void:
 	if state == DoorState.OPENING or state == DoorState.CLOSING:
 		return
@@ -142,7 +151,7 @@ func _physics_process(delta: float) -> void:
 func _update_player_push(delta: float) -> bool:
 	if not player_push_enabled:
 		return false
-	var player := get_tree().get_first_node_in_group(&"players") as Node3D
+	var player := _nearest_player()
 	var local_player := to_local(player.global_position) if is_instance_valid(player) else Vector3.ZERO
 	var openness := _player_push_openness(player)
 	if state == DoorState.PUSHED and _player_is_in_push_corridor(local_player):
@@ -183,6 +192,24 @@ func _update_player_push(delta: float) -> bool:
 		_player_push_sign = 1
 		_player_push_peak_openness = 0.0
 	return true
+
+
+## The player this leaf answers to. It used to be whichever node the `players`
+## group happened to list first, which in a four-player session meant three of
+## them walked through a door that never moved - and, worse, that different
+## peers could pick different players and disagree about the angle.
+func _nearest_player() -> Node3D:
+	var nearest: Node3D = null
+	var nearest_distance := INF
+	for node: Node in get_tree().get_nodes_in_group(&"players"):
+		var player := node as Node3D
+		if not is_instance_valid(player):
+			continue
+		var distance := global_position.distance_squared_to(player.global_position)
+		if distance < nearest_distance:
+			nearest = player
+			nearest_distance = distance
+	return nearest
 
 
 func _player_push_openness(player: Node3D) -> float:

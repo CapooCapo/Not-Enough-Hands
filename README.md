@@ -348,6 +348,16 @@ creature does. Per-frame animation costs about 0.45 ms with the eye aiming
 spread round-robin over three frames and the drips and eye-tracking dropped past
 `detail_distance`.
 
+**Looking at it corrupts the camera.** Keeping the Huntsman near the centre of
+the view inside `hunter_gaze_range` drives a dedicated full-screen interference
+signal: animated sensor grain, scanlines, horizontal tearing and a red/cyan
+split. It fades with angle and distance and a wall blocks the strong version.
+A Huntsman within `hunter_gaze_through_wall_range` still leaks a faint signal
+through that wall, regardless of camera direction, so being one thin partition
+away feels wrong without turning the effect into a long-range detector. This is
+computed on each player's local camera and therefore remains per-player in a
+multiplayer session.
+
 **It hunts by track.** Every `spoor_interval` (0.4 s) each player writes a mark
 to the floor: a position, a time, and a strength. Sprinting prints hard,
 crouch-walking barely prints, and standing perfectly still still prints — faintly,

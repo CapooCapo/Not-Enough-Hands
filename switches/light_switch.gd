@@ -25,6 +25,11 @@ func _ready() -> void:
 		add_child(interactable)
 	interactable.interaction_range = interaction_range
 	interactable.interacted.connect(_on_interacted)
+	# Flipping a switch is an event only the server sees, so the press is echoed
+	# to every peer and each one toggles its own copy of the circuit. The group
+	# goes on the component rather than on this body because the component is
+	# what the player's raycast resolves to. See Player._try_interact().
+	interactable.add_to_group(&"replicated_interactions")
 	_try_bind_controlled_device()
 	if not _controlled_device and controlled_device_id.is_empty():
 		push_warning(name + ": assign an ElectricalDevice in controlled_device")

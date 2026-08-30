@@ -33,7 +33,15 @@ func _ready() -> void:
 	add_to_group("hostile_ghosts")
 	set_walking(start_walking)
 
+## The seam WorldReplicator animates a replicated copy through, matching the
+## other three ghosts: on a client this body is placed rather than simulated, so
+## the walk cycle is chosen from the velocity that arrived with the position.
+func _update_presentation(_delta: float) -> void:
+	set_walking(Vector2(velocity.x, velocity.z).length() > 0.05)
+
 func _process(delta: float) -> void:
+	if not WorldNet.is_world_authority():
+		return
 	if not auto_cycle or _target != null:
 		return
 	_phase_time_left -= delta
@@ -41,6 +49,8 @@ func _process(delta: float) -> void:
 		set_walking(not _walking)
 
 func _physics_process(delta: float) -> void:
+	if not WorldNet.is_world_authority():
+		return
 	_target = _nearest_player() if chase_enabled else null
 	# The standalone preview owns animation and positioning while it has no
 	# player to chase. In gameplay, auto_cycle is normally left disabled.

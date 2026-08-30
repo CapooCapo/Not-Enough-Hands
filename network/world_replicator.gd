@@ -299,7 +299,39 @@ func _ghost_state(ghost: Node3D) -> Array:
 	var velocity := Vector3.ZERO
 	if ghost is CharacterBody3D:
 		velocity = (ghost as CharacterBody3D).velocity
-	return [ghost.global_position, ghost.rotation.y, state, ghost.visible, velocity]
+	return [
+		ghost.global_position,
+		ghost.rotation.y,
+		state,
+		ghost.visible,
+		velocity,
+		_ghost_manifested(ghost),
+	]
+
+
+## Whether the *body* is showing, which is not the same as `ghost.visible`.
+##
+## All three ghosts leave their root visible and hide the rig instead, through
+## their own `_set_manifested()` - which also owns the collision layers, the
+## lantern and the footstep audio. That call is only ever made by the brain, and
+## a client does not run the brain, so without this a replicated huntsman
+## arrived as a bare moving light with no model attached to it and a statue
+## never appeared at all.
+func _ghost_manifested(ghost: Node3D) -> bool:
+	var body := _ghost_body(ghost)
+	return body == null or body.visible
+
+
+## The rig each ghost hides. The three authored ones keep it under `VisualRoot`;
+## the Darkness ghost is built on the reusable WomanGhost body and hides
+## `AnimatedModel` instead. A ghost whose rig is under neither name simply has
+## no manifested state to replicate.
+func _ghost_body(ghost: Node3D) -> Node3D:
+	for path: NodePath in [^"VisualRoot", ^"AnimatedModel"]:
+		var node := ghost.get_node_or_null(path) as Node3D
+		if node:
+			return node
+	return null
 
 
 func _collect_entities() -> Array:
@@ -311,6 +343,12 @@ func _collect_entities() -> Array:
 		# A carried item follows its holder on the client too, so there is no
 		# point streaming a transform for it.
 		if int(_holders.get(id, 0)) != 0:
+			continue
+		# A huntsman that came through a breach is spawned rather than authored,
+		# so it travels as an entity - but it is still a body with a walk cycle.
+		# The longer row is what lets a client animate it instead of sliding it.
+		if node.has_method(&"_update_presentation"):
+			out.append([id] + _ghost_state(node))
 			continue
 		out.append([id, node.global_position, node.rotation.y])
 	return out
@@ -340,6 +378,7 @@ func _collect_power() -> Array:
 		float(power.get("current_power")),
 		bool(power.get("is_blackout")),
 		bool(power.get("is_regional_blackout")),
+		power.get("regional_blackout_center") as Vector3,
 	]
 
 
@@ -449,6 +488,11 @@ func _sync_fast(ghosts: Array, entities: Array) -> void:
 		var node := _entities.get(int(row[0])) as Node3D
 		if not is_instance_valid(node):
 			continue
+		# A ghost entity carries the whole ghost state behind its id; a loose
+		# totem carries only a transform.
+		if row.size() > 3:
+			_apply_ghost(node, row.slice(1))
+			continue
 		node.global_position = row[1]
 		node.rotation.y = row[2]
 
@@ -470,6 +514,13 @@ func _apply_ghost(ghost: Node3D, state: Array) -> void:
 	ghost.visible = bool(state[3])
 	if ghost is CharacterBody3D:
 		(ghost as CharacterBody3D).velocity = state[4]
+	# Only on a change: _set_manifested(false) stops the footstep, hook and
+	# breath players, so calling it twenty times a second would silence a
+	# huntsman that is standing right behind you.
+	if state.size() >= 6 and ghost.has_method(&"_set_manifested"):
+		var manifested := bool(state[5])
+		if _ghost_manifested(ghost) != manifested:
+			ghost.call(&"_set_manifested", manifested)
 	if ghost.has_method(&"_update_presentation"):
 		ghost.call(&"_update_presentation", FAST_INTERVAL)
 
@@ -507,11 +558,11 @@ func _apply_brazier(brazier: Array) -> void:
 
 
 func _apply_power(power: Array) -> void:
-	if power.size() < 3:
+	if power.size() < 4:
 		return
 	var manager := _power()
 	if manager and manager.has_method(&"apply_network_state"):
-		manager.call(&"apply_network_state", power[0], power[1], power[2])
+		manager.call(&"apply_network_state", power[0], power[1], power[2], power[3])
 
 
 @rpc("authority", "call_remote", "reliable")

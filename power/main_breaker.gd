@@ -12,6 +12,8 @@ extends StaticBody3D
 
 signal power_restored
 
+const SERVER_PEER_ID := 1
+
 @export_range(0.5, 10.0, 0.1) var interaction_range := 2.2
 @export var restore_all_zones := true
 
@@ -143,6 +145,12 @@ func _on_interacted(player: Node) -> void:
 
 
 func _restore_power() -> void:
+	# There is one reserve for the house. A client that served the countdown has
+	# nothing to restore locally - it reports the outcome from
+	# _on_repair_session_ended() and takes the lights back through
+	# PowerManager.apply_network_state() a fraction of a second later.
+	if not WorldNet.is_world_authority():
+		return
 	# Zone blackouts keep PowerManager's global outage reason active. Reset
 	# those circuits first, then restore the reserve/manual blackout state.
 	if restore_all_zones:
@@ -160,7 +168,26 @@ func _restore_power() -> void:
 
 ## Both outcomes land here. A cancelled repair keeps the seconds it already
 ## served (BreakerMinigame owns that), so this only has to reopen the cabinet.
-func _on_repair_session_ended(_success: bool) -> void:
+func _on_repair_session_ended(success: bool) -> void:
+	# Played on a client, finished on a client - but the cabinet the server
+	# locked when it handed the repair out is the one that has to be reopened,
+	# or nobody could ever use this breaker again.
+	if not WorldNet.is_world_authority():
+		_report_repair_session.rpc_id(SERVER_PEER_ID, success)
+		return
+	interactable.unlock()
+	_update_presentation()
+
+
+## The outcome of a repair played on somebody else's machine. Honoured only
+## while this cabinet is still locked, which is the server's own record that it
+## handed a repair out - so a report cannot arrive out of nowhere.
+@rpc("any_peer", "call_remote", "reliable")
+func _report_repair_session(success: bool) -> void:
+	if not WorldNet.is_world_authority() or interactable.can_interact():
+		return
+	if success:
+		_restore_power()
 	interactable.unlock()
 	_update_presentation()
 

@@ -116,8 +116,12 @@ func totems_remaining() -> int:
 ## Brings both item populations back to one per player still in the run. Public
 ## so a restock can be forced right after somebody joins, dies or is revived
 ## instead of waiting out the timer.
+##
+## Only the authority scatters. The items are replicated entities, so a client
+## that ran its own restock would put a second, invisible-to-everyone-else totem
+## in a different room and then be sent the server's on top of it.
 func restock() -> void:
-	if is_complete:
+	if is_complete or not WorldNet.is_world_authority():
 		return
 	var target := _players_in_run().size() * items_per_player
 	_restock_group(TOTEM_SCENE, &"totems", target)
@@ -211,7 +215,10 @@ func _check_completion() -> void:
 	if int(_clock.call(&"get_minutes_until_skip_limit")) > 0:
 		return
 	is_complete = true
-	_clear_remaining_items()
+	# The sweep is a despawn like any other: the authority frees the items and
+	# every client is told. A client doing it itself would race the packet.
+	if WorldNet.is_world_authority():
+		_clear_remaining_items()
 	ritual_completed.emit()
 
 
@@ -231,9 +238,10 @@ func _clear_remaining_items() -> void:
 func _ensure_brazier() -> void:
 	if get_tree().get_first_node_in_group(&"totem_braziers"):
 		return
-	var brazier := BRAZIER_SCENE.instantiate() as Node3D
-	get_parent().add_child(brazier)
-	brazier.global_position = _fallback_brazier_position()
+	# Replicated rather than instanced on each peer: the position is derived
+	# from where the players happen to be standing, so two peers computing it
+	# independently can put the ritual site in two different rooms.
+	WorldNet.spawn(BRAZIER_SCENE, get_parent(), _fallback_brazier_position(), 0.0, "RitualBrazier")
 
 
 ## Only used by a map that did not place a brazier itself. Unlike the items, the
@@ -257,19 +265,25 @@ func _fallback_brazier_position() -> Vector3:
 
 
 func _drop_item(scene: PackedScene, room: Node3D) -> void:
-	var item := scene.instantiate() as Node3D
-	get_parent().add_child(item)
 	var extent := Vector3(2.0, 0.0, 2.0)
 	if room.has_meta(&"room_size"):
 		extent = room.get_meta(&"room_size") as Vector3
-	item.global_position = _room_floor_point(room) + Vector3(
+	var drop_position := _room_floor_point(room) + Vector3(
 		_rng.randf_range(-1.0, 1.0) * extent.x * 0.5 * spawn_room_spread,
 		spawn_drop_height,
 		_rng.randf_range(-1.0, 1.0) * extent.z * 0.5 * spawn_room_spread
 	)
-	item.rotation.y = _rng.randf_range(0.0, TAU)
+	var item := WorldNet.spawn(
+		scene,
+		get_parent(),
+		drop_position,
+		_rng.randf_range(0.0, TAU)
+	) as Node3D
+	if item == null:
+		return
 	# Unfrozen on purpose - a PickupItem sits frozen in the world, but these are
 	# dropped in blind, so gravity is what settles them onto the real floor.
+	# On a client the replicator freezes it again: there it only ever follows.
 	if item is RigidBody3D:
 		(item as RigidBody3D).freeze = false
 

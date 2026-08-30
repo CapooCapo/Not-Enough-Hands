@@ -452,6 +452,12 @@ func _resolve_level() -> void:
 
 
 func _physics_process(delta: float) -> void:
+	# A client owns no ghost. Its copy is placed by WorldReplicator, which then
+	# calls _update_presentation() so the body still walks and the lantern still
+	# swings - but the brain below, and everything it can do to a player, is the
+	# server's alone.
+	if not WorldNet.is_world_authority():
+		return
 	_clock += delta
 	attack_resume_grace_remaining = maxf(attack_resume_grace_remaining - delta, 0.0)
 	if not active:

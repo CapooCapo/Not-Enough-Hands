@@ -40,6 +40,11 @@ uniform float pulse_strength : hint_range(0.0, 0.2) = 0.018;
 uniform float threat_strength : hint_range(0.0, 1.0) = 0.0;
 uniform float stun_strength : hint_range(0.0, 1.0) = 0.0;
 uniform float toilet_presence : hint_range(0.0, 1.0) = 0.0;
+// Local-only signal from player.gd: one means the player's reticle is planted
+// on an unobstructed, nearby Hunter. It deliberately does not share
+// threat_strength; hearing something behind you should feel different from
+// choosing to stare into its face.
+uniform float hunter_gaze_strength : hint_range(0.0, 1.0) = 0.0;
 
 float random_noise(vec2 position) {
 	return fract(sin(dot(position, vec2(12.9898, 78.233))) * 43758.5453);
@@ -55,15 +60,34 @@ void fragment() {
 	float grain_amount = mix(grain_strength, danger_grain, danger_intensity);
 	float sharpen = mix(sharpen_strength, danger_sharpen, danger_intensity);
 	float vignette = mix(vignette_strength, danger_vignette, danger_intensity);
+	float gaze_frame = floor(TIME * 30.0);
+	float gaze_noise = random_noise(vec2(gaze_frame, floor(SCREEN_UV.y * 96.0)));
+	float tear_gate = smoothstep(0.78, 0.98, gaze_noise) * hunter_gaze_strength;
+	float frame_jitter = (random_noise(vec2(gaze_frame, 19.71)) - 0.5)
+		* SCREEN_PIXEL_SIZE.x * 9.0 * hunter_gaze_strength;
+	float horizontal_tear = (gaze_noise - 0.5) * 0.035 * tear_gate;
+	float vertical_jitter = (random_noise(vec2(gaze_frame, 47.13)) - 0.5)
+		* SCREEN_PIXEL_SIZE.y * 4.0 * hunter_gaze_strength;
+	vec2 gaze_uv = clamp(
+		SCREEN_UV + vec2(horizontal_tear + frame_jitter, vertical_jitter),
+		SCREEN_PIXEL_SIZE,
+		vec2(1.0) - SCREEN_PIXEL_SIZE
+	);
 
 	// Chromatic aberration. Zero at the centre so whatever the player is aiming
-	// at stays honest, opening up towards the corners.
-	vec2 from_centre = SCREEN_UV - vec2(0.5);
+	// at stays honest during calm play, opening up towards the corners. Looking
+	// at the Hunter adds a full-frame horizontal split, including at the centre,
+	// so its silhouette gets the red/cyan doubled edge from the reference look.
+	vec2 from_centre = gaze_uv - vec2(0.5);
 	vec2 split = from_centre * aberration * length(from_centre) * 2.0;
+	vec2 gaze_split = vec2(
+		(0.003 + tear_gate * 0.006) * hunter_gaze_strength,
+		0.0
+	);
 	vec3 color;
-	color.r = texture(screen_texture, SCREEN_UV + split).r;
-	color.g = texture(screen_texture, SCREEN_UV).g;
-	color.b = texture(screen_texture, SCREEN_UV - split).b;
+	color.r = texture(screen_texture, gaze_uv + split + gaze_split).r;
+	color.g = texture(screen_texture, gaze_uv).g;
+	color.b = texture(screen_texture, gaze_uv - split - gaze_split).b;
 
 	// Unsharp mask off a four-tap box. Cheap, and it reads as an old video
 	// sharpening filter rather than an outline.
@@ -85,6 +109,27 @@ void fragment() {
 	// look degraded, not the surface the flashlight is on.
 	float grain = random_noise(floor(FRAGCOORD.xy) + floor(TIME * 24.0)) - 0.5;
 	color += vec3(grain) * grain_amount * mix(1.7, 0.30, smoothstep(0.0, 0.55, luma));
+
+	// Hunter interference: hard monochrome sensor grit, fine scanlines and
+	// irregular brightness loss. This remains one screen pass and adds no extra
+	// texture, which keeps it cheap enough to flare every time the gaze crosses
+	// the creature.
+	if (hunter_gaze_strength > 0.001) {
+		float static_noise = random_noise(
+			floor(FRAGCOORD.xy * 1.7) + vec2(gaze_frame * 13.0, gaze_frame * 7.0)
+		) - 0.5;
+		float scanline = sin(FRAGCOORD.y * 2.15 + TIME * 24.0) * 0.5 + 0.5;
+		float signal_drop = smoothstep(
+			0.82,
+			0.99,
+			random_noise(vec2(gaze_frame * 0.37, floor(SCREEN_UV.y * 32.0)))
+		);
+		color += vec3(static_noise) * (0.12 + tear_gate * 0.20) * hunter_gaze_strength;
+		color *= 1.0 - scanline * 0.11 * hunter_gaze_strength;
+		color *= 1.0 - signal_drop * 0.38 * hunter_gaze_strength;
+		float gaze_luma = dot(color, vec3(0.299, 0.587, 0.114));
+		color = mix(color, mix(vec3(gaze_luma), color, 0.55), hunter_gaze_strength * 0.42);
+	}
 
 	// Vignette, plus the two pre-existing darkening signals. A manifested Toilet
 	// Ghost narrows the usable view; a live threat breathes at the edges.

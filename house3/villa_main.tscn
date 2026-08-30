@@ -47,7 +47,7 @@
 [ext_resource type="Script" uid="uid://01w221wpws42" path="res://house3/villa_windows.gd" id="79_villa_windows"]
 [ext_resource type="Script" uid="uid://jn7ag6n0ntnt" path="res://house3/villa_exterior.gd" id="80_villa_exterior"]
 [ext_resource type="PackedScene" path="res://power/main_breaker.tscn" id="81_main_breaker"]
-[ext_resource type="Script" path="res://items/totem_ritual.gd" id="82_totem_ritual"]
+[ext_resource type="Script" uid="uid://cnexyjcl1jds3" path="res://items/totem_ritual.gd" id="82_totem_ritual"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_villa"]
 sky_top_color = Color(0.22, 0.38, 0.58, 1)
@@ -79223,7 +79223,6 @@ transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 77.8
 
 [node name="PowerManager" type="Node" parent="." unique_id=801129011]
 script = ExtResource("74_power_manager")
-enable_power_drain = true
 auto_register_house_lights = false
 
 [node name="ElectricalZones" type="Node" parent="." unique_id=1796181142]
@@ -79333,7 +79332,22 @@ patrol_point_timeout = 26.0
 [node name="HunterGhost" parent="." unique_id=149705737 instance=ExtResource("11_hunter")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 40, 0, -12)
 
-[node name="DarknessGhost" parent="." instance=ExtResource("12_darkness")]
+[node name="DarknessGhost" parent="." unique_id=885318137 instance=ExtResource("12_darkness")]
+auto_manifest = true
+first_manifest_delay = 20.0
+manifest_interval = 55.0
+threat_range = 12.0
+kill_distance = 1.15
+minimum_spawn_distance = 7.0
+patrol_speed = 1.35
+patrol_retarget_seconds = 3.0
+zone_expansion_seconds = 15.0
+zone_expansion_walk_speed = 1.0
+zone_blackout_arrival_distance = 1.4
+failed_manifest_retry_delay = 8.0
+stuck_detection_seconds = 3.0
+stuck_movement_threshold = 0.4
+stuck_nudge_seconds = 0.6
 
-[node name="TotemRitual" type="Node" parent="."]
+[node name="TotemRitual" type="Node" parent="." unique_id=1310419746]
 script = ExtResource("82_totem_ritual")

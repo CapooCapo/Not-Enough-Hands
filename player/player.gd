@@ -52,6 +52,22 @@ signal toilet_ghost_stun_changed(active: bool)
 @export var head_bob_horizontal: float = 0.012
 @export var head_bob_vertical: float = 0.018
 
+@export_category("Hunter Gaze Interference")
+## Looking deliberately at a manifested Hunter corrupts the camera feed. The
+## inner angle is fully affected; the outer angle is a soft shoulder so a tiny
+## mouse movement does not make the post-process pop on and off.
+@export var hunter_gaze_range: float = 28.0
+@export_range(0.5, 15.0, 0.5) var hunter_gaze_full_angle: float = 3.5
+@export_range(1.0, 25.0, 0.5) var hunter_gaze_outer_angle: float = 11.0
+## A nearby wall muffles the signal instead of cutting it perfectly. This range
+## is intentionally short so the leak reads as "right on the other side" and
+## never turns into a general-purpose Hunter detector.
+@export var hunter_gaze_through_wall_range: float = 5.0
+@export_range(0.0, 0.5, 0.01) var hunter_gaze_through_wall_strength: float = 0.2
+@export var hunter_gaze_fade_in_speed: float = 7.5
+@export var hunter_gaze_fade_out_speed: float = 5.0
+@export_flags_3d_physics var hunter_gaze_blocking_mask: int = 1
+
 @export_category("Movement Audio")
 @export var walk_step_interval: float = 0.48
 @export var sprint_step_interval: float = 0.34
@@ -88,6 +104,7 @@ var forced_blink_remaining: float = 0.0
 ## parameter and the camera code already read it.
 var statue_threat: float = 0.0
 var threat_sources: Dictionary = {}
+var hunter_gaze_strength: float = 0.0
 var eyelid_closure: float = 0.0
 @export var mouse_sensitivity: float = 0.002
 @export var max_interaction_range: float = 10.0
@@ -195,6 +212,27 @@ var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 const NETWORK_STATE_INTERVAL := 1.0 / 20.0
 const NETWORK_SERVER_PEER_ID := 1
 
+## What an encounter played on somebody's own machine reports back to the door.
+enum DoorOutcome {
+	CLEARED,
+	FAILED,
+	CANCELLED,
+}
+
+## The only three methods a handed-over encounter may re-enter on the owner's
+## machine. The RPC that carries one is authority-only, but naming them here
+## keeps it a fixed list rather than "whatever the server asks for".
+const REMOTE_ENCOUNTER_STARTERS: Array[StringName] = [
+	&"start_door_minigame",
+	&"start_breaker_minigame",
+	&"start_toilet_minigame",
+]
+
+## What this player is away at while the encounter is played on their own
+## machine. Set only on the peer holding the *replica* - which is the server -
+## and null everywhere the encounter is actually being played.
+var _remote_encounter_target: Node = null
+
 var _network_move := Vector2.ZERO
 var _network_jump: bool = false
 var _network_crouch: bool = false
@@ -244,6 +282,98 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	if not _is_network_session() or multiplayer.is_server() or is_local_player():
 		_update_toilet_ghost_stun(delta)
+	if is_local_player():
+		_update_hunter_gaze_interference(delta)
+
+
+## This is intentionally a local camera check rather than part of the Hunter's
+## server-side AI. Each player can be looking in a different direction, and the
+## replicated Hunter body already gives every client all the geometry needed to
+## decide what their own camera can see.
+func _update_hunter_gaze_interference(delta: float) -> void:
+	var target_strength := _hunter_gaze_target_strength()
+	var speed := hunter_gaze_fade_in_speed \
+		if target_strength > hunter_gaze_strength else hunter_gaze_fade_out_speed
+	hunter_gaze_strength = move_toward(
+		hunter_gaze_strength,
+		target_strength,
+		maxf(speed, 0.0) * delta
+	)
+	var overlay_material := horror_overlay_rect.material as ShaderMaterial
+	if overlay_material:
+		overlay_material.set_shader_parameter("hunter_gaze_strength", hunter_gaze_strength)
+
+
+func _hunter_gaze_target_strength() -> float:
+	if dev_clear_vision or not is_alive or eyes_closed or hunter_gaze_range <= 0.0:
+		return 0.0
+	var camera := camera_pivot.get_node_or_null("Camera3D") as Camera3D
+	if not camera or not camera.current:
+		return 0.0
+
+	var forward := -camera.global_basis.z.normalized()
+	var full_angle := deg_to_rad(minf(hunter_gaze_full_angle, hunter_gaze_outer_angle))
+	var outer_angle := deg_to_rad(maxf(hunter_gaze_full_angle, hunter_gaze_outer_angle))
+	outer_angle = maxf(outer_angle, full_angle + 0.0001)
+	var strongest := 0.0
+	for node: Node in get_tree().get_nodes_in_group(&"hunter_ghosts"):
+		var hunter := node as Node3D
+		if not _is_visible_hunter(hunter):
+			continue
+		# Aim at the torso instead of the feet: it matches both the collision
+		# capsule and the part of the silhouette the player naturally centres.
+		var target_point := hunter.global_position + Vector3.UP * 1.05
+		var offset := target_point - camera.global_position
+		var distance := offset.length()
+		if distance <= 0.001 or distance > hunter_gaze_range:
+			continue
+		if _hunter_gaze_is_blocked(camera.global_position, target_point):
+			if hunter_gaze_through_wall_range <= 0.0 \
+				or distance > hunter_gaze_through_wall_range:
+				continue
+			var wall_proximity := 1.0 - smoothstep(
+				hunter_gaze_through_wall_range * 0.35,
+				hunter_gaze_through_wall_range,
+				distance
+			)
+			strongest = maxf(
+				strongest,
+				wall_proximity * hunter_gaze_through_wall_strength
+			)
+			continue
+
+		var angle := acos(clampf(forward.dot(offset / distance), -1.0, 1.0))
+		if angle >= outer_angle or not camera.is_position_in_frustum(target_point):
+			continue
+		var angle_strength := 1.0 - smoothstep(full_angle, outer_angle, angle)
+		# Full strength through the close half of the range, then taper out so a
+		# tiny far-away silhouette whispers static rather than flooding the frame.
+		var distance_strength := 1.0 - smoothstep(
+			hunter_gaze_range * 0.5,
+			hunter_gaze_range,
+			distance
+		)
+		strongest = maxf(strongest, angle_strength * distance_strength)
+	return clampf(strongest, 0.0, 1.0)
+
+
+func _is_visible_hunter(hunter: Node3D) -> bool:
+	if not is_instance_valid(hunter) or not hunter.visible:
+		return false
+	if "manifested" in hunter and not bool(hunter.get("manifested")):
+		return false
+	var body := hunter.get_node_or_null("VisualRoot") as Node3D
+	return body == null or body.visible
+
+
+func _hunter_gaze_is_blocked(from: Vector3, to: Vector3) -> bool:
+	var query := PhysicsRayQueryParameters3D.create(
+		from,
+		to,
+		hunter_gaze_blocking_mask,
+		[get_rid()]
+	)
+	return not get_world_3d().direct_space_state.intersect_ray(query).is_empty()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not is_local_player():
@@ -342,6 +472,12 @@ func _is_network_session() -> bool:
 
 func _is_network_client() -> bool:
 	return _is_network_session() and not multiplayer.is_server()
+
+
+## True on a headless process that owns peer 1 without being a player.
+func _is_dedicated_server() -> bool:
+	var manager := get_node_or_null("/root/NetworkManager")
+	return manager != null and bool(manager.get("dedicated_server"))
 
 
 func _capture_and_send_network_input() -> void:
@@ -461,7 +597,13 @@ func _finish_network_tick(delta: float) -> void:
 	if _state_sync_remaining > 0.0:
 		return
 	_state_sync_remaining += NETWORK_STATE_INTERVAL
-	for ready_peer: int in NetworkManager.replication_ready_peers:
+	# Reached through the tree rather than by name: an autoload's identifier
+	# only resolves once the project's main loop is running, and this script is
+	# compiled as a dependency by the `--script` smoke tests, which have none.
+	var manager := get_node_or_null("/root/NetworkManager")
+	if manager == null:
+		return
+	for ready_peer: int in manager.get("replication_ready_peers"):
 		if ready_peer == NETWORK_SERVER_PEER_ID:
 			continue
 		_send_network_state(ready_peer)
@@ -613,7 +755,27 @@ func can_interact_with(target: Node) -> bool:
 func _try_interact() -> void:
 	interact_ray.force_raycast_update()
 	var target := get_interaction_target()
-	if target and can_interact_with(target):
+	if not target or not can_interact_with(target):
+		return
+	target.interact(self)
+	# Only the server ever reaches this function - a client's E is an RPC - so a
+	# press whose whole effect is local geometry (a door leaf swinging, a switch
+	# flipping a circuit) would happen on the server and nowhere else. Those
+	# targets say so by joining `replicated_interactions`; the ones with their
+	# own network path, a defense door and the breaker, deliberately do not.
+	if _is_network_session() \
+		and multiplayer.is_server() \
+		and target.is_in_group(&"replicated_interactions"):
+		_echo_interaction.rpc(_scene_path_of(target))
+
+
+## Replays the press on every other peer, through the same public `interact()`
+## the server just called. `self` is this player's replica on the receiving
+## machine, so a door still swings away from the person who opened it.
+@rpc("authority", "call_remote", "reliable")
+func _echo_interaction(target_path: NodePath) -> void:
+	var target := _scene_node(target_path)
+	if target and target.has_method("interact"):
 		target.interact(self)
 
 
@@ -701,7 +863,7 @@ func _physics_process(delta: float) -> void:
 				_update_blink(delta)
 			_interpolate_network_snapshot(delta)
 			return
-		if owner_peer_id == NETWORK_SERVER_PEER_ID and not NetworkManager.dedicated_server:
+		if owner_peer_id == NETWORK_SERVER_PEER_ID and not _is_dedicated_server():
 			_capture_and_send_network_input()
 		rotation.y = _network_yaw
 		camera_pivot.rotation.x = _network_pitch
@@ -961,14 +1123,39 @@ func kill_by_ghost(ghost: Node3D) -> void:
 	# With a teammate left standing it becomes a rescue window instead.
 	if _has_available_rescuer():
 		_enter_downed()
-	elif _start_hunter_jumpscare(ghost):
-		pass
-	elif death_ui.has_method("show_jumpscare"):
+	else:
+		_present_death(ghost)
+	killed_by_ghost.emit(ghost)
+
+
+## The jumpscare, the game-over screen and the pause that comes with them are
+## first-person, so they belong on the machine of the player who died.
+##
+## Ghosts run on the server, which means a kill lands on a *replica* there. Left
+## as it was, a hunter catching one player played that player's death on the
+## host's screen and paused the server's tree - freezing the night for everyone
+## while the person who actually died saw nothing.
+func _present_death(ghost: Node3D) -> void:
+	if _encounter_belongs_elsewhere():
+		_show_death.rpc_id(owner_peer_id, _scene_path_of(ghost))
+		return
+	if _start_hunter_jumpscare(ghost):
+		return
+	if death_ui.has_method("show_jumpscare"):
 		death_ui.call("show_jumpscare", ghost)
 	else:
 		death_ui.visible = true
 		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
-	killed_by_ghost.emit(ghost)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _show_death(ghost_path: NodePath) -> void:
+	if not is_local_player():
+		return
+	# is_alive also arrives in the next state packet; setting it here keeps the
+	# screen and the body from disagreeing for the frame in between.
+	is_alive = false
+	_present_death(_scene_node(ghost_path) as Node3D)
 
 
 func _start_hunter_jumpscare(ghost: Node3D) -> bool:
@@ -1209,6 +1396,14 @@ func start_door_minigame(door: Node) -> bool:
 		return false
 	if not door.has_method("begin_exorcism") or not bool(door.call("begin_exorcism")):
 		return false
+	# The encounter is aimed with a flashlight through this player's camera, so
+	# it can only be played where that camera is. On the server another player's
+	# node is a replica - no current camera, HUD force-hidden - so the door is
+	# claimed here and the encounter itself is sent to the machine that pressed E.
+	if _encounter_belongs_elsewhere():
+		_hand_encounter_to_owner(door, &"start_door_minigame")
+		door_minigame_started.emit(door)
+		return true
 	if not door_minigame.has_method("start") or not bool(door_minigame.call("start", self, door)):
 		door.call("cancel_exorcism")
 		return false
@@ -1235,6 +1430,10 @@ func start_toilet_minigame(toilet: Node) -> bool:
 	var minigame: Node = toilet.get_node_or_null("ToiletMinigame")
 	if not minigame or not minigame.has_method("start"):
 		return false
+	# Same reason as the door: it is played through this player's camera.
+	if _encounter_belongs_elsewhere():
+		_hand_encounter_to_owner(toilet, &"start_toilet_minigame")
+		return true
 	if not bool(minigame.call("start", self, toilet)):
 		return false
 	_active_toilet_minigame = minigame
@@ -1256,6 +1455,12 @@ func start_breaker_minigame(breaker: Node) -> bool:
 	var minigame: Node = breaker.get_node_or_null("BreakerMinigame")
 	if not minigame or not minigame.has_method("start"):
 		return false
+	# Same reason as the door: the wheel is drawn and timed on the machine of
+	# whoever opened the cabinet. Without this a client's E opened an invisible
+	# countdown on a headless server and left the breaker locked forever.
+	if _encounter_belongs_elsewhere():
+		_hand_encounter_to_owner(breaker, &"start_breaker_minigame")
+		return true
 	if not bool(minigame.call("start", self, breaker)):
 		return false
 	_active_breaker_minigame = minigame
@@ -1268,10 +1473,103 @@ func is_breaker_minigame_active() -> bool:
 		and bool(_active_breaker_minigame.call("is_running"))
 
 
+## True while this player is away in an encounter being played on their own
+## machine. The body stands still here, and counting it as busy is what stops
+## the server walking it and stops a second minigame starting on top.
+func is_remote_encounter_active() -> bool:
+	return is_instance_valid(_remote_encounter_target)
+
+
 func _is_any_minigame_active() -> bool:
 	return is_door_minigame_active() \
 		or is_toilet_minigame_active() \
-		or is_breaker_minigame_active()
+		or is_breaker_minigame_active() \
+		or is_remote_encounter_active()
+
+
+## True when this node is a replica of somebody else's player: an encounter
+## started on it has to be played on their machine, not here.
+func _encounter_belongs_elsewhere() -> bool:
+	return _is_network_session() \
+		and multiplayer.is_server() \
+		and owner_peer_id > 0 \
+		and owner_peer_id != multiplayer.get_unique_id()
+
+
+func _hand_encounter_to_owner(target: Node, starter: StringName) -> void:
+	_remote_encounter_target = target
+	_begin_remote_encounter.rpc_id(owner_peer_id, _scene_path_of(target), starter)
+
+
+## Re-enters the same public API on the machine that pressed E, where
+## `_encounter_belongs_elsewhere()` is false and the minigame simply runs.
+@rpc("authority", "call_remote", "reliable")
+func _begin_remote_encounter(target_path: NodePath, starter: StringName) -> void:
+	if not is_local_player() or starter not in REMOTE_ENCOUNTER_STARTERS:
+		return
+	var target := _scene_node(target_path)
+	if target == null:
+		return
+	callv(starter, [target])
+
+
+## The one way an encounter's result reaches the door.
+##
+## On the authority it is applied straight away - the path single-player and the
+## host's own player take. On a client the encounter was played here but the
+## door is the server's, so the outcome is reported and comes back as durability
+## in the next apply_network_state().
+func report_door_outcome(door: Node, outcome: DoorOutcome) -> float:
+	if not is_instance_valid(door) or not ("repair_cap" in door):
+		return 0.0
+	if not WorldNet.is_world_authority():
+		_report_door_outcome.rpc_id(
+			NETWORK_SERVER_PEER_ID, int(door.get("entrance_id")), int(outcome)
+		)
+		return float(door.get("repair_cap"))
+	return _apply_door_outcome(door, outcome)
+
+
+func _apply_door_outcome(door: Node, outcome: DoorOutcome) -> float:
+	if _remote_encounter_target == door:
+		_remote_encounter_target = null
+	match outcome:
+		DoorOutcome.CLEARED:
+			if door.has_method("complete_exorcism"):
+				door.call("complete_exorcism")
+		DoorOutcome.FAILED:
+			if door.has_method("apply_exorcism_failure"):
+				return float(door.call("apply_exorcism_failure"))
+		DoorOutcome.CANCELLED:
+			if door.has_method("cancel_exorcism"):
+				door.call("cancel_exorcism")
+	return float(door.get("repair_cap"))
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _report_door_outcome(entrance_id: int, outcome: int) -> void:
+	if not multiplayer.is_server() or not _rpc_sender_owns_player():
+		return
+	for node: Node in get_tree().get_nodes_in_group("defense_doors"):
+		if int(node.get("entrance_id")) == entrance_id:
+			_apply_door_outcome(node, outcome as DoorOutcome)
+			return
+
+
+## Node paths travel relative to the current scene, so they mean the same thing
+## on a peer whose map sits somewhere else in its own tree.
+func _scene_path_of(node: Node) -> NodePath:
+	var scene := get_tree().current_scene
+	if scene == null or node == null:
+		return NodePath()
+	return scene.get_path_to(node)
+
+
+func _scene_node(path: NodePath) -> Node:
+	var scene := get_tree().current_scene
+	if scene == null or path.is_empty():
+		return null
+	return scene.get_node_or_null(path)
 
 
 ## Thin delegation to this player's own Bladder component - other systems

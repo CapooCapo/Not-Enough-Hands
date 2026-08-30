@@ -50,6 +50,14 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	var use := _find_user()
+	# The hold is counted once, by the authority, off the interact every client
+	# already streams to it. A client keeps drawing its prompt and its flame but
+	# takes the bar and the fire from apply_network_state() - otherwise the same
+	# totem would be worth thirty minutes of night on every machine at once.
+	if not WorldNet.is_world_authority():
+		_update_prompt(use)
+		_animate_flame(delta)
+		return
 	if use.is_empty() or not bool(use["player"].call("is_holding_interact")):
 		_hold_player = null
 		hold_progress = maxf(hold_progress - delta * hold_decay_multiplier, 0.0)
@@ -94,6 +102,16 @@ func relight(player: Node, fuel: Node3D) -> bool:
 	_flare = 0.6
 	_set_lit(true)
 	return true
+
+
+## Takes the server's fire and its hold bar. The flare is re-derived rather than
+## sent: which way the fire just changed is enough to know whether this was a
+## totem going in or firewood bringing it back.
+func apply_network_state(lit: bool, progress: float) -> void:
+	hold_progress = progress
+	if lit != is_lit:
+		_flare = 0.6 if lit else 1.0
+		_set_lit(lit)
 
 
 func get_hold_ratio(seconds: float) -> float:

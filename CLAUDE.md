@@ -16,6 +16,8 @@ Godot 4.7 first-person horror prototype ("Not Enough Hands"). GDScript only, no 
   ```
   There is no aggregate test runner; run the specific smoke test(s) relevant to the area you changed. `tests/villa_layout_smoke.gd`, `villa_seal_smoke.gd`, and `villa_boot_smoke.gd` are the load-bearing ones for the villa map (reachability, wall-seal raycasts, baked navmesh). `tests/villa_screenshot.gd` / `villa_devshot.gd` are not tests — they write PNGs to `user://villa_shots` for visual inspection.
 
+  `tests/world_replication_pair_smoke.gd` is the only test that spans two processes: run normally it becomes the server, spawns a second headless copy of itself with `--client`, binds UDP 47311 and asserts on the verdict the child writes to `user://`. Run it after touching anything in `network/` — a channel can be entirely dead without a single-process test noticing.
+
 ## Core working rule (`.ai/RULES.md`)
 
 Write less, do less, change only what's required: smallest implementation that satisfies the requirement, reuse existing architecture/groups before adding new ones, don't touch unrelated systems, every change needs a reason and a verification step. Priority order: Correctness > Simplicity > Maintainability > Completeness > Extra features.

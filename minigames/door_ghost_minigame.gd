@@ -39,6 +39,11 @@ const TOTAL_PHASES := 3
 ## the group, and anything in it near the attacked door is a candidate.
 const SPOT_GROUP := &"door_ghost_positions"
 
+## Only for the DoorOutcome names. The outcome of an encounter goes out through
+## the player rather than straight onto the door, because in a session the
+## encounter is played on one machine and the door lives on another.
+const PLAYER_SCRIPT := preload("res://player/player.gd")
+
 @export_category("Rules")
 ## Successful flashlight hits needed to finish one phase. The counter is
 ## per-phase and resets to zero on every transition, so the whole encounter
@@ -265,8 +270,8 @@ func _ready() -> void:
 
 
 func _exit_tree() -> void:
-	if active and is_instance_valid(current_door) and current_door.has_method("cancel_exorcism"):
-		current_door.call("cancel_exorcism")
+	if active:
+		_report_outcome(PLAYER_SCRIPT.DoorOutcome.CANCELLED)
 	_free_ghost()
 	_restore_house()
 	_release_ghost_safety()
@@ -351,9 +356,22 @@ func _free_ghost() -> void:
 func cancel() -> void:
 	if not active:
 		return
-	if is_instance_valid(current_door) and current_door.has_method("cancel_exorcism"):
-		current_door.call("cancel_exorcism")
+	_report_outcome(PLAYER_SCRIPT.DoorOutcome.CANCELLED)
 	_close()
+
+
+## The door is never touched directly. On a client this encounter is being
+## played here while the door itself is the server's, so every outcome leaves
+## through the player that owns this minigame - which is the node that knows
+## whether it is the authority. On the authority that call lands straight on
+## the door, exactly as it used to.
+func _report_outcome(outcome: int) -> float:
+	if not is_instance_valid(current_door):
+		return 0.0
+	if not is_instance_valid(owning_player) \
+		or not owning_player.has_method("report_door_outcome"):
+		return 0.0
+	return float(owning_player.call("report_door_outcome", current_door, outcome))
 
 
 func is_running() -> bool:
@@ -602,8 +620,7 @@ func _begin_success() -> void:
 	heartbeat_audio.stop()
 	success_audio.play()
 	ghost.set_pose(DoorGhost.Pose.REACT)
-	if current_door.has_method("complete_exorcism"):
-		current_door.call("complete_exorcism")
+	_report_outcome(PLAYER_SCRIPT.DoorOutcome.CLEARED)
 	minigame_completed.emit(current_door)
 
 
@@ -623,9 +640,7 @@ func _begin_failure() -> void:
 	ghost.set_pose(DoorGhost.Pose.LUNGE)
 	_place_ghost(_stare_position())
 
-	var cap := 0.0
-	if current_door.has_method("apply_exorcism_failure"):
-		cap = float(current_door.call("apply_exorcism_failure"))
+	var cap := _report_outcome(PLAYER_SCRIPT.DoorOutcome.FAILED)
 	attempt_failed.emit(current_door, cap)
 
 
@@ -640,8 +655,7 @@ func _update_jumpscare(delta: float) -> void:
 	))
 	if state_timer <= 0.0:
 		# The attack is resolved; hand the door back to its normal attack flow.
-		if is_instance_valid(current_door) and current_door.has_method("cancel_exorcism"):
-			current_door.call("cancel_exorcism")
+		_report_outcome(PLAYER_SCRIPT.DoorOutcome.CANCELLED)
 		_close()
 
 

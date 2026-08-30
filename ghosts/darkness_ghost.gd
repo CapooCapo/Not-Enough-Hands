@@ -70,6 +70,11 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	# Manifesting, expanding and retreating all cut real circuits, so they are
+	# the server's alone; a client takes the darkened zones through
+	# PowerManager.apply_network_state() and this body through WorldReplicator.
+	if not WorldNet.is_world_authority():
+		return
 	if _is_manifested:
 		# Darkness is a persistent hunting ground. It ends only when players
 		# have reset every lamp in its zone, not after an arbitrary timer.
@@ -88,7 +93,7 @@ func _process(delta: float) -> void:
 
 
 func _physics_process(delta: float) -> void:
-	if not _is_manifested:
+	if not _is_manifested or not WorldNet.is_world_authority():
 		return
 	var player := _nearest_player()
 	var player_in_dark_zone := _player_is_in_active_zone(player)

@@ -47,6 +47,9 @@ var current_power: float = 1000.0
 var devices: Array[Node] = []
 var is_blackout: bool = false
 var is_regional_blackout: bool = false
+## Where the current regional outage is centred, so it can be replicated: the
+## affected lights are chosen by position, not by name.
+var regional_blackout_center: Vector3 = Vector3.ZERO
 var _total_load: float = 0.0
 ## Peak total load ever observed - the stand-in for "the whole house is on".
 var _reference_load: float = 0.0
@@ -83,6 +86,12 @@ func _exit_tree() -> void:
 
 
 func _process(delta: float) -> void:
+	# There is one battery for the house. A client neither drains it nor times
+	# its own outages: the reserve and both blackout flags arrive through
+	# apply_network_state(), so everyone goes dark on the same second.
+	if not WorldNet.is_world_authority():
+		return
+
 	_update_outage_timers(delta)
 
 	if is_blackout:
@@ -211,6 +220,32 @@ func restore_power(amount: float = -1.0) -> void:
 		_leave_global_blackout()
 
 
+## Takes the server's reserve and both outage states.
+##
+## Only the transitions are acted on, through the same two private calls the
+## authority uses, so a client suppresses and releases exactly the lights the
+## server did. The regional centre travels because the affected lights are
+## picked by position: a bool alone would tell a client that *somewhere* went
+## dark without saying where.
+func apply_network_state(
+	reserve: float,
+	blackout_active: bool,
+	regional_active: bool,
+	regional_center: Vector3 = Vector3.ZERO
+) -> void:
+	current_power = clampf(reserve, 0.0, max_power)
+
+	if blackout_active and not is_blackout:
+		_enter_blackout()
+	elif not blackout_active and is_blackout:
+		_leave_global_blackout()
+
+	if regional_active and not is_regional_blackout:
+		trigger_regional_blackout_at(regional_center, -1.0)
+	elif not regional_active and is_regional_blackout:
+		_end_regional_blackout()
+
+
 ## Turns off every authored light in this house. A negative duration keeps the
 ## outage active until restore_power() is called.
 func trigger_global_blackout(duration: float = -1.0) -> void:
@@ -266,6 +301,7 @@ func trigger_regional_blackout_at(center: Vector3, duration: float = -1.0) -> in
 		return 0
 
 	is_regional_blackout = true
+	regional_blackout_center = center
 	_regional_time_remaining = default_regional_duration if duration < 0.0 else duration
 	_suppress_lights(_regional_lights)
 	_set_regional_devices_forced_off(true)

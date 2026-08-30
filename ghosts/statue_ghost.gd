@@ -235,6 +235,10 @@ func _ready() -> void:
 
 
 func _physics_process(delta: float) -> void:
+	# See hunter_ghost.gd: on a client this body is placed and animated by
+	# WorldReplicator, never simulated here.
+	if not WorldNet.is_world_authority():
+		return
 	attack_resume_grace_remaining = maxf(attack_resume_grace_remaining - delta, 0.0)
 	if not active:
 		state = StatueState.DORMANT

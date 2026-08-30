@@ -53,6 +53,9 @@ const DEFENSE_DOOR_LEAF_RISE := 1.15
 ## building this size is already everywhere at once.
 const MAX_BREACH_HUNTERS := 3
 
+## Mirrors NetworkManager.SERVER_PEER_ID, which cannot be named here: see _net().
+const NETWORK_SERVER_PEER_ID := 1
+
 var _two_sided_cache: Dictionary = {}
 ## A breach can happen before Recast has finished baking.  Those hunters wait
 ## at the opening instead of trying to search without a navigation map.
@@ -183,20 +186,29 @@ func _spawn_hunter_at_breach(door: Node) -> void:
 	var doorway := door as Node3D
 	if not is_instance_valid(doorway) or not HUNTER_GHOST:
 		return
+	# A client hears `breached` too - apply_network_state() emits it when the
+	# server's durability arrives - but the huntsman that answers it is one
+	# body for the whole session, spawned here and replicated to everyone.
+	if not WorldNet.is_world_authority():
+		return
 	if live_breach_hunter_count() >= MAX_BREACH_HUNTERS:
 		# The house is already full. Every further breach is still a hole the
 		# player has to live with - it just does not add a fourth body.
 		return
 
 	_breach_hunter_serial += 1
-	var hunter := HUNTER_GHOST.instantiate() as CharacterBody3D
+	var hunter := WorldNet.spawn(
+		HUNTER_GHOST,
+		self,
+		doorway.global_position,
+		0.0,
+		"BreachHunter%02d" % _breach_hunter_serial
+	) as CharacterBody3D
 	if not hunter:
 		return
-	hunter.name = "BreachHunter%02d" % _breach_hunter_serial
 	# This hunter belongs to one particular breach and must never let itself back
 	# in through a different one, which would put it outside the cap.
 	hunter.set("entry_enabled", false)
-	add_child(hunter)
 	if not hunter.has_method("spawn_from_breached_door") \
 		or not bool(hunter.call("spawn_from_breached_door", doorway)):
 		hunter.queue_free()
@@ -226,15 +238,30 @@ func _activate_waiting_hunters() -> void:
 	_hunters_waiting_for_navigation.clear()
 
 
+## The NetworkManager autoload, reached through the tree rather than by name.
+##
+## An autoload's identifier only resolves once the project's main loop is
+## running, and the `--script` smoke tests compile this file as a dependency
+## before that point - naming it directly stops the villa scene loading in them
+## at all. Same reason player.gd and world_net.gd do the lookup this way.
+func _net() -> Node:
+	return get_node_or_null("/root/NetworkManager")
+
+
+func _network_session_active() -> bool:
+	var manager := _net()
+	return manager != null and bool(manager.get("session_active"))
+
+
 func _setup_player_replication() -> void:
-	if NetworkManager.session_active:
-		NetworkManager.player_spawn_requested.connect(_spawn_player_replica)
-		NetworkManager.player_left.connect(_remove_network_player)
+	if _network_session_active():
+		_net().player_spawn_requested.connect(_spawn_player_replica)
+		_net().player_left.connect(_remove_network_player)
 		if multiplayer.is_server():
-			NetworkManager.player_world_ready.connect(_synchronize_room_players)
-			for ready_peer: int in NetworkManager.world_ready_peers:
+			_net().player_world_ready.connect(_synchronize_room_players)
+			for ready_peer: int in _net().world_ready_peers:
 				_synchronize_room_players(ready_peer)
-		NetworkManager.notify_world_ready()
+		_net().notify_world_ready()
 	else:
 		# F6 and the existing villa smoke tests retain a root node called Player.
 		var offline_player := _build_player_from_spawn_data({
@@ -253,7 +280,9 @@ func _on_replicated_player_spawned(node: Node) -> void:
 		"NETWORK_LOCAL_PLAYER_SPAWNED peer=%d name=%s"
 		% [player.owner_peer_id, player.display_name]
 	)
-	NetworkManager.notify_replication_ready()
+	var manager := _net()
+	if manager:
+		manager.notify_replication_ready()
 	if "--network-smoke" in OS.get_cmdline_user_args():
 		_finish_network_smoke.call_deferred()
 
@@ -264,7 +293,7 @@ func _finish_network_smoke() -> void:
 	await get_tree().process_frame
 	await get_tree().process_frame
 	var replicated_players := get_tree().get_nodes_in_group(&"players").size()
-	var roster_players := NetworkManager.players.size()
+	var roster_players: int = _net().players.size()
 	if replicated_players < roster_players:
 		push_error(
 			"Network smoke expected %d player(s), but only %d replicated."
@@ -279,24 +308,24 @@ func _finish_network_smoke() -> void:
 func _synchronize_room_players(_newly_ready_peer_id: int) -> void:
 	if not multiplayer.is_server():
 		return
-	var peer_ids: Array = NetworkManager.players.keys()
+	var peer_ids: Array = _net().players.keys()
 	peer_ids.sort()
 	for peer_id: int in peer_ids:
 		_spawn_player_replica(
 			peer_id,
-			NetworkManager.get_player_name(peer_id),
+			_net().get_player_name(peer_id),
 			maxi(peer_ids.find(peer_id), 0)
 		)
 	# At four players a full idempotent roster sync is cheap, and it guarantees
 	# that every ready client also receives players who joined before it.
-	for target_peer_id: int in NetworkManager.world_ready_peers:
-		if target_peer_id == NetworkManager.SERVER_PEER_ID:
+	for target_peer_id: int in _net().world_ready_peers:
+		if target_peer_id == NETWORK_SERVER_PEER_ID:
 			continue
 		for player_peer_id: int in peer_ids:
-			NetworkManager.send_player_spawn(
+			_net().send_player_spawn(
 				target_peer_id,
 				player_peer_id,
-				NetworkManager.get_player_name(player_peer_id),
+				_net().get_player_name(player_peer_id),
 				maxi(peer_ids.find(player_peer_id), 0)
 			)
 
@@ -357,7 +386,7 @@ func _get_player_for_peer(peer_id: int) -> CharacterBody3D:
 
 
 func get_local_player() -> CharacterBody3D:
-	var local_peer_id := multiplayer.get_unique_id() if NetworkManager.session_active else 1
+	var local_peer_id := multiplayer.get_unique_id() if _network_session_active() else 1
 	return _get_player_for_peer(local_peer_id)
 
 

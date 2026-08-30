@@ -5,6 +5,7 @@ signal roster_changed(players: Dictionary)
 signal game_starting()
 signal player_spawn_requested(peer_id: int, display_name: String, spawn_index: int)
 signal player_world_ready(peer_id: int)
+signal player_replication_ready(peer_id: int)
 signal player_left(peer_id: int)
 
 const DEFAULT_PORT := 7777
@@ -128,6 +129,16 @@ func notify_replication_ready() -> void:
 
 func is_server() -> bool:
 	return session_active and multiplayer.is_server()
+
+
+## True where world simulation is allowed to run: single-player and the server
+## of a session. False only on a client, which takes the world from the server
+## instead of running a second, divergent copy of it.
+##
+## `WorldNet.is_world_authority()` is the same predicate reached without naming
+## this autoload, for the world scripts the smoke tests pull in.
+func is_world_authority() -> bool:
+	return not session_active or multiplayer.is_server()
 
 
 func get_player_name(peer_id: int) -> String:
@@ -291,6 +302,7 @@ func _mark_replication_ready(peer_id: int) -> void:
 	if peer_id <= 0 or replication_ready_peers.has(peer_id):
 		return
 	replication_ready_peers[peer_id] = true
+	player_replication_ready.emit(peer_id)
 	print("NETWORK_REPLICATION_READY peer=%d" % peer_id)
 
 
