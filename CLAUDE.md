@@ -104,6 +104,10 @@ Every world system guards its own simulation with `WorldNet.is_world_authority()
 
 A run ends exactly one way: `NetworkManager.end_run()`, which clears `game_started` and the ready flags and returns everyone to the lobby. `villa_main.gd` decides *when* (wipe, dawn, or the last player leaving); NetworkManager decides what to do about it.
 
+**An RPC can land on a node that has already left the tree.** Ending a run swaps the villa for the lobby, and for the frame or two that takes, every peer is still streaming input — none of them has heard yet. Those packets arrive at a body being freed with the map, where `Node.multiplayer` and `get_tree()` are both **null**, so a guard opening with `multiplayer.is_server()` is the crash rather than the check. Every RPC entry point on a node that lives *inside a map scene* (`player/player.gd`, `power/main_breaker.gd` — the `network/` ones are autoloads and always in the tree) must therefore open with `Player._network_is_reachable()` or its equivalent; `tests/detached_player_rpc_smoke.gd` pins it.
+
+Beware that **a debug build hides this entire class of bug**: it reports "Cannot call method 'x' on a null value" and carries on, so every headless smoke test passes, while the exported server dereferences null and dies with SIGSEGV (exit 139). When a bug reproduces only on Edgegap, export a release build and run it locally before reading any more code — `--script` does not work in an exported binary, so drive it as a real `--server` + `--join=` pair instead.
+
 ### Dev tools
 
 `ui/dev_tools.gd` (F1 panel) provides invincibility, speed/noclip, forced ghost manifestation, and door/entrance selection for manual testing; `tests/dev_tools_smoke.gd` covers it. It reads/writes the same groups and signals gameplay code uses, so it's a reference for "how do I reach this system" as much as a debug tool.

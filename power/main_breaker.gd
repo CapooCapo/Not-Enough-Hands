@@ -184,6 +184,12 @@ func _on_repair_session_ended(success: bool) -> void:
 ## handed a repair out - so a report cannot arrive out of nowhere.
 @rpc("any_peer", "call_remote", "reliable")
 func _report_repair_session(success: bool) -> void:
+	# A report in flight when the run ends arrives at a cabinet the lobby has
+	# already taken out of the tree, where `multiplayer` and `get_tree()` are
+	# both null - see Player._network_is_reachable(). Asking either of them
+	# first is the crash rather than the check.
+	if not is_inside_tree() or multiplayer == null:
+		return
 	if not WorldNet.is_world_authority() or interactable.can_interact():
 		return
 	var sender_id := multiplayer.get_remote_sender_id()

@@ -503,6 +503,29 @@ func _is_network_session() -> bool:
 	return manager != null and bool(manager.get("session_active"))
 
 
+## True while this body can still be asked a network question at all.
+##
+## An RPC is not delivered where it was sent from. It lands a frame or two
+## later, and the end of a run spends exactly those frames swapping the villa
+## for the lobby - while every peer goes on streaming input at its own rate,
+## because none of them has heard yet. So the packet arrives at a body that has
+## already left the tree with the map, and `Node.multiplayer` is null outside
+## the tree: `multiplayer.is_server()` is then not the guard, it *is* the crash.
+##
+## A debug build reports "Cannot call method 'is_server' on a null value" and
+## carries on, which is why this was invisible in every headless test. A release
+## build dereferences null instead, and that is what took the Edgegap server
+## down with a SIGSEGV every single time a wiped team was handed back to the
+## lobby. Every RPC entry point below opens with this.
+func _network_is_reachable() -> bool:
+	return is_inside_tree() and multiplayer != null
+
+
+## The server-side half of an RPC guard, safe to ask on a detached body.
+func _rpc_reached_authority() -> bool:
+	return _network_is_reachable() and multiplayer.is_server()
+
+
 func _is_network_client() -> bool:
 	return _is_network_session() and not multiplayer.is_server()
 
@@ -562,7 +585,7 @@ func _submit_network_input(
 	pitch: float,
 	input_sequence: int
 ) -> void:
-	if not multiplayer.is_server() or not _rpc_sender_owns_player():
+	if not _rpc_reached_authority() or not _rpc_sender_owns_player():
 		return
 	if not is_finite(move.x) or not is_finite(move.y) \
 		or not is_finite(yaw) or not is_finite(pitch):
@@ -705,7 +728,7 @@ func _receive_network_state(
 	ack_input_sequence: int,
 	server_life_state_revision: int
 ) -> void:
-	if multiplayer.is_server():
+	if not _network_is_reachable() or multiplayer.is_server():
 		return
 	_snapshot_position = server_position
 	_snapshot_yaw = server_yaw
@@ -809,7 +832,7 @@ func _receive_life_state(
 	server_revive_progress: float,
 	server_life_state_revision: int
 ) -> void:
-	if multiplayer.is_server():
+	if not _network_is_reachable() or multiplayer.is_server():
 		return
 	_apply_remote_life_state(
 		server_alive,
@@ -992,6 +1015,8 @@ func _try_interact() -> void:
 ## machine, so a door still swings away from the person who opened it.
 @rpc("authority", "call_remote", "reliable")
 func _echo_interaction(target_path: NodePath) -> void:
+	if not _network_is_reachable():
+		return
 	var target := _scene_node(target_path)
 	if target and target.has_method("interact"):
 		target.interact(self)
@@ -999,26 +1024,26 @@ func _echo_interaction(target_path: NodePath) -> void:
 
 @rpc("any_peer", "call_remote", "reliable")
 func _request_interact() -> void:
-	if multiplayer.is_server() and _rpc_sender_owns_player():
+	if _rpc_reached_authority() and _rpc_sender_owns_player():
 		_try_interact()
 
 
 @rpc("any_peer", "call_remote", "reliable")
 func _request_drop_item() -> void:
-	if multiplayer.is_server() and _rpc_sender_owns_player():
+	if _rpc_reached_authority() and _rpc_sender_owns_player():
 		_drop_selected_item()
 
 
 @rpc("any_peer", "call_remote", "reliable")
 func _request_select_slot(slot_index: int) -> void:
-	if multiplayer.is_server() and _rpc_sender_owns_player() and slot_index in [0, 1]:
+	if _rpc_reached_authority() and _rpc_sender_owns_player() and slot_index in [0, 1]:
 		equipment.select_slot(slot_index)
 		_confirm_selected_slot.rpc_id(owner_peer_id, slot_index)
 
 
 @rpc("authority", "call_remote", "reliable")
 func _confirm_selected_slot(slot_index: int) -> void:
-	if is_local_player() and slot_index in [0, 1]:
+	if _network_is_reachable() and is_local_player() and slot_index in [0, 1]:
 		equipment.select_slot(slot_index)
 
 
@@ -1033,7 +1058,7 @@ func _request_or_select_slot(slot_index: int) -> void:
 
 
 func _rpc_sender_owns_player() -> bool:
-	return multiplayer.get_remote_sender_id() == owner_peer_id
+	return _network_is_reachable() and multiplayer.get_remote_sender_id() == owner_peer_id
 
 
 ## Called by a PickupItem's own script when its Interactable fires - mirrors
@@ -1385,7 +1410,7 @@ func _present_death(ghost: Node3D) -> void:
 
 @rpc("authority", "call_remote", "reliable")
 func _show_death(ghost_path: NodePath) -> void:
-	if not is_local_player():
+	if not _network_is_reachable() or not is_local_player():
 		return
 	# is_alive also arrives in the next state packet; setting it here keeps the
 	# screen and the body from disagreeing for the frame in between.
@@ -1804,7 +1829,9 @@ func _release_remote_encounter_target() -> void:
 ## `_encounter_belongs_elsewhere()` is false and the minigame simply runs.
 @rpc("authority", "call_remote", "reliable")
 func _begin_remote_encounter(target_path: NodePath, starter: StringName) -> void:
-	if not is_local_player() or starter not in REMOTE_ENCOUNTER_STARTERS:
+	if not _network_is_reachable() \
+		or not is_local_player() \
+		or starter not in REMOTE_ENCOUNTER_STARTERS:
 		return
 	var target := _scene_node(target_path)
 	if target == null:
@@ -1847,7 +1874,7 @@ func _apply_door_outcome(door: Node, outcome: DoorOutcome) -> float:
 
 @rpc("any_peer", "call_remote", "reliable")
 func _report_door_outcome(entrance_id: int, outcome: int) -> void:
-	if not multiplayer.is_server() or not _rpc_sender_owns_player():
+	if not _rpc_reached_authority() or not _rpc_sender_owns_player():
 		return
 	if outcome < DoorOutcome.CLEARED or outcome > DoorOutcome.CANCELLED:
 		return
@@ -1865,7 +1892,7 @@ func _report_remote_encounter_finished(
 	success: bool,
 	reported_bladder: float
 ) -> void:
-	if not multiplayer.is_server() or not _rpc_sender_owns_player():
+	if not _rpc_reached_authority() or not _rpc_sender_owns_player():
 		return
 	if starter not in [&"start_toilet_minigame", &"start_breaker_minigame"]:
 		return
@@ -1884,16 +1911,23 @@ func _report_remote_encounter_finished(
 
 ## Node paths travel relative to the current scene, so they mean the same thing
 ## on a peer whose map sits somewhere else in its own tree.
+## `get_tree()` is null outside the tree for the same reason `multiplayer` is,
+## so both of these are reachable from a detached body - see
+## `_network_is_reachable()`.
 func _scene_path_of(node: Node) -> NodePath:
+	if not is_inside_tree() or node == null:
+		return NodePath()
 	var scene := get_tree().current_scene
-	if scene == null or node == null:
+	if scene == null:
 		return NodePath()
 	return scene.get_path_to(node)
 
 
 func _scene_node(path: NodePath) -> Node:
+	if not is_inside_tree() or path.is_empty():
+		return null
 	var scene := get_tree().current_scene
-	if scene == null or path.is_empty():
+	if scene == null:
 		return null
 	return scene.get_node_or_null(path)
 
