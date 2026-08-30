@@ -441,7 +441,13 @@ func _configure_player_presentation() -> void:
 	var local := is_local_player()
 	var camera := camera_pivot.get_node_or_null("Camera3D") as Camera3D
 	if camera:
-		camera.current = local
+		# Player scenes are instantiated once per peer. Their cameras deliberately
+		# start non-current in player.tscn so a remote replica cannot steal the
+		# viewport while its parent is still entering the tree.
+		if local:
+			camera.make_current()
+		else:
+			camera.current = false
 	# The server keeps InteractRay active for authoritative range checks; remote
 	# clients need neither the ray nor any of this player's full-screen UI.
 	if interact_ray:

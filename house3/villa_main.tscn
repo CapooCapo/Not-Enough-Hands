@@ -1782,7 +1782,7 @@ size = Vector3(2, 0.3, 2)
 
 [sub_resource type="BoxMesh" id="BoxMesh_jd4ko"]
 material = SubResource("StandardMaterial3D_b57m4")
-size = Vector3(2, 0.3, 2)
+size = Vector3(2, 2.9667237, 2)
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_3inv3"]
 size = Vector3(2, 0.3, 2)
@@ -1810,7 +1810,7 @@ size = Vector3(2, 0.3, 2)
 
 [sub_resource type="BoxMesh" id="BoxMesh_obgut"]
 material = SubResource("StandardMaterial3D_b57m4")
-size = Vector3(2, 0.3, 2)
+size = Vector3(2, 2.1266847, 2)
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_md7jr"]
 size = Vector3(2, 1.1, 2)
@@ -28109,6 +28109,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 73, -0.15, 49)
 shape = SubResource("BoxShape3D_8yofm")
 
 [node name="Mesh" type="MeshInstance3D" parent="VillaHouse/Generated/Level_F_B1/Architecture/Ceiling/CeilingSlab_0878" unique_id=378981579]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.3333617, 0)
 mesh = SubResource("BoxMesh_jd4ko")
 
 [node name="CeilingSlab_0879" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_B1/Architecture/Ceiling" unique_id=407041357]
@@ -28127,7 +28128,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 75, -0.15, 49)
 shape = SubResource("BoxShape3D_qv3wh")
 
 [node name="Mesh" type="MeshInstance3D" parent="VillaHouse/Generated/Level_F_B1/Architecture/Ceiling/CeilingSlab_0880" unique_id=67401943]
-transform = Transform3D(1, 0, 0, 0, -23.570549, 0, 0, 0, 0.746039, 0, 0.86207426, -0.046844482)
+transform = Transform3D(1, 0, 0, 0, -9.531694, 0, 0, 0, 0.98586696, 0, 1.9463708, -0.046844482)
 mesh = SubResource("BoxMesh_dnp88")
 
 [node name="CeilingSlab_0881" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_B1/Architecture/Ceiling" unique_id=44834640]
@@ -28146,6 +28147,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 77, -0.15, 49)
 shape = SubResource("BoxShape3D_l1fjm")
 
 [node name="Mesh" type="MeshInstance3D" parent="VillaHouse/Generated/Level_F_B1/Architecture/Ceiling/CeilingSlab_0882" unique_id=2056600217]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.91334236, 0)
 mesh = SubResource("BoxMesh_obgut")
 
 [node name="Doors" type="Node3D" parent="VillaHouse/Generated/Level_F_B1" unique_id=1454266095]
@@ -38722,7 +38724,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 75, 1.75, 49.85)
 shape = SubResource("BoxShape3D_2scrk")
 
 [node name="InteriorWallModule_3022" parent="VillaHouse/Generated/Level_F_00/Architecture/InteriorWall_3021" unique_id=1208218286 groups=["modular_house_asset", "villa_house_asset"] instance=ExtResource("8_f1ptq")]
-transform = Transform3D(1, 0, 0, 0, 1.061721, 0, 0, 0, 1, 0, -0.82699203, 0.15000153)
+transform = Transform3D(1, 0, 0, 0, 0.5602326, 0, 0, 0, 1, 0, 0.03134179, 0.15000153)
 metadata/source_asset = "res://assets/map/retro_modular_house/retro_modular_house/models/walls/wall_3x2.fbx"
 
 [node name="InteriorWall_3023" type="StaticBody3D" parent="VillaHouse/Generated/Level_F_00/Architecture" unique_id=1308595203]

@@ -19,6 +19,7 @@
 [ext_resource type="Script" path="res://jumpscare/jumpscare_controller.gd" id="18_jumpscare"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
+resource_local_to_scene = true
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_horror_overlay"]
 resource_local_to_scene = true
@@ -202,7 +203,6 @@ script = ExtResource("13_player_bladder")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.62, 0)
 
 [node name="Camera3D" type="Camera3D" parent="CameraPivot" unique_id=663310931]
-current = true
 fov = 70.0
 near = 0.02
 far = 45.0
