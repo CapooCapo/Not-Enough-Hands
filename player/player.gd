@@ -234,8 +234,6 @@ func _ready() -> void:
 	if flashlight:
 		_flashlight_base_energy = flashlight.light_energy
 		_flashlight_base_range = flashlight.spot_range
-	if door_minigame and door_minigame.has_signal("minigame_completed"):
-		door_minigame.connect("minigame_completed", _on_door_ghost_repelled)
 	if jumpscare:
 		jumpscare.jumpscare_finished.connect(_on_hunter_jumpscare_finished)
 
@@ -989,18 +987,20 @@ func _start_hunter_jumpscare(ghost: Node3D) -> bool:
 	return true
 
 
+## The controller emits this for every jumpscare it plays, and cancel() emits it
+## too - a run that was cut short is not a death. Only one that came through
+## _start_hunter_jumpscare() has a killer waiting, so only that one raises the
+## Game Over; without the guard a killer-less finish raised one anyway, and
+## death_screen.gd captions a null killer as the statue.
 func _on_hunter_jumpscare_finished() -> void:
 	var killer := _pending_hunter_killer
 	_pending_hunter_killer = null
+	if killer == null:
+		return
 	if death_ui.has_method("show_game_over"):
 		death_ui.call("show_game_over", killer)
 	elif death_ui.has_method("show_jumpscare"):
 		death_ui.call("show_jumpscare", killer)
-
-
-func _on_door_ghost_repelled(_door: Node) -> void:
-	if jumpscare and is_alive and not jumpscare.is_playing():
-		jumpscare.play_jumpscare(self)
 
 
 ## A rescuer has to be able to walk over here: anyone already on the floor or

@@ -43,25 +43,25 @@ const SPOT_GROUP := &"door_ghost_positions"
 ## Successful flashlight hits needed to finish one phase. The counter is
 ## per-phase and resets to zero on every transition, so the whole encounter
 ## costs hits_per_phase * TOTAL_PHASES hits.
-@export var hits_per_phase: int = 5
+@export var hits_per_phase: int = 2
 ## Seconds the ghost needs to cross from its spot to the door. This is one
 ## search/hit cycle, not one phase: every landed hit resets it in full.
-@export var threat_window: float = 5.0
+@export var threat_window: float = 3.0
 ## Remaining time at which the ghost stops closing and simply stares. It stays
 ## vulnerable here, giving a final short chance before the real deadline.
-@export var stare_threshold: float = 1.0
+@export var stare_threshold: float = 0.8
 ## How long the beam has to stay on the ghost, unbroken, for the hit to count.
 ## Brushing past it does nothing; look away and the hold starts over.
-@export var flashlight_confirm_time: float = 0.5
+@export var flashlight_confirm_time: float = 0.35
 ## Shape of the approach. The ghost is time-locked to arrive exactly as the
 ## window closes - so it can never idle short of the door, and a near position
 ## is not easier than a far one - and this is how that time is spent: above 1
 ## it creeps then rushes, below 1 it comes hard and eases in.
 @export var approach_easing: float = 1.6
 ## Beat between a landed repel and the ghost reappearing somewhere else.
-@export var retreat_duration: float = 0.55
+@export var retreat_duration: float = 0.3
 ## How much of that beat it spends recoiling in the beam before it vanishes.
-@export var reaction_duration: float = 0.3
+@export var reaction_duration: float = 0.18
 
 @export_category("Dodge")
 ## One roll per appearance, made once a continuous beam reaches this fraction
@@ -106,7 +106,15 @@ const SPOT_GROUP := &"door_ghost_positions"
 ## the villa's scaled doors hinge on their own jamb without a second number.
 @export var leaf_hinge_offset: Vector3 = Vector3(-1.1, 0.0, 0.0)
 @export var eye_height: float = 1.5
-@export var phase_transition_duration: float = 0.45
+@export var phase_transition_duration: float = 0.3
+## Dramatic push-in while the beam is actually on the ghost: the camera FOV is
+## squeezed to this fraction of the player camera's own FOV, so the ghost fills
+## the frame for the length of the hold and through its recoil. Restored on exit.
+@export_range(0.35, 1.0, 0.01) var lit_zoom_fraction: float = 0.58
+## Seconds to reach the zoomed framing, and to fall back out of it. In fast, out
+## slower, so the snap lands with the hit and the release is not a lurch.
+@export_range(0.05, 1.0, 0.01) var zoom_in_duration: float = 0.14
+@export_range(0.05, 1.5, 0.01) var zoom_out_duration: float = 0.32
 
 @export_category("Ghost placement")
 ## Only markers this close to the attacked door are treated as its spots.
@@ -148,7 +156,7 @@ const SPOT_GROUP := &"door_ghost_positions"
 @export var success_duration: float = 0.75
 @export var heartbeat_interval_far: float = 1.2
 @export var heartbeat_interval_near: float = 0.3
-@export var hint_duration: float = 4.0
+@export var hint_duration: float = 2.5
 
 @export_category("Ghost scene")
 ## Spawned into the running level - never parented to the player - so the ghost
@@ -220,6 +228,8 @@ var _saved_flashlight_visible: bool = true
 var _saved_flashlight_energy: float = 0.0
 var _saved_flashlight_range: float = 0.0
 var _saved_flashlight_angle: float = 0.0
+var _saved_camera_fov: float = 0.0
+var _zoom: float = 0.0
 var _flicker_time: float = 0.0
 ## Lights this encounter switched off, and what they were before it did.
 var _darkened_lights: Dictionary = {}
@@ -836,7 +846,11 @@ func _resolve_spot(candidate: Vector3, eye: Vector3) -> Vector3:
 		var blocker := _first_blocker(eye, candidate)
 		if blocker.is_empty():
 			return candidate
-		distance = eye.distance_to(blocker["position"]) - spot_wall_margin
+		# Horizontal, like the distance it replaces: eye is a metre and a half up,
+		# so a straight 3D length here reads as further out than the spot is and
+		# can slip a candidate under the phase minimum.
+		var blocked: Vector3 = blocker["position"]
+		distance = ground.distance_to(Vector3(blocked.x, floor_height, blocked.z)) - spot_wall_margin
 	return Vector3.INF
 
 
@@ -1037,6 +1051,7 @@ func _update_presentation(delta: float) -> void:
 
 	_aperture = move_toward(_aperture, phase_apertures[phase_index], delta * 2.2)
 	_flash = maxf(_flash - delta * 4.0, 0.0)
+	_update_zoom(delta)
 	var material := mask.material as ShaderMaterial
 	if material:
 		var viewport_size := get_viewport().get_visible_rect().size
@@ -1074,6 +1089,19 @@ func _update_presentation(delta: float) -> void:
 	if _hint_remaining > 0.0:
 		_hint_remaining -= delta
 		hint.modulate.a = clampf(_hint_remaining, 0.0, 1.0)
+
+## The camera pushes in on the ghost the moment the beam actually lands on it,
+## and holds through the recoil that follows a repel. It is framing only - the
+## hit test is the 3D beam ray in _flashlight_illuminates_ghost(), which a
+## narrower FOV neither helps nor hinders.
+func _update_zoom(delta: float) -> void:
+	var want_zoom := lit_time > 0.0 or (state in [State.RETREAT, State.SUCCESS] and ghost.visible)
+	var duration := zoom_in_duration if want_zoom else zoom_out_duration
+	_zoom = move_toward(_zoom, 1.0 if want_zoom else 0.0, delta / maxf(duration, 0.01))
+	if is_instance_valid(_camera) and _saved_camera_fov > 0.0:
+		_camera.fov = lerpf(
+			_saved_camera_fov, _saved_camera_fov * lit_zoom_fraction, ease(_zoom, 0.6)
+		)
 
 
 ## The player is only ever shown where they are in the phase they are in.
@@ -1131,6 +1159,8 @@ func _restore_house() -> void:
 
 func _capture_player_state() -> void:
 	_saved_player_position = owning_player.global_position
+	_saved_camera_fov = _camera.fov
+	_zoom = 0.0
 	_saved_player_yaw = owning_player.rotation.y
 	_saved_pitch = _camera_pivot.rotation.x
 	_saved_yaw_clamp_active = bool(owning_player.get("yaw_clamp_active"))
@@ -1170,6 +1200,9 @@ func _close() -> void:
 
 func _restore_player_state() -> void:
 	_restore_leaf()
+	if is_instance_valid(_camera) and _saved_camera_fov > 0.0:
+		_camera.fov = _saved_camera_fov
+	_zoom = 0.0
 	if is_instance_valid(_flashlight):
 		_flashlight.visible = _saved_flashlight_visible
 		if _saved_flashlight_energy > 0.0:

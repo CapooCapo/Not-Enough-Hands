@@ -46,7 +46,7 @@ func _run() -> void:
 	player.set_physics_process(false)
 	minigame.set_process(false)
 	# The unit smoke test forces and verifies the 30% dodge path. Keep this
-	# courtyard geometry regression deterministic while it checks all 15 hits.
+	# courtyard geometry regression deterministic while it checks every hit.
 	minigame.dodge_chance = 0.0
 	door.set_physics_process(false)
 	door.get_node("WarningAudio").set("stream", null)
@@ -127,7 +127,7 @@ func _run() -> void:
 		_fail("A fresh VillaHouse build regenerated %d blocked entrance(s)." % blocked_anchors)
 		return
 
-	print("Villa door ghost exterior smoke test passed: camera outside, 12 wall cutouts, all 3 distance phases and 15 flashlight hits registered.")
+	print("Villa door ghost exterior smoke test passed: camera outside, 12 wall cutouts, all 3 distance phases and all %d flashlight hits registered." % minigame.get_hits_required())
 	quit(0)
 
 

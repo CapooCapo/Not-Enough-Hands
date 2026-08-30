@@ -8,9 +8,9 @@ extends SceneTree
 ## unprojecting the model's own crown and jaw bones through the sequence's own
 ## camera at both ends of the flight. Nothing here is eyeballed off a constant.
 ##
-## Player lock/restore and the blood ramp are checked in the same pass; the door
-## encounter that triggers it in play is covered by
-## tests/door_ghost_minigame_smoke.gd, which this test does not duplicate.
+## Player lock/restore and the blood ramp are checked in the same pass; the
+## Huntsman kill that triggers it in play is covered by
+## tests/hunter_slash_smoke.gd, which this test does not duplicate.
 
 const CONTROLLER_SCRIPT := "res://jumpscare/jumpscare_controller.gd"
 const VISUAL_SCENE := "res://jumpscare/jumpscare_visual.tscn"
@@ -228,11 +228,12 @@ func _run() -> void:
 	quit()
 
 
-## The wiring, end to end: a real Player, its real DoorGhostMinigame reporting
-## the ghost driven off, and the jumpscare playing once the encounter has let go
-## of the camera. The defeat itself belongs to
-## tests/door_ghost_minigame_smoke.gd; what is checked here is only that this
-## feature hangs off that existing event and off nothing else.
+## The wiring, end to end: the Huntsman's lethal hit is the only thing that
+## plays this. The door encounter is checked here too, as the thing that must
+## *not* play it - winning a repel used to fire a jumpscare as a flourish, which
+## read as being killed at the moment of victory. The encounter itself belongs
+## to tests/door_ghost_minigame_smoke.gd; what is checked here is only what does
+## and does not reach the controller.
 func _check_trigger() -> bool:
 	var player_scene := load("res://player/player.tscn") as PackedScene
 	if player_scene == null:
@@ -248,33 +249,35 @@ func _check_trigger() -> bool:
 		return false
 	var minigame := player.get_node_or_null("DoorGhostMinigame")
 	if minigame == null:
-		_fail("Player carries no DoorGhostMinigame to hang the trigger off.")
+		_fail("Player carries no DoorGhostMinigame to check the trigger against.")
+		return false
+	var death_ui := player.get_node_or_null("DeathUI") as CanvasLayer
+	if death_ui == null:
+		_fail("Player carries no DeathUI to check the won encounter against.")
 		return false
 
-	# The win is what plays it, and it plays over an encounter that is still
-	# open - the whole point is that the face interrupts the doorway.
+	# Driving the ghost off is the win. Nothing is owed to the player for it -
+	# no face in the doorway, and above all no death screen.
 	minigame.minigame_completed.emit(null)
 	await physics_frame
-	if not jumpscare.is_playing():
-		_fail("The door encounter was won and no jumpscare played over it.")
+	if jumpscare.is_playing():
+		_fail("Winning the door encounter played a jumpscare.")
+		return false
+	if death_ui.visible or int(death_ui.get("phase")) != 0:
+		_fail("Winning the door encounter raised the death screen.")
 		return false
 
-	jumpscare.cancel()
-	await physics_frame
-
-	# And it must not fire for an encounter that ended any other way. Closing is
-	# no longer a trigger at all - it is the thing the jumpscare waits for.
+	# Nor does any other way the encounter can end reach the controller.
 	minigame.minigame_closed.emit()
 	await physics_frame
-	if jumpscare.is_playing():
-		_fail("A jumpscare played for an encounter that was never won.")
+	if jumpscare.is_playing() or death_ui.visible:
+		_fail("Closing the door encounter played a jumpscare.")
 		return false
 
-	jumpscare.cancel()
 	player.queue_free()
 	await physics_frame
 
-	# The other trigger, on the same controller: the Huntsman's lethal hit. The
+	# The one thing that does reach it: the Huntsman's lethal hit. The
 	# group is the discriminator, so a stand-in in it is enough - this is a
 	# check of the wiring, not of the Huntsman, which
 	# tests/hunter_slash_smoke.gd and tests/hunter_ghost_smoke.gd own.

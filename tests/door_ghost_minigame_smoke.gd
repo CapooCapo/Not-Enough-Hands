@@ -227,12 +227,12 @@ func _run() -> void:
 		_fail("Door ghost ignored the map-authored exterior direction.")
 		return
 	direction_probe.queue_free()
-	if minigame.hits_per_phase != 5 \
+	if minigame.hits_per_phase != 2 \
 		or DoorGhostMinigame.TOTAL_PHASES != 3 \
-		or minigame.get_hits_required() != 15 \
-		or not is_equal_approx(minigame.threat_window, 5.0) \
-		or not is_equal_approx(minigame.stare_threshold, 1.0) \
-		or not is_equal_approx(minigame.flashlight_confirm_time, 0.5):
+		or minigame.get_hits_required() != 6 \
+		or not is_equal_approx(minigame.threat_window, 3.0) \
+		or not is_equal_approx(minigame.stare_threshold, 0.8) \
+		or not is_equal_approx(minigame.flashlight_confirm_time, 0.35):
 		_fail(
 			"The encounter's balance defaults drifted: %d hits x %d phases = %d / %.1fs / %.1fs / %.2fs."
 			% [
@@ -397,8 +397,11 @@ func _run() -> void:
 			_wait_for_search(minigame)
 			# The first pass inherits the partially spent window left by the
 			# "no hit without the beam" check above; every later one is fresh.
+			# Only a fresh one is standing where it spawned - a spent window has
+			# already walked it in, so the spawn rules are checked on those.
+			var fresh_spawn := phase > 0 or hit > 0
 			if not minigame.ghost.visible \
-				or ((phase > 0 or hit > 0) \
+				or (fresh_spawn \
 					and not is_equal_approx(minigame.get_threat_remaining(), minigame.threat_window)):
 				_fail("A new search did not put the ghost back out with a full approach window.")
 				return
@@ -407,14 +410,14 @@ func _run() -> void:
 			)
 			var from_eye := minigame.ghost.global_position - intended_eye
 			from_eye.y = 0.0
-			if from_eye.length() < minigame.phase_minimum_spot_distances[phase] - 0.05:
+			if fresh_spawn and from_eye.length() < minigame.phase_minimum_spot_distances[phase] - 0.05:
 				_fail(
 					"Phase %d spawned at %.2f m; minimum is %.2f m."
 					% [phase + 1, from_eye.length(), minigame.phase_minimum_spot_distances[phase]]
 				)
 				return
 			var yaw_limit: float = minigame.phase_yaw_limits[phase]
-			if yaw_limit < 179.0:
+			if fresh_spawn and yaw_limit < 179.0:
 				var angle := rad_to_deg(acos(clampf(minigame.outward.dot(from_eye.normalized()), -1.0, 1.0)))
 				if angle > yaw_limit - 1.9:
 					_fail("Phase %d spawned outside its %.0f-degree yaw clamp." % [phase + 1, yaw_limit])
@@ -464,8 +467,8 @@ func _run() -> void:
 			if minigame.ghost.global_position.is_equal_approx(spot_before):
 				_fail("The ghost came back to the same spot it was just pushed off.")
 				return
-	if minigame.get_total_hits() != 15:
-		_fail("The encounter finished after %d hits instead of 15." % minigame.get_total_hits())
+	if minigame.get_total_hits() != 6:
+		_fail("The encounter finished after %d hits instead of 6." % minigame.get_total_hits())
 		return
 	if bool(player.yaw_clamp_active):
 		_fail("The fully opened phase must release the horizontal look clamp.")
