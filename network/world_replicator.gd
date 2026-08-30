@@ -276,6 +276,28 @@ func report_sound_stop(player: Node) -> void:
 	_stop_sound.rpc(path)
 
 
+## The one way to read a node back out of `_entities`, on either side.
+##
+## A registry entry routinely outlives its node: `queue_free()` completes at the
+## end of the frame while the sweep below only runs on the 20 Hz tick, so
+## anything freed in between is already gone by the time the next tick looks at
+## it. Reading that through a type annotation (`var n: Node = ...`) or an `as`
+## cast does not quietly yield null - GDScript raises "previously freed
+## instance" / "cast a freed object" and *aborts the whole function on the
+## spot*. That is what a team wipe used to do here: the ritual takes its items
+## back as the run empties, the sweep then died on the first freed one before it
+## could erase the entry, and because the entry stayed every later sweep and
+## every entity broadcast died on it too - permanently, and twice per tick.
+##
+## Reading through an untyped local is the only form that survives, so it lives
+## in one place instead of at each of the ten call sites.
+func _live_entity(id: int) -> Node:
+	var value: Variant = _entities.get(id)
+	if not is_instance_valid(value):
+		return null
+	return value
+
+
 ## Deliberately a sweep rather than a `tree_exiting` hook. `reparent()` fires
 ## the tree signals too, and an item changes parent every single time it is
 ## picked up or handed to the brazier - hooking those would despawn a totem on
@@ -284,17 +306,29 @@ func report_sound_stop(player: Node) -> void:
 func _sweep_dead_entities() -> void:
 	var dead: Array[int] = []
 	for id: int in _entities:
-		var node: Node = _entities[id]
-		if not is_instance_valid(node) or node.is_queued_for_deletion():
+		var node := _live_entity(id)
+		if node == null or node.is_queued_for_deletion():
 			dead.append(id)
 	for id: int in dead:
-		var node: Node = _entities[id]
-		if is_instance_valid(node):
+		var node := _live_entity(id)
+		if node:
 			_entity_ids.erase(node.get_instance_id())
+		else:
+			_forget_entity_instance(id)
 		_entities.erase(id)
 		_entity_scene.erase(id)
 		_holders.erase(id)
 		_despawn_entity.rpc(id)
+
+
+## A node that is already gone cannot be asked for its instance id, so the
+## reverse lookup has to be found by value. Left behind, that stale key would
+## hand the dead entity's number to whatever node Godot next recycles the id to.
+func _forget_entity_instance(id: int) -> void:
+	for instance_id: Variant in _entity_ids.keys():
+		if int(_entity_ids[instance_id]) == id:
+			_entity_ids.erase(instance_id)
+			return
 
 
 # =============================================================================
@@ -335,7 +369,9 @@ func _broadcast_slow() -> void:
 ## nothing about clips or sway does.
 func _collect_ghosts() -> Array:
 	var out: Array = []
-	for ghost: Node3D in _ghosts:
+	# Untyped for the same reason _live_entity() exists: a typed loop variable
+	# aborts this function outright the first time the scene frees a ghost.
+	for ghost: Variant in _ghosts:
 		if not is_instance_valid(ghost):
 			out.append([])
 			continue
@@ -388,8 +424,8 @@ func _ghost_body(ghost: Node3D) -> Node3D:
 func _collect_entities() -> Array:
 	var out: Array = []
 	for id: int in _entities:
-		var node := _entities[id] as Node3D
-		if not is_instance_valid(node):
+		var node := _live_entity(id) as Node3D
+		if node == null:
 			continue
 		# A carried item follows its holder on the client too, so there is no
 		# point streaming a transform for it.
@@ -490,8 +526,8 @@ func _on_peer_replication_ready(peer_id: int) -> void:
 func _build_snapshot() -> Dictionary:
 	var spawned: Array = []
 	for id: int in _entities:
-		var node := _entities[id] as Node3D
-		if not is_instance_valid(node):
+		var node := _live_entity(id) as Node3D
+		if node == null:
 			continue
 		spawned.append([
 			id,
@@ -546,8 +582,8 @@ func _sync_fast(ghosts: Array, entities: Array) -> void:
 	for row: Array in entities:
 		if row.size() < 3:
 			continue
-		var node := _entities.get(int(row[0])) as Node3D
-		if not is_instance_valid(node):
+		var node := _live_entity(int(row[0])) as Node3D
+		if node == null:
 			continue
 		# A ghost entity carries the whole ghost state behind its id; a loose
 		# totem carries only a transform.
@@ -676,8 +712,13 @@ func _spawn_entity(
 	_bind_scene_if_changed()
 	if scene_path.is_empty():
 		return
-	var existing := _entities.get(id) as Node
-	if is_instance_valid(existing):
+	var existing := _live_entity(id)
+	if existing == null and _entities.has(id):
+		# Freed locally without a despawn ever arriving. Drop the stale row here
+		# rather than letting the assignment below overwrite it, so the reverse
+		# lookup and the scene path go with it.
+		_remove_client_entity(id)
+	elif existing:
 		var same_scene := str(_entity_scene.get(id, "")) == scene_path
 		var same_name := node_name.is_empty() or str(existing.name) == node_name
 		if same_scene and same_name:
@@ -720,10 +761,12 @@ func _despawn_entity(id: int) -> void:
 
 
 func _remove_client_entity(id: int) -> void:
-	var node: Node = _entities.get(id)
-	if is_instance_valid(node):
+	var node := _live_entity(id)
+	if node:
 		_entity_ids.erase(node.get_instance_id())
 		node.queue_free()
+	else:
+		_forget_entity_instance(id)
 	_entities.erase(id)
 	_entity_scene.erase(id)
 	_holders.erase(id)
@@ -735,8 +778,8 @@ func _remove_client_entity(id: int) -> void:
 ## and takes it off the floor on the peer that pressed the key.
 @rpc("authority", "call_remote", "reliable")
 func _set_entity_holder(id: int, peer_id: int) -> void:
-	var item := _entities.get(id) as Node3D
-	if not is_instance_valid(item):
+	var item := _live_entity(id) as Node3D
+	if item == null:
 		return
 	for node: Node in get_tree().get_nodes_in_group(&"players"):
 		if not node.has_method(&"release_held_item"):
@@ -776,7 +819,7 @@ func _apply_snapshot(snapshot: Dictionary) -> void:
 		if int(row[5]) != 0:
 			_set_entity_holder(int(row[0]), int(row[5]))
 		if row.size() >= 8 and row[7] is Array and not (row[7] as Array).is_empty():
-			var entity := _entities.get(int(row[0])) as Node3D
+			var entity := _live_entity(int(row[0])) as Node3D
 			if entity and entity.is_in_group(&"hostile_ghosts"):
 				_apply_ghost(entity, row[7])
 	var ghosts: Array = snapshot.get("ghosts", [])
