@@ -721,7 +721,7 @@ func _lock_on(player: CharacterBody3D) -> void:
 	_sight_timer = lose_sight_time
 	# Once it has seen you it has your scent for the rest of the night.
 	prey_marked = true
-	horn_audio.play()
+	WorldNet.play_shared(horn_audio)
 	# It roars first and runs second. That one second is the whole warning, and
 	# it is heard in every room, so the players it has *not* seen get it too.
 	_set_state(HunterState.ROARING)
@@ -778,7 +778,7 @@ func _set_state(new_state: HunterState) -> void:
 	match new_state:
 		HunterState.CASTING:
 			_state_timer = cast_duration * (trapped_cast_scale if trapped else 1.0)
-			sniff_audio.play()
+			WorldNet.play_shared(sniff_audio)
 		HunterState.ROARING:
 			_state_timer = roar_duration
 		HunterState.DISENGAGING:
@@ -911,7 +911,7 @@ func _update_casting(delta: float) -> void:
 	if _sniff_timer <= 0.0:
 		_sniff_timer = randf_range(1.6, 3.4)
 		if not sniff_audio.playing:
-			sniff_audio.play()
+			WorldNet.play_shared(sniff_audio)
 
 	# Turning on the spot is how the sweeping lantern gets to cover a whole room
 	# rather than one wall of it.
@@ -960,7 +960,7 @@ func _update_sweeping(delta: float) -> void:
 		_noise_lead_time = float(_spoor[lead_index]['time'])
 		_has_noise_lead = true
 		if not sniff_audio.playing:
-			sniff_audio.play()
+			WorldNet.play_shared(sniff_audio)
 		_set_state(HunterState.TRACKING)
 		return
 
@@ -1035,7 +1035,7 @@ func _update_locked(delta: float) -> void:
 
 
 func _begin_seize() -> void:
-	seize_audio.play()
+	WorldNet.play_shared(seize_audio)
 	_set_state(HunterState.SEIZING)
 	seize_started.emit(current_target)
 
@@ -1266,7 +1266,7 @@ func _begin_entry(door: Node3D) -> void:
 	velocity = Vector3.ZERO
 	_reset_hunt_memory()
 	_set_manifested(true)
-	breach_audio.play()
+	WorldNet.play_shared(breach_audio)
 	_set_state(HunterState.ENTERING)
 
 
@@ -1278,8 +1278,8 @@ func _become_trapped() -> void:
 		return
 	trapped = true
 	prey_marked = true
-	horn_audio.play()
-	breach_audio.play()
+	WorldNet.play_shared(horn_audio)
+	WorldNet.play_shared(breach_audio)
 	sealed_inside.emit()
 
 
@@ -1642,7 +1642,7 @@ func dev_force_spawn(target: CharacterBody3D = null) -> bool:
 	inside_house = true
 	entry_door = null
 	_set_manifested(true)
-	horn_audio.play()
+	WorldNet.play_shared(horn_audio)
 	_set_state(HunterState.CASTING)
 	entered_house.emit(null)
 	return true
@@ -1673,7 +1673,7 @@ func spawn_from_breached_door(door: Node3D) -> bool:
 	_reset_hunt_memory()
 	inside_house = true
 	_set_manifested(true)
-	breach_audio.play()
+	WorldNet.play_shared(breach_audio)
 	_set_state(HunterState.CASTING)
 	entered_house.emit(door)
 	return true

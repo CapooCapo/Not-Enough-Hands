@@ -306,7 +306,7 @@ func set_dev_attack_suspended(suspended: bool) -> void:
 		attack_resume_grace_remaining = 0.0
 		if state == StatueState.ATTACK_WINDUP:
 			attack_cancelled.emit()
-			attack_audio.stop()
+			WorldNet.stop_shared(attack_audio)
 			attack_timer = 0.0
 			state = StatueState.COOLDOWN
 			cooldown_timer = maxf(cooldown_timer, attack_cooldown)
@@ -385,7 +385,7 @@ func _begin_hunt(target: CharacterBody3D, ambush_position: Vector3) -> void:
 	unseen_time = unseen_grace_time
 	spotted_disappear_timer = -1.0
 	spotted_jumpscare_played = false
-	spotted_jumpscare_audio.stop()
+	WorldNet.stop_shared(spotted_jumpscare_audio)
 	is_observed = false
 	state = StatueState.STALKING
 	_set_manifested(true)
@@ -395,7 +395,7 @@ func _begin_hunt(target: CharacterBody3D, ambush_position: Vector3) -> void:
 	if not flat_target.is_zero_approx():
 		rotation.y = atan2(-flat_target.x, -flat_target.z)
 	_apply_idle_pose(_pick_new_pose_index())
-	teleport_audio.play()
+	WorldNet.play_shared(teleport_audio)
 	hunt_started.emit(target, ambush_position)
 
 
@@ -403,10 +403,10 @@ func _disappear() -> void:
 	var was_observed := is_observed
 	if state == StatueState.ATTACK_WINDUP:
 		attack_cancelled.emit()
-	attack_audio.stop()
-	spotted_jumpscare_audio.stop()
+	WorldNet.stop_shared(attack_audio)
+	WorldNet.stop_shared(spotted_jumpscare_audio)
 	if state != StatueState.HIDDEN:
-		teleport_audio.play()
+		WorldNet.play_shared(teleport_audio)
 
 	state = StatueState.HIDDEN
 	velocity = Vector3.ZERO
@@ -430,11 +430,11 @@ func _enter_hidden(delay: float, play_sound: bool = true) -> void:
 	hidden_timer = maxf(delay, 0.0)
 	spotted_disappear_timer = -1.0
 	spotted_jumpscare_played = false
-	spotted_jumpscare_audio.stop()
+	WorldNet.stop_shared(spotted_jumpscare_audio)
 	current_target = null
 	velocity = Vector3.ZERO
 	if play_sound:
-		teleport_audio.play()
+		WorldNet.play_shared(teleport_audio)
 	_set_manifested(false)
 
 
@@ -516,7 +516,7 @@ func _try_step_up(horizontal_motion: Vector3) -> void:
 func _freeze_statue(delta: float) -> void:
 	if state == StatueState.ATTACK_WINDUP:
 		attack_cancelled.emit()
-		attack_audio.stop()
+		WorldNet.stop_shared(attack_audio)
 	state = StatueState.FROZEN
 	unseen_time = 0.0
 	attack_timer = 0.0
@@ -693,7 +693,7 @@ func _try_blink_kill() -> bool:
 
 	velocity.x = 0.0
 	velocity.z = 0.0
-	attack_audio.play()
+	WorldNet.play_shared(attack_audio)
 	attack_started.emit(current_target)
 	_apply_attack_pose(1.0)
 	if current_target.has_method('kill_by_ghost'):
@@ -710,14 +710,14 @@ func _begin_attack() -> void:
 	attack_timer = attack_windup
 	velocity.x = 0.0
 	velocity.z = 0.0
-	attack_audio.play()
+	WorldNet.play_shared(attack_audio)
 	attack_started.emit(current_target)
 
 
 func _update_attack_windup(delta: float) -> void:
 	if _attacks_blocked():
 		attack_cancelled.emit()
-		attack_audio.stop()
+		WorldNet.stop_shared(attack_audio)
 		attack_timer = 0.0
 		state = StatueState.COOLDOWN
 		cooldown_timer = maxf(cooldown_timer, attack_cooldown)
@@ -1073,7 +1073,7 @@ func _play_spotted_jumpscare_once() -> void:
 	if spotted_jumpscare_played:
 		return
 	spotted_jumpscare_played = true
-	spotted_jumpscare_audio.play()
+	WorldNet.play_shared(spotted_jumpscare_audio)
 	spotted_jumpscare_started.emit()
 
 

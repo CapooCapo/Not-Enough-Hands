@@ -31,6 +31,9 @@ const RESULT_PATH := "user://world_replication_pair_result.txt"
 const SERVER_SECONDS := 15.0
 const CLIENT_SECONDS := 6.0
 const DAMAGE := 30.0
+## A pitch no call site rolls, so hearing it on the client can only mean the
+## server's own event arrived rather than the client inventing a sound.
+const SOUND_PITCH := 1.37
 
 var _is_client := false
 var _elapsed := 0.0
@@ -41,6 +44,11 @@ var _door: DefenseDoor
 var _clock: NightClock
 var _client_pid := -1
 var _full_durability := 0.0
+var _sound_sent := false
+## Latched on the client the first time the ghost's teleport player changes, so
+## a later sound of the statue's own cannot overwrite the evidence.
+var _heard_pitch := -1.0
+var _initial_pitch := 1.0
 
 
 func _initialize() -> void:
@@ -117,6 +125,7 @@ func _process(delta: float) -> bool:
 	if _visual == null:
 		_visual = _ghost.get("visual_root") as Node3D
 		_full_durability = _door.current_durability
+		_initial_pitch = _teleport_audio().pitch_scale
 	_elapsed += delta
 
 	if not _is_client:
@@ -126,11 +135,18 @@ func _process(delta: float) -> bool:
 			_read_client_verdict()
 		return false
 
+	var pitch := _teleport_audio().pitch_scale
+	if _heard_pitch < 0.0 and not is_equal_approx(pitch, _initial_pitch):
+		_heard_pitch = pitch
 	if _elapsed > CLIENT_SECONDS:
 		_done = true
 		_write_client_verdict()
 		quit()
 	return false
+
+
+func _teleport_audio() -> AudioStreamPlayer3D:
+	return _ghost.get("teleport_audio") as AudioStreamPlayer3D
 
 
 ## The server is the only one that touches anything. Everything here is a change
@@ -141,6 +157,13 @@ func _drive_world() -> void:
 		_ghost.call("_set_manifested", true)
 	if is_equal_approx(_door.current_durability, _full_durability):
 		_door.take_damage(DAMAGE)
+	# A ghost's one-shots are fired by the brain, and a client runs no brain, so
+	# unless they travel as their own event they are heard on the host alone.
+	if not _sound_sent and _elapsed > 1.0:
+		_sound_sent = true
+		var audio := _teleport_audio()
+		audio.pitch_scale = SOUND_PITCH
+		WorldNet.play_shared(audio)
 
 
 func _write_client_verdict() -> void:
@@ -155,6 +178,11 @@ func _write_client_verdict() -> void:
 		failures.append("no door durability arrived on the slow channel")
 	if _clock.elapsed_game_minutes <= 0:
 		failures.append("the night never arrived on the clock channel")
+	if not is_equal_approx(_heard_pitch, SOUND_PITCH):
+		failures.append(
+			"the ghost's one-shot never arrived; every scream, horn and teleport "
+			+ "would be the host's alone"
+		)
 
 	var file := FileAccess.open(RESULT_PATH, FileAccess.WRITE)
 	if file == null:
@@ -172,7 +200,8 @@ func _read_client_verdict() -> void:
 		return _fail("the second process reported: " + verdict)
 	print(
 		"World replication pair smoke test passed: over a real socket a client took "
-		+ "the ghost's position and its manifested body, the door's durability, and the night."
+		+ "the ghost's position and its manifested body, its one-shot audio, "
+		+ "the door's durability, and the night."
 	)
 	quit()
 

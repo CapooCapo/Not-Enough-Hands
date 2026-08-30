@@ -106,10 +106,22 @@ func _run() -> void:
 	if not (history[13] as Vector3).is_equal_approx(Vector3(1.0, 0.0, 0.0)):
 		return _fail("Hard reconciliation left future prediction history stale.")
 
+	# A replica is placed rather than simulated, so get_real_velocity() and
+	# is_on_floor() both read empty on it. Deriving its footsteps from anything
+	# else leaves every teammate walking the house in total silence.
+	remote_player.set("_has_network_snapshot", true)
+	remote_player.set("_snapshot_position", remote_player.global_position)
+	remote_player.set("_snapshot_velocity", Vector3(2.4, 0.0, 0.0))
+	remote_player.call("_interpolate_network_snapshot", 0.05)
+	var stop_times: Array = remote_player.get("_footstep_stop_times")
+	if float(stop_times[0]) <= 0.0:
+		return _fail("A moving remote replica made no footstep sound.")
+
 	manager.set("session_active", false)
 	print(
-		"Player instance isolation smoke test passed: crouch capsules are unique "
-		+ "and remote replicas cannot steal the local camera; reconciliation stays bounded."
+		"Player instance isolation smoke test passed: crouch capsules are unique, "
+		+ "remote replicas cannot steal the local camera but are audible walking; "
+		+ "reconciliation stays bounded."
 	)
 	quit()
 

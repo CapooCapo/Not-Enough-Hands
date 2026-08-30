@@ -866,12 +866,32 @@ func _interpolate_network_snapshot(delta: float) -> void:
 			_snapshot_pitch,
 			minf(delta * 16.0, 1.0)
 		)
+		_update_replica_footsteps(delta)
 	velocity = _snapshot_velocity
 	if is_local_player():
 		_update_camera_motion(delta)
 		var eyelid_material := blink_overlay.material as ShaderMaterial
 		if eyelid_material:
 			eyelid_material.set_shader_parameter("closure", eyelid_closure)
+
+
+## Footsteps for somebody else's body, derived from the 20 Hz snapshot.
+##
+## The pace is the one thing that has to be re-derived rather than sent: it is
+## two footfalls a second per player, which does not belong on a reliable event
+## channel next to a door breaking. Speed is enough to tell a walk from a
+## sprint, and a body that is falling has a vertical speed no walk produces.
+func _update_replica_footsteps(delta: float) -> void:
+	if not is_alive or is_downed or is_spectator:
+		_stop_footsteps()
+		return
+	var horizontal_speed := Vector2(_snapshot_velocity.x, _snapshot_velocity.z).length()
+	_advance_footsteps(
+		delta,
+		horizontal_speed > walk_speed * 1.15,
+		horizontal_speed,
+		absf(_snapshot_velocity.y) < 1.5
+	)
 
 
 func _apply_pending_reconciliation(delta: float) -> void:
@@ -2088,6 +2108,25 @@ func _open_eyes_for_minigame() -> void:
 
 
 func _update_footsteps(delta: float, is_sprinting: bool) -> void:
+	var real_velocity := get_real_velocity()
+	var horizontal_speed := Vector2(real_velocity.x, real_velocity.z).length()
+	_advance_footsteps(delta, is_sprinting, horizontal_speed, is_on_floor())
+
+
+## The footstep clock itself, told how fast this body is moving and whether it
+## is on the ground rather than asking the physics server.
+##
+## A teammate's body on a client never calls move_and_slide(): it is placed by
+## _interpolate_network_snapshot(), so get_real_velocity() reads zero and
+## is_on_floor() reads false, and asking those directly meant every other
+## player in the house walked in complete silence. The replicated velocity
+## answers both questions instead.
+func _advance_footsteps(
+	delta: float,
+	is_sprinting: bool,
+	horizontal_speed: float,
+	grounded: bool
+) -> void:
 	for index: int in _footstep_stop_times.size():
 		if _footstep_stop_times[index] <= 0.0:
 			continue
@@ -2095,9 +2134,7 @@ func _update_footsteps(delta: float, is_sprinting: bool) -> void:
 		if _footstep_stop_times[index] <= 0.0:
 			footstep_players[index].stop()
 
-	var real_velocity := get_real_velocity()
-	var horizontal_speed := Vector2(real_velocity.x, real_velocity.z).length()
-	var walking_on_floor := is_on_floor() and horizontal_speed > 0.25
+	var walking_on_floor := grounded and horizontal_speed > 0.25
 	if not walking_on_floor:
 		_was_walking_on_floor = false
 		_footstep_time_remaining = 0.0

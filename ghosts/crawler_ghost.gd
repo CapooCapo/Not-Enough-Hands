@@ -516,7 +516,7 @@ func set_dev_attack_suspended(suspended: bool) -> void:
 	if suspended:
 		attack_resume_grace_remaining = 0.0
 		if state == CrawlerState.POUNCE_WINDUP or state == CrawlerState.POUNCING:
-			scream_audio.stop()
+			WorldNet.stop_shared(scream_audio)
 			pounce_timer = 0.0
 			pounce_air_time = 0.0
 			_brake(1.0)
@@ -567,7 +567,7 @@ func dev_force_spawn(target: CharacterBody3D = null) -> bool:
 	pounce_air_time = 0.0
 	pounce_cooldown_timer = 0.0
 	_begin_patrol()
-	chitter_audio.play()
+	WorldNet.play_shared(chitter_audio)
 	return true
 
 
@@ -1070,7 +1070,7 @@ func _begin_omen() -> void:
 		# hunt is exactly what this cycle exists to prevent.
 		if omen_audio_fallback:
 			global_position = _overhead_announce_position()
-			scream_audio.play()
+			WorldNet.play_shared(scream_audio)
 		_begin_patrol()
 		return
 
@@ -1082,7 +1082,7 @@ func _begin_omen() -> void:
 	velocity = (omen_target_point - global_position).normalized() * omen_speed
 	facing_direction = velocity.normalized()
 	_set_manifested(true)
-	chitter_audio.play()
+	WorldNet.play_shared(chitter_audio)
 	_set_state(CrawlerState.OMEN)
 	omen_started.emit(crossing['player'], crossing['from'], crossing['to'])
 
@@ -1196,7 +1196,7 @@ func _update_patrol(delta: float) -> void:
 	if patrol_chitter_timer <= 0.0:
 		patrol_chitter_timer = randf_range(patrol_chitter_interval_min, patrol_chitter_interval_max)
 		if not chitter_audio.playing:
-			chitter_audio.play()
+			WorldNet.play_shared(chitter_audio)
 
 	if patrol_points.is_empty():
 		# No route authored. Sweep around the lair rather than standing still.
@@ -1292,7 +1292,7 @@ func _advance_patrol_point() -> void:
 ## then it is gone - which is also the all-clear the player needs.
 func _begin_retreat() -> void:
 	retreat_timer = retreat_scream_duration
-	scream_audio.play()
+	WorldNet.play_shared(scream_audio)
 	_set_state(CrawlerState.RETREATING)
 
 
@@ -1372,7 +1372,7 @@ func _update_searching(delta: float) -> void:
 		search_point_timer = search_point_interval
 		search_point = _pick_search_point()
 		if not chitter_audio.playing and randf() < 0.4:
-			chitter_audio.play()
+			WorldNet.play_shared(chitter_audio)
 
 	if global_position.distance_to(search_point) <= arrive_distance:
 		_brake(delta)
@@ -1433,7 +1433,7 @@ func _settle_search_point(candidate: Vector3) -> Vector3:
 
 func _update_pounce_windup(delta: float) -> void:
 	if _attacks_blocked():
-		scream_audio.stop()
+		WorldNet.stop_shared(scream_audio)
 		pounce_timer = 0.0
 		_set_state(CrawlerState.RECOVERING)
 		return
@@ -1466,7 +1466,7 @@ func _update_pounce_windup(delta: float) -> void:
 	# patrols overhead.
 	if aim.y >= global_position.y - 0.5:
 		velocity += Vector3.UP * (distance * pounce_arc)
-	scream_audio.play()
+	WorldNet.play_shared(scream_audio)
 	_set_state(CrawlerState.POUNCING)
 	pounce_started.emit(aim)
 
@@ -1555,7 +1555,7 @@ func _maul_contact() -> bool:
 			continue
 		if _is_occluded(player.global_position, player):
 			continue
-		scream_audio.play()
+		WorldNet.play_shared(scream_audio)
 		_kill(player)
 		return true
 	return false
@@ -1977,7 +1977,7 @@ func _primitive_material(mesh_instance: MeshInstance3D) -> Material:
 
 func _play_bone_snap() -> void:
 	bone_audio.pitch_scale = randf_range(0.82, 1.15)
-	bone_audio.play()
+	WorldNet.play_shared(bone_audio)
 
 
 func _update_presentation(delta: float) -> void:

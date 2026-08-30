@@ -25,7 +25,7 @@ extends Node
 ## |---|---|---|---|
 ## | fast | 20 Hz | unreliable ordered | ghost and loose-item transforms |
 ## | slow | 5 Hz | reliable | door durability, power reserve, the brazier |
-## | events | on change | reliable | spawn/despawn, pickup, clock, blackout |
+## | events | on change | reliable | spawn/despawn, pickup, clock, blackout, sound |
 ##
 ## The fast channel is allowed to drop packets because a newer one is always
 ## right behind it. Everything whose *loss* would desynchronise the world -
@@ -241,6 +241,39 @@ func report_holder(item: Node, peer_id: int) -> void:
 		return
 	_holders[id] = peer_id
 	_set_entity_holder.rpc(id, peer_id)
+
+
+## Plays one sound on every peer, at the node that owns it.
+##
+## A client runs no ghost brain, so every sound a brain fires - the Huntsman's
+## horn, the crawler's scream, the statue's teleport - was heard on the host
+## alone. `defense_door.gd` re-derives its own audio from the phase it already
+## receives, but a ghost's one-shots do not follow from any single value in the
+## 20 Hz packet, so they travel as events instead.
+##
+## The player node is addressed by its path under the current scene, which
+## covers an authored ghost and a huntsman spawned at a breach alike. Pitch and
+## volume come along because every call site randomises them just before
+## playing, and a client that re-rolled its own would not match.
+func report_sound(player: Node, offset: float, pitch: float, volume_db: float) -> void:
+	if not NetworkManager.session_active or not NetworkManager.is_world_authority():
+		return
+	var path := _path_from_scene(player)
+	if path.is_empty():
+		return
+	_play_sound.rpc(path, offset, pitch, volume_db)
+
+
+## The counterpart for the few of those that are long enough to need cutting
+## short - the statue's attack drone, the crawler's scream. Without it a client
+## would keep playing a sound the server had already stopped.
+func report_sound_stop(player: Node) -> void:
+	if not NetworkManager.session_active or not NetworkManager.is_world_authority():
+		return
+	var path := _path_from_scene(player)
+	if path.is_empty():
+		return
+	_stop_sound.rpc(path)
 
 
 ## Deliberately a sweep rather than a `tree_exiting` hook. `reparent()` fires
@@ -610,6 +643,25 @@ func _sync_clock(elapsed: int, minutes_of_day: int, won: bool) -> void:
 	var clock := _clock()
 	if clock and clock.has_method(&"apply_network_time"):
 		clock.call(&"apply_network_time", elapsed, minutes_of_day, won)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _play_sound(path: String, offset: float, pitch: float, volume_db: float) -> void:
+	_bind_scene_if_changed()
+	var audio := _node_from_scene_path(path)
+	if audio == null or not audio.has_method(&"play"):
+		return
+	audio.set(&"pitch_scale", pitch)
+	audio.set(&"volume_db", volume_db)
+	audio.call(&"play", offset)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _stop_sound(path: String) -> void:
+	_bind_scene_if_changed()
+	var audio := _node_from_scene_path(path)
+	if audio != null and audio.has_method(&"stop"):
+		audio.call(&"stop")
 
 
 @rpc("authority", "call_remote", "reliable")
