@@ -218,6 +218,10 @@ signal killed_player(player: Node3D)
 ## been a cone since it grew the eyes.
 @export var gaze_sweep_half_angle: float = 40.0
 @export var gaze_sweep_speed: float = 0.9
+## Movement stays at the physics rate; perception is sampled separately. Horror
+## AI does not gain useful fidelity from rebuilding LOS rays sixty times a
+## second, especially with three hunters and four players.
+@export_range(0.025, 0.25, 0.005) var sight_update_interval: float = 0.067
 
 @export_category('Casting')
 ## Standing still, sniffing, turning on the spot after the trail runs out.
@@ -244,6 +248,7 @@ signal killed_player(player: Node3D)
 ## crouch-walking - which is the only movement that is.
 @export_range(0.0, 1.0) var hearing_loudness_floor: float = 0.16
 @export_range(0.0, 1.0) var crouch_hearing_scale: float = 0.35
+@export_range(0.025, 0.5, 0.005) var hearing_update_interval: float = 0.1
 
 @export_category('Unsticking')
 ## How long it may make no progress toward whatever it is walking to before it
@@ -310,6 +315,7 @@ signal killed_player(player: Node3D)
 ## Loud on purpose, and it carries. Hearing which room the footfalls are in and
 ## going the other way is the counterplay to something that outruns you.
 @export var footstep_volume_db: float = 4.0
+@export_range(0.025, 0.5, 0.005) var threat_update_interval: float = 0.1
 
 ## Below this it is standing, above it is on its feet - the only number the clip
 ## choice adds, and it only picks between clips.
@@ -355,6 +361,11 @@ var _failed_goals: int = 0
 var _dead_spots: Array[Dictionary] = []
 var _sight_timer: float = 0.0
 var _target_visible_now: bool = false
+var _sight_update_timer: float = 0.0
+var _hearing_update_timer: float = 0.0
+var _threat_update_timer: float = 0.0
+var _living_players_cache: Array[CharacterBody3D] = []
+var _living_players_cache_frame: int = -1
 var _footstep_token: int = 0
 var _entry_timer: float = 0.0
 var _pending_entry_door: Node3D
@@ -459,6 +470,18 @@ func _physics_process(delta: float) -> void:
 	if not WorldNet.is_world_authority():
 		return
 	_clock += delta
+	_sight_update_timer -= delta
+	_hearing_update_timer -= delta
+	_threat_update_timer -= delta
+	var update_sight := _sight_update_timer <= 0.0
+	var update_hearing := _hearing_update_timer <= 0.0
+	var update_threat := _threat_update_timer <= 0.0
+	if update_sight:
+		_sight_update_timer = maxf(sight_update_interval, 0.025)
+	if update_hearing:
+		_hearing_update_timer = maxf(hearing_update_interval, 0.025)
+	if update_threat:
+		_threat_update_timer = maxf(threat_update_interval, 0.025)
 	attack_resume_grace_remaining = maxf(attack_resume_grace_remaining - delta, 0.0)
 	if not active:
 		velocity = Vector3.ZERO
@@ -472,17 +495,18 @@ func _physics_process(delta: float) -> void:
 	if state == HunterState.DORMANT:
 		velocity = Vector3.ZERO
 		_update_dormant(delta)
-		_update_player_threat()
+		if update_threat:
+			_update_player_threat()
 		return
 
 	# Detection runs from the moment it is visible, which includes the walk in:
 	# stand in the doorway watching it arrive and it can lock on to you there.
-	if manifested:
+	if manifested and update_sight:
 		_update_sight(delta)
-	_update_chase_sight_memory(delta)
+	_update_chase_sight_memory(delta, update_sight)
 	_enforce_chase_override()
-	# Ears run every frame, in every state, in or out of a chase.
-	_listen(delta)
+	if update_hearing:
+		_listen(delta)
 
 	match state:
 		HunterState.ENTERING:
@@ -515,7 +539,8 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 
 	_update_goal_progress(delta)
-	_update_player_threat()
+	if update_threat:
+		_update_player_threat()
 	_update_presentation(delta)
 
 
@@ -747,15 +772,16 @@ func _enforce_chase_override() -> void:
 ## Sight memory advances even during the grab windup and recovery, so the five
 ## seconds mean five real uninterrupted seconds rather than five seconds spent
 ## specifically inside LOCKED.
-func _update_chase_sight_memory(delta: float) -> void:
-	_target_visible_now = false
+func _update_chase_sight_memory(delta: float, check_line_of_sight: bool = true) -> void:
 	if not is_instance_valid(current_target):
+		_target_visible_now = false
 		return
 	if not _is_targetable(current_target):
 		_drop_target()
 		return
-	_target_visible_now = global_position.distance_to(current_target.global_position) <= sight_range \
-		and _has_line_of_sight(current_target)
+	if check_line_of_sight:
+		_target_visible_now = global_position.distance_to(current_target.global_position) <= sight_range \
+			and _has_line_of_sight(current_target)
 	if _target_visible_now:
 		_sight_timer = lose_sight_time
 		last_seen_position = current_target.global_position
@@ -1716,6 +1742,12 @@ func _nearest_sweep_index() -> int:
 
 func _set_manifested(is_manifested: bool) -> void:
 	manifested = is_manifested
+	if is_manifested:
+		# Do not inherit a half-spent perception interval from the dormant body.
+		# The first server tick after a breach/dev spawn must be responsive.
+		_sight_update_timer = 0.0
+		_hearing_update_timer = 0.0
+		_threat_update_timer = 0.0
 	visual_root.visible = is_manifested
 	collision_layer = _normal_collision_layer if is_manifested else 0
 	collision_mask = _normal_collision_mask if is_manifested else 0
@@ -1738,15 +1770,19 @@ func _is_targetable(player: CharacterBody3D) -> bool:
 
 
 func _living_players() -> Array[CharacterBody3D]:
-	var players: Array[CharacterBody3D] = []
+	var physics_frame := Engine.get_physics_frames()
+	if _living_players_cache_frame == physics_frame:
+		return _living_players_cache
+	_living_players_cache_frame = physics_frame
+	_living_players_cache.clear()
 	for node: Node in get_tree().get_nodes_in_group('players'):
 		var player := node as CharacterBody3D
 		if not player:
 			continue
 		if 'is_alive' in player and not player.is_alive:
 			continue
-		players.append(player)
-	return players
+		_living_players_cache.append(player)
+	return _living_players_cache
 
 
 func _update_player_threat() -> void:

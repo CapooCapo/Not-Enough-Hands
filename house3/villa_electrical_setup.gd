@@ -21,6 +21,17 @@ extends Node3D
 @export_range(0.0, 10000.0, 1.0) var junction_light_consumption := 35.0
 @export var rebuild_on_ready := true
 
+@export_category("Client Lighting Budget")
+## Shadow maps are a per-view rendering cost, so each peer budgets only the
+## fixtures relevant to its own camera. The lights themselves remain powered
+## and visible; only their expensive shadow pass is culled.
+@export_range(0, 16, 1) var max_shadow_lights := 6
+@export_range(2.0, 40.0, 0.5) var shadow_max_distance := 18.0
+@export_range(0.05, 1.0, 0.05) var shadow_budget_interval := 0.25
+## The global environment still supplies the Villa's fog. Local Omni lights do
+## not need to inject into its volumetric grid as well.
+@export var disable_fixture_volumetric_fog := true
+
 const ROOM_LIGHT_COLOR := Color(1.0, 0.69, 0.39, 1.0)
 const JUNCTION_LIGHT_COLOR := Color(0.72, 0.82, 1.0, 1.0)
 const CEILING_LAMP_MODEL: PackedScene = preload("res://assets/map/Furniture/FBX/Separated/Ceiling Lamp 2.fbx")
@@ -29,6 +40,8 @@ const SWITCH_HEIGHT := 1.35
 const SWITCH_WALL_INSET := 0.16
 
 var _villa_spec: VillaSpec
+var _fixture_lights: Array[OmniLight3D] = []
+var _shadow_budget_timer := 0.0
 
 
 func _ready() -> void:
@@ -37,6 +50,16 @@ func _ready() -> void:
 			build_switch_preview.call_deferred()
 	elif rebuild_on_ready:
 		build_fixtures.call_deferred()
+
+
+func _process(delta: float) -> void:
+	if Engine.is_editor_hint() or _fixture_lights.is_empty():
+		return
+	_shadow_budget_timer -= delta
+	if _shadow_budget_timer > 0.0:
+		return
+	_shadow_budget_timer = maxf(shadow_budget_interval, 0.05)
+	_update_shadow_budget()
 
 
 func build_fixtures() -> void:
@@ -50,6 +73,7 @@ func build_fixtures() -> void:
 		return
 	for child: Node in root.get_children():
 		child.queue_free()
+	_fixture_lights.clear()
 
 	var rooms := get_tree().get_nodes_in_group("villa_rooms")
 	rooms.sort_custom(_sort_by_name)
@@ -89,6 +113,8 @@ func build_fixtures() -> void:
 			junction_light_consumption,
 			Vector3(4.0, 3.5, 4.0)
 		)
+	_shadow_budget_timer = 0.0
+	_update_shadow_budget.call_deferred()
 
 
 func _create_fixture(
@@ -123,10 +149,15 @@ func _create_fixture(
 	light.light_energy = 0.72
 	light.omni_range = light_range
 	light.omni_attenuation = 1.35
-	light.shadow_enabled = true
+	# Start cheap. _update_shadow_budget() promotes only the nearest useful
+	# fixtures after a camera exists on this peer.
+	light.shadow_enabled = false
+	if disable_fixture_volumetric_fog:
+		light.light_volumetric_fog_energy = 0.0
 	light.add_to_group("flickering_house_lights")
 	light.set_meta("electrical_device_id", device_id)
 	fixture.add_child(light)
+	_fixture_lights.append(light)
 
 	var device := ElectricalDevice.new()
 	device.name = "ElectricalDevice"
@@ -136,6 +167,40 @@ func _create_fixture(
 	fixture.add_child(device)
 
 	_ensure_switch(switches, device_id, marker_position, area_size)
+
+
+func _update_shadow_budget() -> void:
+	var camera := get_viewport().get_camera_3d()
+	if not camera or max_shadow_lights <= 0:
+		_set_all_fixture_shadows(false)
+		return
+
+	var camera_position := camera.global_position
+	var max_distance_squared := shadow_max_distance * shadow_max_distance
+	var candidates: Array[OmniLight3D] = []
+	for light: OmniLight3D in _fixture_lights:
+		if not is_instance_valid(light):
+			continue
+		if light.is_visible_in_tree() \
+				and light.global_position.distance_squared_to(camera_position) <= max_distance_squared:
+			candidates.append(light)
+
+	candidates.sort_custom(func(a: OmniLight3D, b: OmniLight3D) -> bool:
+		return a.global_position.distance_squared_to(camera_position) \
+			< b.global_position.distance_squared_to(camera_position)
+	)
+	var shadowed: Dictionary = {}
+	for index: int in mini(max_shadow_lights, candidates.size()):
+		shadowed[candidates[index]] = true
+	for light: OmniLight3D in _fixture_lights:
+		if is_instance_valid(light):
+			light.shadow_enabled = shadowed.has(light)
+
+
+func _set_all_fixture_shadows(enabled: bool) -> void:
+	for light: OmniLight3D in _fixture_lights:
+		if is_instance_valid(light):
+			light.shadow_enabled = enabled
 
 
 ## Editor-only authoring pass. The generated switches are given an owner, so

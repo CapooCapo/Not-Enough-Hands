@@ -53,6 +53,21 @@ const DEFENSE_DOOR_LEAF_RISE := 1.15
 ## building this size is already everywhere at once.
 const MAX_BREACH_HUNTERS := 3
 
+## These wall-hung and hand-sized props are visual dressing. Giving them a
+## physics body costs memory and ray-query work without changing movement.
+const NON_SOLID_FURNITURE_ASSETS := [
+	"Mirror.fbx",
+	"Painting.fbx",
+	"Painting 2.fbx",
+	"Painting 3.fbx",
+	"Poster 1.fbx",
+	"Simple Curtains Closed.fbx",
+	"Vase 1.fbx",
+	"Vase 2.fbx",
+	"Flower Pot Ac.fbx",
+	"Towel Pile.fbx",
+]
+
 ## Mirrors NetworkManager.SERVER_PEER_ID, which cannot be named here: see _net().
 const NETWORK_SERVER_PEER_ID := 1
 
@@ -82,15 +97,15 @@ func _ready() -> void:
 	_setup_player_replication()
 	_place_ghosts()
 
-	for node: Node in house.find_children("*", "MeshInstance3D", true, false):
-		var mesh_instance := node as MeshInstance3D
-		if mesh_instance.mesh:
-			_make_mesh_two_sided(mesh_instance)
-			if not _has_authored_collision(mesh_instance):
-				mesh_instance.create_trimesh_collision()
-				_enable_backface_collision(mesh_instance)
+	_prepare_runtime_geometry()
 
-	_bake_navigation()
+	# Clients consume replicated ghost transforms and never query a navigation
+	# route. Voxelizing the full 80 x 60 m Villa on every peer only delays join.
+	if WorldNet.is_world_authority():
+		_bake_navigation()
+	else:
+		navigation_is_ready = true
+		navigation_ready.emit()
 
 
 # --- map wiring --------------------------------------------------------------
@@ -733,7 +748,8 @@ func _add_navigation_link(
 # --- rendering helpers -------------------------------------------------------
 
 ## Props keep the collider they ship with; the architecture is already boxed by
-## VillaHouse, so only free-standing kit meshes need a generated trimesh body.
+## VillaHouse. Imported furniture without authored collision receives one cheap
+## aggregate box per asset instead of one concave trimesh per child mesh.
 func _has_authored_collision(mesh_instance: MeshInstance3D) -> bool:
 	var ancestor := mesh_instance.get_parent()
 	while ancestor and ancestor != house:
@@ -741,6 +757,85 @@ func _has_authored_collision(mesh_instance: MeshInstance3D) -> bool:
 			return true
 		ancestor = ancestor.get_parent()
 	return false
+
+
+func _prepare_runtime_geometry() -> void:
+	var collision_roots: Dictionary = {}
+	for node: Node in house.find_children("*", "MeshInstance3D", true, false):
+		var mesh_instance := node as MeshInstance3D
+		if not mesh_instance.mesh:
+			continue
+		_make_mesh_two_sided(mesh_instance)
+		if _has_authored_collision(mesh_instance):
+			continue
+		var collision_root := _source_asset_root(mesh_instance)
+		if not collision_root:
+			collision_root = mesh_instance
+		collision_roots[collision_root] = true
+
+	for root_variant: Variant in collision_roots:
+		var collision_root := root_variant as Node3D
+		if not collision_root or _is_non_solid_furniture(collision_root):
+			continue
+		_create_simplified_collision(collision_root)
+
+
+func _source_asset_root(node: Node) -> Node3D:
+	var current := node
+	while current and current != house:
+		if current.has_meta("source_asset"):
+			return current as Node3D
+		current = current.get_parent()
+	return null
+
+
+func _is_non_solid_furniture(asset_root: Node3D) -> bool:
+	var source := String(asset_root.get_meta("source_asset", ""))
+	if not source.begins_with(VillaHouse.FURNITURE_ROOT):
+		return false
+	return source.get_file() in NON_SOLID_FURNITURE_ASSETS
+
+
+func _create_simplified_collision(asset_root: Node3D) -> void:
+	if asset_root.has_node("SimplifiedCollision"):
+		return
+	var meshes: Array[MeshInstance3D] = []
+	if asset_root is MeshInstance3D:
+		meshes.append(asset_root as MeshInstance3D)
+	for child: Node in asset_root.find_children("*", "MeshInstance3D", true, false):
+		var mesh_instance := child as MeshInstance3D
+		if mesh_instance.mesh:
+			meshes.append(mesh_instance)
+	if meshes.is_empty():
+		return
+
+	var minimum := Vector3(INF, INF, INF)
+	var maximum := Vector3(-INF, -INF, -INF)
+	var world_to_root := asset_root.global_transform.affine_inverse()
+	for mesh_instance: MeshInstance3D in meshes:
+		var bounds := mesh_instance.mesh.get_aabb()
+		var mesh_to_root := world_to_root * mesh_instance.global_transform
+		for x: int in 2:
+			for y: int in 2:
+				for z: int in 2:
+					var corner := bounds.position + bounds.size * Vector3(x, y, z)
+					var point := mesh_to_root * corner
+					minimum = minimum.min(point)
+					maximum = maximum.max(point)
+
+	var size := maximum - minimum
+	if size.x <= 0.01 or size.y <= 0.01 or size.z <= 0.01:
+		return
+	var body := StaticBody3D.new()
+	body.name = "SimplifiedCollision"
+	asset_root.add_child(body)
+	var shape := BoxShape3D.new()
+	shape.size = size
+	var collision := CollisionShape3D.new()
+	collision.name = "Collision"
+	collision.position = (minimum + maximum) * 0.5
+	collision.shape = shape
+	body.add_child(collision)
 
 
 ## The kit's wall and floor panels are single-sided, and half of them are seen
@@ -759,14 +854,6 @@ func _make_mesh_two_sided(mesh_instance: MeshInstance3D) -> void:
 			two_sided.cull_mode = BaseMaterial3D.CULL_DISABLED
 			_two_sided_cache[key] = two_sided
 		mesh_instance.set_surface_override_material(surface_index, _two_sided_cache[key])
-
-
-func _enable_backface_collision(mesh_instance: MeshInstance3D) -> void:
-	for node: Node in mesh_instance.find_children("*", "CollisionShape3D", true, false):
-		var collision_shape := node as CollisionShape3D
-		var concave_shape := collision_shape.shape as ConcavePolygonShape3D
-		if concave_shape:
-			concave_shape.backface_collision = true
 
 
 func _apply_horror_lighting() -> void:
