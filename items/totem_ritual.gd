@@ -9,11 +9,12 @@ extends Node
 ## maps publish, so the same node works in House2 and in the villa with no
 ## map-specific coordinates anywhere.
 ##
-## Nothing is scattered once at boot. The world holds exactly one totem and one
-## log per player still in the run, each replacement is dropped only after the
-## last one was consumed, and every drop point is chosen at random from the
+## Nothing is scattered once at boot. The world holds one totem per player still
+## in the run and a flat handful of logs, each replacement is dropped only after
+## the last one was consumed, and every drop point is chosen at random from the
 ## rooms that are far from *everybody* - the objective is a trip, so an item is
-## never allowed to appear at somebody's feet.
+## never allowed to appear at somebody's feet. Within one restock pass the rooms
+## already used are avoided, so a handful of logs is a handful of places.
 ##
 ## The 4:00 AM ceiling lives in NightClock (`skip_minutes()`), not here: a burn
 ## at 3:50 asks for 30 minutes and is handed the 10 that are left. Once the
@@ -27,10 +28,17 @@ const TOTEM_SCENE: PackedScene = preload("res://items/totem.tscn")
 const FIREWOOD_SCENE: PackedScene = preload("res://items/firewood.tscn")
 const BRAZIER_SCENE: PackedScene = preload("res://items/totem_brazier.tscn")
 
-## Totems in the world at once, per player still in the run - and the same
-## number of logs. One each means every player has exactly one of each to go and
-## find, and burning one is what puts the next one on the map.
+## Totems in the world at once, per player still in the run.
+## One means every player has exactly one to go and find, and burning it is what
+## puts the next one on the map. Logs are counted separately - see
+## `firewood_in_world`.
 @export_range(0, 8, 1) var items_per_player: int = 1
+## Logs kept in the world at once, as a flat count rather than one per player.
+## The fire needs one after every burn, and a single log dropped somewhere in an
+## 80 x 60 m villa is not a trip back, it is a search: three of them means there
+## is one within reach of wherever the last totem took you. Never drops below
+## the per-player count, so a full room still gets a log each.
+@export_range(0, 8, 1) var firewood_in_world: int = 3
 @export_range(0, 240, 5) var minutes_per_totem: int = 30
 ## How far a fresh item has to be from every player. Treated as a hard rule
 ## wherever the map can honour it: 40 m clears most of the villa, whose farthest
@@ -50,8 +58,17 @@ const BRAZIER_SCENE: PackedScene = preload("res://items/totem_brazier.tscn")
 ## top of whatever furniture is really there instead of inside it.
 @export_range(0.1, 3.0, 0.05) var spawn_drop_height: float = 0.9
 ## Fraction of a room's half-size the drop point is nudged off centre, so a
-## totem does not land on the dining table every single time.
+## totem does not land on the dining table every single time. Only reached in
+## full where a room publishes no cleared tile - see `CLEAR_TILE_RADIUS`.
 @export_range(0.0, 0.9, 0.05) var spawn_room_spread: float = 0.34
+
+## Half-width, in metres, of the tile a `clear_point` marks. That point is the
+## one tile of the room the map's own furniture pass left empty, so the nudge
+## above has to stay inside it. Measured against the whole room instead, it moved
+## a log up to two metres sideways into the very wardrobe the cleared tile
+## existed to avoid, and the trip back for firewood became a search of the
+## furniture rather than of the house.
+const CLEAR_TILE_RADIUS := 0.7
 
 var is_complete: bool = false
 var totems_burned: int = 0
@@ -125,17 +142,19 @@ func restock() -> void:
 		return
 	var target := _players_in_run().size() * items_per_player
 	_restock_group(TOTEM_SCENE, &"totems", target)
-	_restock_group(FIREWOOD_SCENE, &"fire_fuel", target)
+	_restock_group(FIREWOOD_SCENE, &"fire_fuel", maxi(firewood_in_world, target))
 
 
 ## Carried items count towards the population: picking a totem up is not what
 ## puts the next one on the map, burning it is.
 func _restock_group(scene: PackedScene, group: StringName, target: int) -> void:
 	var existing := get_tree().get_nodes_in_group(group)
+	var used: Array[Node3D] = []
 	for i: int in maxi(target - existing.size(), 0):
-		var room := _pick_far_room()
+		var room := _pick_far_room(used)
 		if room == null:
 			return
+		used.append(room)
 		_drop_item(scene, room)
 	# A player dropping out of the run lowers the target. Only items nobody is
 	# carrying are taken back - never one out of somebody's hands.
@@ -150,8 +169,8 @@ func _restock_group(scene: PackedScene, group: StringName, target: int) -> void:
 
 
 ## The spawn rule. Pick at random among the rooms at least `min_spawn_distance`
-## from every player.
-func _pick_far_room() -> Node3D:
+## from every player, preferring one `exclude` does not already name.
+func _pick_far_room(exclude: Array[Node3D] = []) -> Node3D:
 	var players := _players_in_run()
 	var qualifying: Array[Node3D] = []
 	var rest: Array[Dictionary] = []
@@ -162,7 +181,7 @@ func _pick_far_room() -> Node3D:
 		else:
 			rest.append({"room": room, "distance": distance})
 	if not qualifying.is_empty():
-		return qualifying[_rng.randi_range(0, qualifying.size() - 1)]
+		return _random_room(_prefer_unused(qualifying, exclude))
 	if rest.is_empty():
 		return null
 	# Nothing on this map is far enough from everybody, so the rule degrades to
@@ -171,7 +190,27 @@ func _pick_far_room() -> Node3D:
 	rest.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		return float(a["distance"]) > float(b["distance"])
 	)
-	return rest[_rng.randi_range(0, maxi(1, rest.size() / 4) - 1)]["room"] as Node3D
+	var farthest: Array[Node3D] = []
+	for entry: Dictionary in rest.slice(0, maxi(1, rest.size() / 4)):
+		farthest.append(entry["room"] as Node3D)
+	return _random_room(_prefer_unused(farthest, exclude))
+
+
+## Spreading one pass over as many rooms as it has items is a preference, never
+## a rule: the distance rule above has already decided which rooms are legal, and
+## a second log in the only legal room still beats no second log at all.
+func _prefer_unused(rooms: Array[Node3D], exclude: Array[Node3D]) -> Array[Node3D]:
+	var fresh: Array[Node3D] = []
+	for room: Node3D in rooms:
+		if not exclude.has(room):
+			fresh.append(room)
+	return fresh if not fresh.is_empty() else rooms
+
+
+func _random_room(rooms: Array[Node3D]) -> Node3D:
+	if rooms.is_empty():
+		return null
+	return rooms[_rng.randi_range(0, rooms.size() - 1)]
 
 
 func _distance_to_nearest(point: Vector3, players: Array[Node3D]) -> float:
@@ -268,10 +307,15 @@ func _drop_item(scene: PackedScene, room: Node3D) -> void:
 	var extent := Vector3(2.0, 0.0, 2.0)
 	if room.has_meta(&"room_size"):
 		extent = room.get_meta(&"room_size") as Vector3
+	var spread_x := extent.x * 0.5 * spawn_room_spread
+	var spread_z := extent.z * 0.5 * spawn_room_spread
+	if room.has_meta(&"clear_point"):
+		spread_x = minf(spread_x, CLEAR_TILE_RADIUS)
+		spread_z = minf(spread_z, CLEAR_TILE_RADIUS)
 	var drop_position := _room_floor_point(room) + Vector3(
-		_rng.randf_range(-1.0, 1.0) * extent.x * 0.5 * spawn_room_spread,
+		_rng.randf_range(-1.0, 1.0) * spread_x,
 		spawn_drop_height,
-		_rng.randf_range(-1.0, 1.0) * extent.z * 0.5 * spawn_room_spread
+		_rng.randf_range(-1.0, 1.0) * spread_z
 	)
 	var item := WorldNet.spawn(
 		scene,

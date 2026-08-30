@@ -84,6 +84,7 @@ func _build_world() -> bool:
 	# hand every item in by name instead, so this director keeps no population of
 	# its own - _check_spawn_rules() covers restocking on its own little stage.
 	_ritual.items_per_player = 0
+	_ritual.firewood_in_world = 0
 	_root.add_child(_ritual)
 	await _ritual.begin()
 	_ritual.set_process(false)
@@ -219,8 +220,15 @@ func _check_spawn_rules() -> bool:
 	stage.add_child(director)
 	await director.begin()
 
-	if get_nodes_in_group(&"totems").size() != 1 or get_nodes_in_group(&"fire_fuel").size() != 1:
-		return _fail("One player in the run should be worth one totem and one log.")
+	if get_nodes_in_group(&"totems").size() != 1:
+		return _fail("One player in the run should be worth one totem.")
+	# Logs are a flat population, not one per player: the fire needs one after
+	# every burn, so the map always carries a handful of them.
+	if get_nodes_in_group(&"fire_fuel").size() != director.firewood_in_world:
+		return _fail(
+			"The map should always carry %d logs, found %d."
+			% [director.firewood_in_world, get_nodes_in_group(&"fire_fuel").size()]
+		)
 	for item: Node in get_nodes_in_group(&"totems") + get_nodes_in_group(&"fire_fuel"):
 		var spawned := item as Node3D
 		if spawned.global_position.distance_to(first.global_position) < 70.0:
