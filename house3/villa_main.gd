@@ -56,6 +56,10 @@ const MAX_BREACH_HUNTERS := 3
 ## Mirrors NetworkManager.SERVER_PEER_ID, which cannot be named here: see _net().
 const NETWORK_SERVER_PEER_ID := 1
 
+## How long the Game Over card or the dawn overlay stands before the room is
+## returned to the lobby.
+const RUN_OVER_DELAY := 4.0
+
 var _two_sided_cache: Dictionary = {}
 ## A breach can happen before Recast has finished baking.  Those hunters wait
 ## at the opening instead of trying to search without a navigation map.
@@ -63,6 +67,9 @@ var _hunters_waiting_for_navigation: Array[CharacterBody3D] = []
 var _breach_hunter_serial: int = 0
 ## Every huntsman this level has spawned at a breach and not since freed.
 var _breach_hunters: Array[CharacterBody3D] = []
+## Set once the run has been decided, so the several things that can notice it
+## in the same frame only end it once.
+var _run_over_pending: bool = false
 
 
 func _ready() -> void:
@@ -261,6 +268,14 @@ func _setup_player_replication() -> void:
 			_net().player_world_ready.connect(_synchronize_room_players)
 			for ready_peer: int in _net().world_ready_peers:
 				_synchronize_room_players(ready_peer)
+			# Dawn is the third way a night ends, and it leaves the session just
+			# as stuck as a wipe does if nothing hands the room back.
+			var clock := get_tree().get_first_node_in_group(&"night_clock")
+			if clock and clock.has_signal(&"victory_reached"):
+				clock.connect(
+					&"victory_reached",
+					func() -> void: _end_run_after_pause("Sống sót tới bình minh!")
+				)
 		_net().notify_world_ready()
 	else:
 		# F6 and the existing villa smoke tests retain a root node called Player.
@@ -354,6 +369,11 @@ func _build_player_from_spawn_data(data: Variant) -> Node:
 	# returned player to the tree yet, so assigning global_position here would
 	# query an invalid global transform.
 	player.position = _player_spawn_position(int(spawn_data.get("spawn_index", 0)))
+	if _network_session_active() and multiplayer.is_server():
+		# Both ways out of the run for a body: killed outright, or the downed
+		# timer running out. Either can be the one that empties the house.
+		player.killed_by_ghost.connect(func(_ghost: Node3D) -> void: _check_run_over())
+		player.became_spectator.connect(_check_run_over)
 	player.walk_speed = 2.6
 	player.crouch_speed = 1.45
 	player.sprint_speed_multiplier = 1.35
@@ -375,6 +395,45 @@ func _remove_network_player(peer_id: int) -> void:
 	var player := _get_player_for_peer(peer_id)
 	if player:
 		player.queue_free()
+	# Somebody quitting can be what leaves the survivors all dead, so the same
+	# question is asked here. Deferred because the body above is only freed at
+	# the end of the frame and would otherwise still be counted.
+	_check_run_over.call_deferred()
+
+
+## Is anybody still in the night?
+##
+## Asked here rather than in NetworkManager because "still in the run" is a
+## gameplay question - a downed player is still in it and can be picked back up,
+## a spectator is not - and this is where the session's players are made and
+## unmade. NetworkManager owns what to *do* about it; the same split as the
+## breaker and its minigame.
+func _check_run_over() -> void:
+	if _run_over_pending or not _network_session_active() or not multiplayer.is_server():
+		return
+	if not bool(_net().game_started):
+		return
+	var players := get_tree().get_nodes_in_group(&"players")
+	if players.is_empty():
+		return
+	for node: Node in players:
+		if node.is_queued_for_deletion():
+			continue
+		if bool(node.get("is_alive")) or bool(node.get("is_downed")):
+			return
+	_end_run_after_pause("Cả đội đã ngã xuống. Về phòng chờ để chơi lại.")
+
+
+## The run does not end on the same frame it is decided. The last death plays a
+## jumpscare and a Game Over card, and dawn draws its own overlay; yanking the
+## room to the lobby underneath either would leave nobody knowing what happened.
+## The timer is process_always because those screens pause the tree.
+func _end_run_after_pause(reason: String) -> void:
+	if _run_over_pending:
+		return
+	_run_over_pending = true
+	await get_tree().create_timer(RUN_OVER_DELAY).timeout
+	_net().end_run(reason)
 
 
 func _get_player_for_peer(peer_id: int) -> CharacterBody3D:

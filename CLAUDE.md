@@ -16,7 +16,7 @@ Godot 4.7 first-person horror prototype ("Not Enough Hands"). GDScript only, no 
   ```
   There is no aggregate test runner; run the specific smoke test(s) relevant to the area you changed. `tests/villa_layout_smoke.gd`, `villa_seal_smoke.gd`, and `villa_boot_smoke.gd` are the load-bearing ones for the villa map (reachability, wall-seal raycasts, baked navmesh). `tests/villa_screenshot.gd` / `villa_devshot.gd` are not tests — they write PNGs to `user://villa_shots` for visual inspection.
 
-  `tests/world_replication_pair_smoke.gd` is the only test that spans two processes: run normally it becomes the server, spawns a second headless copy of itself with `--client`, binds UDP 47311 and asserts on the verdict the child writes to `user://`. Run it after touching anything in `network/` — a channel can be entirely dead without a single-process test noticing.
+  `tests/world_replication_pair_smoke.gd` and `tests/lobby_reset_pair_smoke.gd` span two processes: run normally each becomes the server, spawns a second headless copy of itself with `--client`, binds a UDP port (47311 / 47312) and asserts on the verdict the child writes to `user://`. Run them after touching anything in `network/` — a channel can be entirely dead without a single-process test noticing. `tests/villa_run_wipe_smoke.gd` covers the other end of a session (a wiped team handing the room back) and needs only one process, but does load the villa.
 
 ## Core working rule (`.ai/RULES.md`)
 
@@ -91,6 +91,18 @@ counterpart to `try_pick_up_item()`; nothing reaches into the equipment slots.
 ### Player & threat reporting
 
 `player/player.gd` owns movement, camera, stamina, and blink. All three ghosts report danger through `Player.set_threat_from(...)`, which the horror overlay (`ui/`) uses to always reflect whichever threat is currently worse — new ghosts/hazards should report through this same call rather than driving the overlay directly.
+
+### Multiplayer: one authority, three kinds of seam
+
+`network/` holds two autoloads. `NetworkManager` owns the *session* — roster, lobby, and `game_started`, which is also the door: `_register_player()` refuses newcomers while a night is running. `WorldReplicator` owns the *world* — it streams ghosts and loose items at 20 Hz, doors/power/the brazier at 5 Hz, and spawn/despawn/clock as reliable events. `WorldNet` is the one seam world scripts reach both through, because an autoload's identifier does not resolve in the `--script` smoke tests; **never name `NetworkManager` directly outside `network/`**.
+
+Every world system guards its own simulation with `WorldNet.is_world_authority()` (true offline and on the server) and takes the server's word through its own `apply_network_state()`. Three things do *not* fit that mould and each has its own seam:
+
+- **Presentation a client cannot derive.** Placing a ghost is not enough — all three hide their rig through `_set_manifested()`, which only the brain calls, so that flag is replicated too. A client that gets position but not this shows a moving light with no model.
+- **Anything played through a camera.** Minigames and the death screen are first-person, so the server claims the target and hands the encounter to the owning peer (`Player._begin_remote_encounter`, `_show_death`); the outcome is reported back. Never run one on a replica.
+- **Presses whose whole effect is local geometry.** Interior doors and light switches join `replicated_interactions`, and `Player._try_interact()` echoes the press to every peer. Targets with their own network path deliberately stay out of that group.
+
+A run ends exactly one way: `NetworkManager.end_run()`, which clears `game_started` and the ready flags and returns everyone to the lobby. `villa_main.gd` decides *when* (wipe, dawn, or the last player leaving); NetworkManager decides what to do about it.
 
 ### Dev tools
 

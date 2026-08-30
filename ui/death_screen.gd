@@ -46,6 +46,17 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	visible = false
 	restart_button.pressed.connect(_on_restart_pressed)
+	# Nothing for it to do in a session: everyone is returned to the lobby a few
+	# seconds after the last player falls, and readying up there is the restart.
+	restart_button.visible = not _in_network_session()
+
+
+## Reached through the tree rather than by name, the way player.gd does it: an
+## autoload's identifier does not resolve in the `--script` smoke tests, which
+## load this scene.
+func _in_network_session() -> bool:
+	var manager := get_node_or_null("/root/NetworkManager")
+	return manager != null and bool(manager.get("session_active"))
 
 
 func show_jumpscare(ghost: Node3D) -> void:
@@ -115,7 +126,8 @@ func show_game_over(ghost: Node3D) -> void:
 	card.scale = Vector2(0.94, 0.94)
 	_configure_copy()
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
-	restart_button.grab_focus()
+	if restart_button.visible:
+		restart_button.grab_focus()
 
 
 func _process(delta: float) -> void:
@@ -181,7 +193,8 @@ func _update_blackout() -> void:
 		game_over.visible = true
 		game_over.modulate.a = 0.0
 		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
-		restart_button.grab_focus()
+		if restart_button.visible:
+			restart_button.grab_focus()
 
 
 func _update_game_over() -> void:
@@ -231,6 +244,12 @@ func _configure_copy() -> void:
 
 func _on_restart_pressed() -> void:
 	if restarting or phase != Phase.GAME_OVER:
+		return
+	# In a session the run is ended for the whole room by the server, which puts
+	# everyone back in the lobby to ready up again. Reloading this peer's own
+	# copy of the map would leave it playing a different night from everybody
+	# else, so the button only ever restarts a solo game.
+	if _in_network_session():
 		return
 	restarting = true
 	restart_button.disabled = true

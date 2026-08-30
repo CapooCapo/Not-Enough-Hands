@@ -7,6 +7,7 @@ signal player_spawn_requested(peer_id: int, display_name: String, spawn_index: i
 signal player_world_ready(peer_id: int)
 signal player_replication_ready(peer_id: int)
 signal player_left(peer_id: int)
+signal run_ended(reason: String)
 
 const DEFAULT_PORT := 7777
 const MAX_PLAYERS := 4
@@ -129,6 +130,52 @@ func notify_replication_ready() -> void:
 
 func is_server() -> bool:
 	return session_active and multiplayer.is_server()
+
+
+## The one way out of a night, whichever way it went: everybody dead, dawn
+## reached, or the last person leaving. Puts the whole room back in the lobby
+## with every ready flag cleared, so the same group can simply ready up again.
+##
+## Server-only and idempotent - "everyone is out" can be noticed by more than
+## one thing in the same frame, and `game_started` is what makes the second call
+## a no-op.
+##
+## Clearing `game_started` is also what reopens the door: `_register_player()`
+## turns away anyone who knocks during a run, so without this a finished session
+## stayed locked to newcomers *and* to the people who had just been in it.
+func end_run(reason: String) -> void:
+	if not session_active or not multiplayer.is_server() or not game_started:
+		return
+	world_ready_peers.clear()
+	replication_ready_peers.clear()
+	for peer_id: int in players:
+		var info: Dictionary = players[peer_id]
+		info["ready"] = false
+		players[peer_id] = info
+	if dedicated_server and players.is_empty():
+		# Nobody is left to inherit the room, so the next person to arrive gets it.
+		lobby_host_peer_id = 0
+	print("NETWORK_RUN_ENDED reason=%s" % reason)
+	_sync_roster.rpc(players, lobby_host_peer_id)
+	roster_changed.emit(players.duplicate(true))
+	_return_to_lobby.rpc(reason)
+	_return_to_lobby_locally(reason)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _return_to_lobby(reason: String) -> void:
+	_return_to_lobby_locally(reason)
+
+
+func _return_to_lobby_locally(reason: String) -> void:
+	game_started = false
+	# The death screen and the victory overlay both pause the tree. Carrying that
+	# pause into the lobby would leave it drawn but dead to input.
+	get_tree().paused = false
+	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+	run_ended.emit(reason)
+	status_changed.emit(reason)
+	get_tree().change_scene_to_file.call_deferred(LOBBY_SCENE)
 
 
 ## True where world simulation is allowed to run: single-player and the server
@@ -315,7 +362,9 @@ func _on_peer_disconnected(peer_id: int) -> void:
 	if not multiplayer.is_server():
 		return
 	players.erase(peer_id)
-	if dedicated_server and peer_id == lobby_host_peer_id and not game_started:
+	# Whoever inherits the room has to be picked whether or not a night is
+	# running: the point of choosing one is the lobby that comes after it.
+	if dedicated_server and peer_id == lobby_host_peer_id:
 		lobby_host_peer_id = _first_player_peer_id()
 	world_ready_peers.erase(peer_id)
 	replication_ready_peers.erase(peer_id)
@@ -324,6 +373,12 @@ func _on_peer_disconnected(peer_id: int) -> void:
 	roster_changed.emit(players.duplicate(true))
 	player_left.emit(peer_id)
 	print("NETWORK_PLAYER_LEFT peer=%d" % peer_id)
+	# The last person walked out of a night nobody is playing any more. A
+	# dedicated server that stayed in the villa would keep turning the next
+	# group away at _register_player(), so it goes back to an open lobby.
+	# A listen host always holds a seat of its own, so this cannot fire there.
+	if game_started and players.is_empty():
+		end_run("Phòng đã trống. Sẵn sàng cho ván mới.")
 
 
 func _on_connected_to_server() -> void:
