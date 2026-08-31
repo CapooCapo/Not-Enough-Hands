@@ -7,6 +7,7 @@ extends WomanGhost
 
 signal manifested(zone: ElectricalZone)
 signal retreated
+signal died_in_light
 signal killed_player(player: Node3D)
 
 enum EncounterPhase {
@@ -27,7 +28,15 @@ enum EncounterPhase {
 ## together. One ring is already a broad multi-room pocket in the villa.
 @export_range(0, 3, 1) var blackout_neighbour_depth := 1
 @export_range(0.5, 20.0, 0.05) var normal_speed := 6.0
-@export_range(0.5, 20.0, 0.05) var darkness_speed := 7.5
+@export_range(0.5, 20.0, 0.05) var darkness_speed := 8.0
+## Powered world lights kill the ghost after one uninterrupted exposure.
+@export_range(0.1, 10.0, 0.1) var light_death_seconds := 3.0
+## Each distinct living player's flashlight applies this penalty while its
+## unobstructed cone is actually on the ghost.
+@export_range(0.0, 10.0, 0.1) var flashlight_speed_penalty := 1.5
+@export_range(1, 8, 1) var flashlight_retreat_player_count := 3
+@export_range(0.1, 15.0, 0.1) var flashlight_retreat_seconds := 5.0
+@export_range(0.0, 5.0, 0.1) var minimum_illuminated_speed := 0.5
 @export_range(0.5, 15.0, 0.05) var patrol_speed := 6.0
 @export_range(0.5, 15.0, 0.1) var patrol_retarget_seconds := 3.0
 ## Used only when a manifest attempt fails outright (e.g. no powered zone
@@ -73,6 +82,10 @@ var _stuck_timer := 0.0
 var _stuck_reference_position := Vector3.ZERO
 var _unstick_direction := Vector3.ZERO
 var _unstick_seconds_left := 0.0
+var _environment_light_exposure := 0.0
+var _flashlight_focus_time := 0.0
+var _flashlight_player_count := 0
+var _is_dead := false
 
 
 func _ready() -> void:
@@ -102,13 +115,11 @@ func _process(delta: float) -> void:
 			if _warning_time_left <= 0.0:
 				_finish_warning()
 			return
-		# Darkness is a persistent hunting ground. It ends only when players
-		# have reset every lamp in its zone, not after an arbitrary timer.
-		if not _power_effect or not _power_effect.has_active_zone_outage():
-			retreat()
-			return
+		# Restoring the grid no longer makes the ghost disappear instantly. It
+		# must remain inside light for light_death_seconds, giving it a chance to
+		# escape a briefly lit doorway while rewarding a sustained exposure.
 		return
-	if auto_manifest:
+	if auto_manifest and not _is_dead:
 		_next_manifest_in -= delta
 		if _next_manifest_in <= 0.0:
 			manifest()
@@ -120,6 +131,9 @@ func _physics_process(delta: float) -> void:
 	if encounter_phase != EncounterPhase.CHASING:
 		velocity = Vector3.ZERO
 		play_idle()
+		return
+	_update_light_exposure(delta)
+	if not _is_manifested:
 		return
 	var player := _nearest_living_player()
 	# Aggro is recalculated from the ghost every frame. This is deliberately not
@@ -155,7 +169,7 @@ func manifest_for_dev() -> bool:
 
 
 func _begin_manifest_for_target(player: Node3D) -> bool:
-	if _is_manifested or not _power_effect or not player:
+	if _is_dead or _is_manifested or not _power_effect or not player:
 		return false
 	var preferred_zone := _zone_near_position(player.global_position)
 	if not preferred_zone:
@@ -176,6 +190,7 @@ func _begin_manifest_for_target(player: Node3D) -> bool:
 	_stuck_timer = 0.0
 	_stuck_reference_position = global_position
 	_unstick_seconds_left = 0.0
+	_reset_light_exposure()
 	manifested.emit(preferred_zone)
 	return true
 
@@ -206,6 +221,7 @@ func retreat() -> void:
 	_encounter_zones.clear()
 	_stuck_timer = 0.0
 	_unstick_seconds_left = 0.0
+	_reset_light_exposure()
 	if _power_effect:
 		_power_effect.clear_zone_outage()
 	_next_manifest_in = manifest_interval
@@ -214,6 +230,10 @@ func retreat() -> void:
 
 func is_manifested() -> bool:
 	return _is_manifested
+
+
+func is_dead() -> bool:
+	return _is_dead
 
 
 ## The marked player cannot undo the outage while the ghost is actively on
@@ -230,7 +250,7 @@ func get_replication_state() -> Array:
 	for zone: ElectricalZone in _encounter_zones:
 		if is_instance_valid(zone):
 			zone_ids.append(String(zone.zone_id))
-	return [encounter_phase, _warning_time_left, zone_ids]
+	return [encounter_phase, _warning_time_left, zone_ids, _is_dead]
 
 
 func apply_replication_state(state: Array) -> void:
@@ -241,6 +261,8 @@ func apply_replication_state(state: Array) -> void:
 	var changed := incoming_phase != encounter_phase or not _zone_ids_match(incoming_ids)
 	encounter_phase = incoming_phase
 	_warning_time_left = float(state[1])
+	if state.size() >= 4:
+		_is_dead = bool(state[3])
 	if changed:
 		_encounter_zones.clear()
 		for zone_id: String in incoming_ids:
@@ -552,11 +574,13 @@ func _zone_near_position(position: Vector3) -> ElectricalZone:
 	return closest
 
 
-## Darkness speed follows the light that actually reaches the ghost, rather
-## than merely trusting a zone flag. A powered room lamp or a player's torch
-## aimed at it keeps the chase at normal_speed; walls block both checks.
+## World lighting selects the normal/dark base speed. Player flashlights then
+## subtract their penalty independently, once per distinct player whose beam
+## reaches the ghost. Walls block both checks.
 func _chase_speed_at(position: Vector3) -> float:
-	return normal_speed if _is_position_locally_lit(position) else darkness_speed
+	var base_speed := normal_speed if _is_position_environmentally_lit(position) else darkness_speed
+	var flashlight_count := _player_flashlight_count_at(position)
+	return maxf(minimum_illuminated_speed, base_speed - flashlight_count * flashlight_speed_penalty)
 
 
 func _is_position_locally_lit(position: Vector3) -> bool:
@@ -565,6 +589,75 @@ func _is_position_locally_lit(position: Vector3) -> bool:
 		if light and _light_reaches_position(light, position):
 			return true
 	return false
+
+
+func _is_position_environmentally_lit(position: Vector3) -> bool:
+	for node: Node in get_tree().get_nodes_in_group(&"local_light_sources"):
+		var light := node as Light3D
+		if light and not _owning_player(light) and _light_reaches_position(light, position):
+			return true
+	return false
+
+
+func _player_flashlight_count_at(position: Vector3) -> int:
+	var count := 0
+	for player: Node3D in _living_players():
+		var flashlight := player.get_node_or_null(^"CameraPivot/Camera3D/Flashlight") as SpotLight3D
+		if flashlight and _light_reaches_position(flashlight, position):
+			count += 1
+	return count
+
+
+func _owning_player(node: Node) -> Node3D:
+	var ancestor := node.get_parent()
+	while ancestor:
+		if ancestor.is_in_group(&"players"):
+			return ancestor as Node3D
+		ancestor = ancestor.get_parent()
+	return null
+
+
+func _update_light_exposure(delta: float) -> void:
+	if _is_position_environmentally_lit(global_position):
+		_environment_light_exposure += delta
+	else:
+		_environment_light_exposure = 0.0
+	if _environment_light_exposure >= light_death_seconds:
+		_die_in_light()
+		return
+
+	_flashlight_player_count = _player_flashlight_count_at(global_position)
+	if _flashlight_player_count >= flashlight_retreat_player_count:
+		_flashlight_focus_time += delta
+	else:
+		_flashlight_focus_time = 0.0
+	if _flashlight_focus_time >= flashlight_retreat_seconds:
+		retreat()
+
+
+func _die_in_light() -> void:
+	if _is_dead:
+		return
+	_is_dead = true
+	auto_manifest = false
+	_clear_player_threat()
+	_stop_warning_visuals(true)
+	_set_manifested(false)
+	encounter_phase = EncounterPhase.DORMANT
+	_target_player = null
+	_encounter_zones.clear()
+	_stuck_timer = 0.0
+	_unstick_seconds_left = 0.0
+	if _power_effect:
+		_power_effect.clear_zone_outage()
+	_reset_light_exposure()
+	died_in_light.emit()
+
+
+func _reset_light_exposure() -> void:
+	_environment_light_exposure = 0.0
+	_flashlight_focus_time = 0.0
+	_flashlight_player_count = 0
 
 
 func _light_reaches_position(light: Light3D, position: Vector3) -> bool:
