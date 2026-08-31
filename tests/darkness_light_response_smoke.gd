@@ -111,7 +111,7 @@ func _run() -> void:
 		_fail("Three continuous seconds of environmental light did not permanently kill the ghost.")
 		return
 
-	print("Darkness light response smoke test passed: nerfed chase speeds, spatial footsteps, stacked 1.5 slowdown, 3-player 5s retreat, continuous 3s environmental-light death.")
+	print("Darkness light response smoke test passed: nerfed chase speeds, spatial footsteps, stacked per-flashlight slowdown, 3-player 5s retreat, continuous 3s environmental-light death.")
 	quit()
 
 

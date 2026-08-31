@@ -59,10 +59,10 @@ signal containment_recovered(escaped_position: Vector3, recovered_position: Vect
 ## Patrol crawl. Deliberately crippling - less than half a walking player. It is
 ## not chasing anyone at this speed; it is dragging itself across the ceiling
 ## waiting to hear something, and it can be walked away from at leisure.
-@export var crawl_speed: float = 1.15
+@export var crawl_speed: float = 1.45
 ## Closing speed once it has a fix but the noise is too far away to leap at. It
 ## is faster than a patrol and slower than a sprint, so distance still buys time.
-@export var hunting_speed: float = 3.6
+@export var hunting_speed: float = 4.5
 @export var acceleration: float = 26.0
 @export var turn_speed: float = 7.5
 ## How fast the steering direction itself may swing, as distinct from how fast
@@ -178,7 +178,7 @@ signal containment_recovered(escaped_position: Vector3, recovered_position: Vect
 @export var hearing_range: float = 16.0
 ## Player speed treated as maximum loudness. Slightly above the player's sprint
 ## speed so even sprinting is not quite a 1.0 - there is always a louder noise.
-@export var loud_reference_speed: float = 3.1
+@export var loud_reference_speed: float = 3.9
 @export_range(0.0, 1.0) var crouch_noise_multiplier: float = 0.3
 ## A landing thump is a single loud event no amount of crouching hides.
 @export_range(0.0, 1.0) var landing_noise: float = 0.85
@@ -260,6 +260,9 @@ signal containment_recovered(escaped_position: Vector3, recovered_position: Vect
 ## Short, because the leap is the threat and a long tell would defuse it - but
 ## not zero: this plus the scream is the only frame in which it can be dodged.
 @export var pounce_windup: float = 0.3
+## Deliberately left where it was when the crawl/hunt paces were raised: the
+## leap is a fixed reaction test, and speeding it up shortens a dodge window
+## measured in human reflexes rather than in metres of map.
 @export var pounce_speed: float = 21.0
 @export var pounce_arc: float = 0.22
 ## How far ahead of a moving target it aims. It is blind, so this is guesswork

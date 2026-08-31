@@ -106,8 +106,8 @@ entrance_id = 7
 
 [node name="Player" parent="." unique_id=308502712 instance=ExtResource("2_0xm2m")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, -1.7617009)
-walk_speed = 2.7
-crouch_speed = 1.45
+walk_speed = 3.4
+crouch_speed = 1.8
 sprint_speed_multiplier = 1.3
 forced_blink_duration = 0.25
 

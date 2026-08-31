@@ -458,8 +458,8 @@ func _test_chase_override_and_five_second_memory() -> bool:
 	# pace is slower than a walking player: while it has not seen you, it is
 	# beatable on foot.
 	var patrol_speed := float(hunter.call('_non_chase_speed', float(hunter.get('walk_speed'))))
-	if not is_equal_approx(patrol_speed, 2.0):
-		return _fail('Patrol pace is not 2 m/s (%.2f).' % patrol_speed, hunter)
+	if not is_equal_approx(patrol_speed, 2.5):
+		return _fail('Patrol pace is not 2.5 m/s (%.2f).' % patrol_speed, hunter)
 
 	await _despawn(blocker)
 	await _despawn(hunter)

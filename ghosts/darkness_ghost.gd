@@ -38,17 +38,17 @@ enum EncounterPhase {
 ## than a checklist. A zone never has every fixture jammed at once, and the jam
 ## lifts with the hunt.
 @export_range(0.0, 1.0, 0.05) var hunt_light_lock_chance := 0.4
-@export_range(0.5, 20.0, 0.05) var normal_speed := 3.2
-@export_range(0.5, 20.0, 0.05) var darkness_speed := 4.2
+@export_range(0.5, 20.0, 0.05) var normal_speed := 4.0
+@export_range(0.5, 20.0, 0.05) var darkness_speed := 5.25
 ## Powered world lights kill the ghost after one uninterrupted exposure.
 @export_range(0.1, 10.0, 0.1) var light_death_seconds := 3.0
 ## Each distinct living player's flashlight applies this penalty while its
 ## unobstructed cone is actually on the ghost.
-@export_range(0.0, 10.0, 0.1) var flashlight_speed_penalty := 1.5
+@export_range(0.0, 10.0, 0.1) var flashlight_speed_penalty := 1.9
 @export_range(1, 8, 1) var flashlight_retreat_player_count := 3
 @export_range(0.1, 15.0, 0.1) var flashlight_retreat_seconds := 5.0
-@export_range(0.0, 5.0, 0.1) var minimum_illuminated_speed := 0.5
-@export_range(0.5, 15.0, 0.05) var patrol_speed := 2.6
+@export_range(0.0, 5.0, 0.1) var minimum_illuminated_speed := 0.6
+@export_range(0.5, 15.0, 0.05) var patrol_speed := 3.25
 @export_range(0.5, 15.0, 0.1) var patrol_retarget_seconds := 3.0
 ## Used only when a manifest attempt fails outright (e.g. no powered zone
 ## could be found near the player). Short on purpose: manifest_interval is

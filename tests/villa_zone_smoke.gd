@@ -73,10 +73,10 @@ func _run() -> void:
 		"DarknessGhost spawned within the 15m safety radius"
 	)
 	_assert(
-		is_equal_approx(darkness_ghost.normal_speed, 3.2)
-			and is_equal_approx(darkness_ghost.darkness_speed, 4.2)
-			and is_equal_approx(darkness_ghost.patrol_speed, 2.6),
-		"DarknessGhost must move at 6m/s normally and 9m/s without direct light"
+		is_equal_approx(darkness_ghost.normal_speed, 4.0)
+			and is_equal_approx(darkness_ghost.darkness_speed, 5.25)
+			and is_equal_approx(darkness_ghost.patrol_speed, 3.25),
+		"DarknessGhost must move at 4m/s normally and 5.25m/s without direct light"
 	)
 	dev_tools.ghost_box_picker.select(0)
 	dev_tools.set_ghost_box_enabled(true)
@@ -103,8 +103,8 @@ func _run() -> void:
 		"Powered room light was not recognised as a speed-limiting light source"
 	)
 	_assert(
-		is_equal_approx(darkness_ghost._chase_speed_at(light_probe), 3.2),
-		"DarknessGhost did not stay at 6m/s under a powered room light"
+		is_equal_approx(darkness_ghost._chase_speed_at(light_probe), 4.0),
+		"DarknessGhost did not stay at 4m/s under a powered room light"
 	)
 	darkness_ghost._warning_time_left = 0.05
 	darkness_ghost._update_warning_visuals()
@@ -133,8 +133,8 @@ func _run() -> void:
 		"Blackout position was still treated as directly lit"
 	)
 	_assert(
-		is_equal_approx(darkness_ghost._chase_speed_at(light_probe), 4.2),
-		"DarknessGhost did not accelerate to 9m/s in unlit space"
+		is_equal_approx(darkness_ghost._chase_speed_at(light_probe), 5.25),
+		"DarknessGhost did not accelerate to 5.25m/s in unlit space"
 	)
 	_assert(manager.get_total_load() < initial_total_load, "DarknessGhost outage did not reduce whole-house load")
 

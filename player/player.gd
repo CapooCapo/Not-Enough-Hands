@@ -13,9 +13,9 @@ signal toilet_ghost_stun_changed(active: bool)
 @export var owner_peer_id: int = 0
 @export var display_name: String = "Player"
 
-@export var walk_speed: float = 6
-@export var crouch_speed: float = 2.75
-@export var sprint_speed_multiplier: float = 2.5
+@export var walk_speed: float = 7.5
+@export var crouch_speed: float = 3.45
+@export var sprint_speed_multiplier: float = 2.3
 @export var jump_velocity: float = 4.2
 @export var player_radius: float = 0.32
 @export var crouch_height: float = 1.05
@@ -212,7 +212,11 @@ var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 const NETWORK_STATE_INTERVAL := 1.0 / 20.0
 const NETWORK_SERVER_PEER_ID := 1
 const PREDICTION_HISTORY_LIMIT := 180
-const PREDICTION_HARD_SNAP_DISTANCE := 2.0
+## Measured in metres, but what it really is is "more frames of movement than a
+## prediction error can plausibly be". It scales with sprint speed: at 17.25 m/s
+## a 20 Hz snapshot is 0.86 m, so this stays a few packets clear of ordinary lag
+## and only a genuine divergence snaps the body.
+const PREDICTION_HARD_SNAP_DISTANCE := 2.3
 const PREDICTION_CORRECTION_DEAD_ZONE := 0.03
 const PREDICTION_RECONCILIATION_SPEED := 10.0
 

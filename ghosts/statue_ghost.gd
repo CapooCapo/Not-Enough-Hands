@@ -11,9 +11,9 @@ signal spotted_jumpscare_started()
 
 @export_category('Behavior')
 @export var active: bool = true
-@export var base_speed: float = 5.25
-@export var maximum_speed: float = 7.45
-@export var speed_per_breached_door: float = 0.32
+@export var base_speed: float = 6.55
+@export var maximum_speed: float = 9.3
+@export var speed_per_breached_door: float = 0.4
 @export_range(0, 7) var breached_door_count: int = 0
 @export_range(0.0, 1.0) var night_aggression: float = 0.2
 @export var acceleration: float = 22.0
@@ -28,10 +28,13 @@ signal spotted_jumpscare_started()
 ## A blink is the statue's signature attack window. The farther away it is,
 ## the harder it surges along its navigation path, so spotting it at the end of
 ## a long hall does not make a normal 0.22-second blink feel harmless.
+## These are multipliers on base_speed, so they were divided down when the
+## patrol pace was raised: a blink must still cost the same metres it always
+## did, or a faster statue would silently shorten the window a blink is safe in.
 @export var blink_lunge_near_distance: float = 2.5
 @export var blink_lunge_far_distance: float = 11.0
-@export var blink_lunge_near_speed_multiplier: float = 1.45
-@export var blink_lunge_far_speed_multiplier: float = 5.2
+@export var blink_lunge_near_speed_multiplier: float = 1.16
+@export var blink_lunge_far_speed_multiplier: float = 4.15
 @export var blink_lunge_acceleration_multiplier: float = 12.0
 
 @export_category('Hunt Cycle')

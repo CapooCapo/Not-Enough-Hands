@@ -101,16 +101,16 @@ signal killed_player(player: Node3D)
 ## Patrol pace. Everything it does that is not a charge moves at this, and it is
 ## slower than a walking player: while it has not seen you, it is beatable on
 ## foot in any direction.
-@export var walk_speed: float = 2.0
+@export var walk_speed: float = 2.5
 ## Same as the patrol pace. It does not hurry until it has seen somebody.
-@export var track_speed: float = 2.0
+@export var track_speed: float = 2.5
 ## The charge is still faster than a sprinting player, but slow enough that the
 ## warning below gives them a real chance to reach a corner:
 ## you keep the head start you already had and give it up a little at a time,
 ## which leaves room to actually reach the corner you were running for. The
 ## escape is still breaking line of sight and staying broken for
 ## `lose_sight_time`.
-@export var charge_speed: float = 7.2
+@export var charge_speed: float = 9.0
 ## Left at 1.0 so the patrol pace above is exactly the speed it walks at.
 @export var non_chase_speed_multiplier: float = 1.0
 ## Enough that the charge speed above is a real number and not an aspiration, and
@@ -201,7 +201,7 @@ signal killed_player(player: Node3D)
 @export var hearing_range: float = 13.0
 ## The speed treated as maximum loudness. Set to a sprint, so ordinary walking
 ## sits well down the scale instead of pinning it.
-@export var hearing_reference_speed: float = 7.0
+@export var hearing_reference_speed: float = 8.75
 ## Below this it hears nothing at all. Standing still is silent, and so is
 ## crouch-walking - which is the only movement that is.
 @export_range(0.0, 1.0) var hearing_loudness_floor: float = 0.16
@@ -251,7 +251,7 @@ signal killed_player(player: Node3D)
 
 @export_category('Sealed in')
 ## What being locked in with you is worth to it.
-@export var trapped_speed_bonus: float = 0.5
+@export var trapped_speed_bonus: float = 0.6
 @export_range(0.1, 1.0) var trapped_cast_scale: float = 0.6
 
 @export_category('Presentation')
