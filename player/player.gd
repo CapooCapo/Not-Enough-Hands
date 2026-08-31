@@ -1282,9 +1282,12 @@ func kill_by_ghost(ghost: Node3D) -> void:
 	velocity = Vector3.ZERO
 	_stop_footsteps()
 	# Alone, a kill is still a kill and the jumpscare/game-over runs as before.
-	# With a teammate left standing it becomes a rescue window instead.
+	# With a teammate left standing it becomes a rescue window instead - but
+	# being caught is the scare either way, so the face still arrives; only the
+	# game-over behind it is what a rescuer takes away.
 	if _has_available_rescuer():
 		_enter_downed()
+		_present_downed_jumpscare()
 	else:
 		_present_death(ghost)
 		_publish_life_state()
@@ -1309,6 +1312,33 @@ func _present_death(ghost: Node3D) -> void:
 	else:
 		death_ui.visible = true
 		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+
+
+## Every player a ghost catches gets the same face in the same place - the one
+## still standing is the only one who also gets a Game Over behind it.
+##
+## Routed to the victim's own machine for the reason _present_death() is: this
+## is first-person, and the kill is resolved on the server. The controller is
+## driven with a null player rather than `self` on purpose - locking a downed
+## body's `_physics_process` would also stop `_update_downed()` on a listen
+## server, freezing the bleed-out clock and any revive already in progress for
+## the length of the sequence. There is nothing to hold still anyway: a downed
+## player cannot move. And no `_pending_hunter_killer` is set, which is what
+## keeps _on_hunter_jumpscare_finished() from raising the Game Over card.
+func _present_downed_jumpscare() -> void:
+	if _encounter_belongs_elsewhere():
+		_show_downed_jumpscare.rpc_id(owner_peer_id)
+		return
+	if not is_local_player() or not jumpscare:
+		return
+	jumpscare.play_jumpscare(null)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _show_downed_jumpscare() -> void:
+	if not _network_is_reachable() or not is_local_player():
+		return
+	_present_downed_jumpscare()
 
 
 @rpc("authority", "call_remote", "reliable")

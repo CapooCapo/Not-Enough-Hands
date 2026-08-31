@@ -38,9 +38,10 @@ signal spotted_jumpscare_started()
 ## within this radius. This naturally selects a lone moving player.
 @export var moving_target_speed: float = 0.2
 @export var isolation_radius: float = 7.0
-## Never manifest close enough to give the selected player an unavoidable
-## point-blank encounter. Distances are measured horizontally on the target's
-## navigation floor.
+## Never manifest close enough to give a player an unavoidable point-blank
+## encounter. Distances are measured horizontally on the target's navigation
+## floor, and the same radius is kept clear of *every* living player - see
+## _is_position_clear_of_players().
 @export var ambush_min_distance: float = 15.0
 @export var ambush_max_distance: float = 22.0
 @export_range(4, 32, 1) var ambush_candidate_count: int = 16
@@ -794,6 +795,8 @@ func _find_ambush_position(target: CharacterBody3D) -> Vector3:
 				continue
 
 			var spawn_position := nav_point + Vector3.UP * 0.02
+			if not _is_position_clear_of_players(spawn_position):
+				continue
 			if not _is_position_observed_by_any_player(spawn_position):
 				return spawn_position
 		return Vector3.INF
@@ -809,6 +812,8 @@ func _find_ambush_position(target: CharacterBody3D) -> Vector3:
 			floor_y + 0.02,
 			target.global_position.z + sin(angle) * distance
 		)
+		if not _is_position_clear_of_players(candidate):
+			continue
 		if not _is_position_observed_by_any_player(candidate):
 			return candidate
 	return Vector3.INF
@@ -821,6 +826,25 @@ func _player_foot_y(player: CharacterBody3D) -> float:
 		if capsule:
 			return shape_node.global_position.y - capsule.height * 0.5
 	return player.global_position.y
+
+
+## The ambush radius above is measured against the hunted player only, and the
+## candidate merely has to be unseen. Neither says anything about the rest of
+## the team: a point 18 m behind the target can be a metre behind somebody else
+## who happens not to be looking that way, and that teammate then has a statue
+## in their face with no warning at all. Measured against real player positions
+## rather than their navmesh projections, because a player on a stair tread or
+## on top of furniture projects several metres from where they actually stand -
+## which is the same way a candidate could land next to the target itself.
+func _is_position_clear_of_players(position: Vector3) -> bool:
+	for player: CharacterBody3D in _living_players():
+		var flat_offset := Vector2(
+			player.global_position.x - position.x,
+			player.global_position.z - position.z
+		)
+		if flat_offset.length() < ambush_min_distance:
+			return false
+	return true
 
 
 func _is_position_observed_by_any_player(position: Vector3) -> bool:
