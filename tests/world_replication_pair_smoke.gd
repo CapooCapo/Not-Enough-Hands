@@ -8,7 +8,7 @@ extends SceneTree
 ## word for it. What it cannot do is send a packet, so everything *between* the
 ## ends went unchecked, and a whole channel could be silently dead.
 ##
-## It was. Ghost transforms replicated fine while the body did not: all three
+## It was. Ghost transforms replicated fine while the body did not: the authored
 ## ghosts leave their root visible and hide the rig through `_set_manifested()`,
 ## which only the brain calls - and a client does not run the brain. A huntsman
 ## arrived at four players' machines as a bare moving light with no model on it.
@@ -40,6 +40,8 @@ var _elapsed := 0.0
 var _done := false
 var _ghost: Node3D
 var _visual: Node3D
+var _decoy_ghost: Node3D
+var _decoy_visual: Node3D
 var _door: DefenseDoor
 var _clock: NightClock
 var _client_pid := -1
@@ -63,6 +65,14 @@ func _run() -> void:
 
 	_build_world()
 	await process_frame
+	var replicator := root.get_node(^"/root/WorldReplicator")
+	replicator.call("_bind_scene_if_changed")
+	# The receiver's authored list is intentionally wrong. NodePath-keyed state
+	# must still reach StatueGhost; the old index protocol manifests HunterGhost.
+	if _is_client:
+		var receiver_order := replicator.get("_ghosts") as Array
+		receiver_order.reverse()
+		replicator.set("_ghosts", receiver_order)
 
 	var peer := ENetMultiplayerPeer.new()
 	if _is_client:
@@ -96,9 +106,9 @@ func _run() -> void:
 		return _fail("Could not start the second process.")
 
 
-## Both halves build the same nodes under the same names, because that is what
-## the replicator addresses them by: ghosts by their place in a name-sorted
-## list, doors by their own entrance_id.
+## Both halves build the same nodes under the same names. The client's private
+## ghost list is reversed above to prove authored ghosts travel by NodePath,
+## while doors continue to use their own entrance_id.
 func _build_world() -> void:
 	var world := Node3D.new()
 	world.name = "World"
@@ -108,6 +118,9 @@ func _build_world() -> void:
 	_ghost = (load("res://ghosts/statue_ghost.tscn") as PackedScene).instantiate() as Node3D
 	_ghost.name = "StatueGhost"
 	world.add_child(_ghost)
+	_decoy_ghost = (load("res://ghosts/hunter_ghost.tscn") as PackedScene).instantiate() as Node3D
+	_decoy_ghost.name = "HunterGhost"
+	world.add_child(_decoy_ghost)
 
 	_door = (load("res://door/defense_door.tscn") as PackedScene).instantiate() as DefenseDoor
 	_door.name = "Entrance01"
@@ -120,10 +133,12 @@ func _build_world() -> void:
 
 
 func _process(delta: float) -> bool:
-	if _done or not is_instance_valid(_ghost) or not is_instance_valid(_door):
+	if _done or not is_instance_valid(_ghost) or not is_instance_valid(_decoy_ghost) \
+		or not is_instance_valid(_door):
 		return false
 	if _visual == null:
 		_visual = _ghost.get("visual_root") as Node3D
+		_decoy_visual = _decoy_ghost.get("visual_root") as Node3D
 		_full_durability = _door.current_durability
 		_initial_pitch = _teleport_audio().pitch_scale
 	_elapsed += delta
@@ -174,6 +189,10 @@ func _write_client_verdict() -> void:
 		failures.append(
 			"the ghost body never manifested; a client would see a light with no model"
 		)
+	if _decoy_visual == null or _decoy_visual.visible:
+		failures.append(
+			"Statue state manifested Hunter; authored ghost identity still follows list order"
+		)
 	if is_equal_approx(_door.current_durability, _full_durability):
 		failures.append("no door durability arrived on the slow channel")
 	if _clock.elapsed_game_minutes <= 0:
@@ -200,7 +219,7 @@ func _read_client_verdict() -> void:
 		return _fail("the second process reported: " + verdict)
 	print(
 		"World replication pair smoke test passed: over a real socket a client took "
-		+ "the ghost's position and its manifested body, its one-shot audio, "
+		+ "the ghost's NodePath-keyed position and body without manifesting the decoy, its one-shot audio, "
 		+ "the door's durability, and the night."
 	)
 	quit()

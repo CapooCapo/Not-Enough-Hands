@@ -43,11 +43,13 @@ extends Node
 ##
 ## Two kinds of thing are replicated and they are addressed differently.
 ##
-## Authored nodes - the three ghosts each map's scene contains, the seven
+## Authored nodes - the ghosts each map's scene contains, the seven
 ## defense doors, the power manager, the clock - exist on every peer already
-## because they are in the same scene file. Ghosts are addressed by their index
-## in a name-sorted list captured when the scene binds; doors by their own
-## `entrance_id`. Nothing has to be spawned for them.
+## because they are in the same scene file. Ghosts are addressed by their path
+## relative to the current scene; doors by their own `entrance_id`. Nothing has
+## to be spawned for them. A path travels with every authored-ghost state so an
+## older client that lacks a newly added ghost cannot shift Darkness state onto
+## Hunter or Hunter state onto Statue.
 ##
 ## Runtime things - the huntsmen that come through a breach, the totems and
 ## firewood the ritual drops - do not exist on a client at all, so they carry a
@@ -61,8 +63,8 @@ const ENTITY_PREFIX := "RepEnt_"
 
 # --- shared by both sides ---------------------------------------------------
 var _scene_root: Node = null
-## Ghosts the scene itself authored, name-sorted so server and client agree on
-## the order without sending a path per packet.
+## Ghosts authored under the current scene. Packet identity comes from each
+## ghost's relative NodePath, so this array's order is never an identity.
 var _ghosts: Array[Node3D] = []
 ## replication id -> node, for the things that are spawned rather than authored.
 var _entities: Dictionary = {}
@@ -123,13 +125,17 @@ func _bind_scene_if_changed() -> void:
 	if _scene_root == null:
 		return
 	# Captured once, so a huntsman that later comes through a breach is a
-	# replicated entity rather than silently shifting every ghost's index.
+	# replicated entity. Restrict the group query to this scene: autoloads and a
+	# scene being torn down must never become authored ghosts for the new map.
 	var authored: Array[Node3D] = []
 	for node: Node in get_tree().get_nodes_in_group(&"hostile_ghosts"):
 		var ghost := node as Node3D
-		if ghost:
+		if ghost and (ghost == _scene_root or _scene_root.is_ancestor_of(ghost)):
 			authored.append(ghost)
-	authored.sort_custom(func(a: Node3D, b: Node3D) -> bool: return a.name < b.name)
+	authored.sort_custom(
+		func(a: Node3D, b: Node3D) -> bool:
+			return _path_from_scene(a) < _path_from_scene(b)
+	)
 	_ghosts = authored
 
 
@@ -357,7 +363,7 @@ func _broadcast_slow() -> void:
 		_sync_slow.rpc_id(peer_id, doors, power, brazier)
 
 
-## Transform, state and velocity - which is everything all three ghosts need to
+## Transform, state and velocity - which is everything the authored ghosts need to
 ## present themselves.
 ##
 ## Each of `hunter_ghost.gd`, `crawler_ghost.gd` and `statue_ghost.gd` already
@@ -373,9 +379,14 @@ func _collect_ghosts() -> Array:
 	# aborts this function outright the first time the scene frees a ghost.
 	for ghost: Variant in _ghosts:
 		if not is_instance_valid(ghost):
-			out.append([])
 			continue
-		out.append(_ghost_state(ghost))
+		var path := _path_from_scene(ghost as Node)
+		if path.is_empty():
+			continue
+		# Authored ghost identity is explicit. Never infer it from this row's
+		# position in the packet: peers running different scene revisions may
+		# legitimately have different authored-ghost lists.
+		out.append([path, _ghost_state(ghost)])
 	return out
 
 
@@ -402,7 +413,7 @@ func _ghost_state(ghost: Node3D) -> Array:
 
 ## Whether the *body* is showing, which is not the same as `ghost.visible`.
 ##
-## All three ghosts leave their root visible and hide the rig instead, through
+## The authored ghosts leave their root visible and hide the rig instead, through
 ## their own `_set_manifested()` - which also owns the collision layers, the
 ## lantern and the footstep audio. That call is only ever made by the brain, and
 ## a client does not run the brain, so without this a replicated huntsman
@@ -413,7 +424,7 @@ func _ghost_manifested(ghost: Node3D) -> bool:
 	return body == null or body.visible
 
 
-## The rig each ghost hides. The three authored ones keep it under `VisualRoot`;
+## The rig each ghost hides. Hunter, Crawler and Statue keep it under `VisualRoot`;
 ## the Darkness ghost is built on the reusable WomanGhost body and hides
 ## `AnimatedModel` instead. A ghost whose rig is under neither name simply has
 ## no manifested state to replicate.
@@ -578,11 +589,7 @@ func _node_from_scene_path(path: String) -> Node:
 @rpc("authority", "call_remote", "unreliable_ordered", 3)
 func _sync_fast(ghosts: Array, entities: Array) -> void:
 	_bind_scene_if_changed()
-	for index: int in mini(ghosts.size(), _ghosts.size()):
-		var state: Array = ghosts[index]
-		if state.size() < 5:
-			continue
-		_apply_ghost(_ghosts[index], state)
+	_apply_authored_ghosts(ghosts)
 	for row: Array in entities:
 		if row.size() < 3:
 			continue
@@ -597,6 +604,25 @@ func _sync_fast(ghosts: Array, entities: Array) -> void:
 		if row.size() == 3:
 			node.global_position = row[1]
 			node.rotation.y = row[2]
+
+
+## Applies authored state by scene-relative identity, never by packet index.
+## Legacy packets contain a raw state Array instead of [NodePath, state]; they
+## are deliberately ignored because guessing their target recreates the exact
+## Darkness/Hunter/Statue mismatch this protocol is meant to prevent.
+func _apply_authored_ghosts(rows: Array) -> void:
+	for row_value: Variant in rows:
+		if not row_value is Array:
+			continue
+		var row := row_value as Array
+		if row.size() < 2 or not row[1] is Array:
+			continue
+		var ghost := _node_from_scene_path(str(row[0])) as Node3D
+		if ghost == null or not ghost.is_in_group(&"hostile_ghosts"):
+			continue
+		var state := row[1] as Array
+		if state.size() >= 5:
+			_apply_ghost(ghost, state)
 
 
 ## The ghost is placed rather than simulated, and then asked to present itself.
@@ -834,10 +860,7 @@ func _apply_snapshot(snapshot: Dictionary) -> void:
 			if entity and entity.is_in_group(&"hostile_ghosts"):
 				_apply_ghost(entity, row[7])
 	var ghosts: Array = snapshot.get("ghosts", [])
-	for index: int in mini(ghosts.size(), _ghosts.size()):
-		var state: Array = ghosts[index]
-		if state.size() >= 5:
-			_apply_ghost(_ghosts[index], state)
+	_apply_authored_ghosts(ghosts)
 	_apply_doors(snapshot.get("doors", []))
 	_apply_power(snapshot.get("power", []))
 	_apply_brazier(snapshot.get("brazier", []))

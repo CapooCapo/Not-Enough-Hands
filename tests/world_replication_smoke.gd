@@ -54,6 +54,8 @@ func _run() -> void:
 		return
 	if not _test_runtime_entity_ids_keep_their_identity():
 		return
+	if not _test_authored_ghost_paths_keep_their_identity():
+		return
 	if not _test_ghosts_expose_a_presentation_seam():
 		return
 	if not await _test_an_encounter_is_handed_to_its_owner():
@@ -61,7 +63,7 @@ func _run() -> void:
 	print(
 		'World replication smoke test passed: offline and server simulate, a client does not, '
 		+ 'clock/door/power/brazier all take the server state they are given, '
-		+ 'runtime ids cannot turn ritual fire into a ghost, every ghost exposes its presentation seam, '
+		+ 'runtime ids and authored ghost paths preserve identity, every ghost exposes its presentation seam, '
 		+ 'and an encounter is handed to the peer that started it.'
 	)
 	quit()
@@ -250,6 +252,7 @@ func _test_ghosts_expose_a_presentation_seam() -> bool:
 		'res://ghosts/hunter_ghost.tscn',
 		'res://ghosts/crawler_ghost.tscn',
 		'res://ghosts/statue_ghost.tscn',
+		'res://ghosts/darkness_ghost.tscn',
 	]:
 		var ghost := (load(path) as PackedScene).instantiate()
 		var has_seam: bool = ghost.has_method('_update_presentation')
@@ -262,6 +265,56 @@ func _test_ghosts_expose_a_presentation_seam() -> bool:
 			)
 		if not is_body:
 			return _fail('%s is not a CharacterBody3D, so its velocity cannot be replicated.' % path)
+	return true
+
+
+## Authored ghosts used to be addressed only by their index in each peer's
+## locally collected list. Adding Darkness to one build shifted Hunter and
+## Statue on another build. Reverse the receiver's private list here: a keyed
+## packet must still manifest Hunter and must never put that state on Statue.
+func _test_authored_ghost_paths_keep_their_identity() -> bool:
+	var world := Node3D.new()
+	world.name = "AuthoredGhostIdentityWorld"
+	root.add_child(world)
+	current_scene = world
+
+	var hunter := (load("res://ghosts/hunter_ghost.tscn") as PackedScene).instantiate() as Node3D
+	hunter.name = "HunterGhost"
+	world.add_child(hunter)
+	var statue := (load("res://ghosts/statue_ghost.tscn") as PackedScene).instantiate() as Node3D
+	statue.name = "StatueGhost"
+	world.add_child(statue)
+
+	var replicator := (load("res://network/world_replicator.gd") as Script).new() as Node
+	root.add_child(replicator)
+	replicator.set_physics_process(false)
+	replicator.call("_bind_scene_if_changed")
+
+	hunter.call("_set_manifested", true)
+	statue.call("_set_manifested", false)
+	hunter.global_position = Vector3(12.0, 1.0, -4.0)
+	var packet := replicator.call("_collect_ghosts") as Array
+	hunter.call("_set_manifested", false)
+
+	var receiver_order := replicator.get("_ghosts") as Array
+	receiver_order.reverse()
+	replicator.set("_ghosts", receiver_order)
+	replicator.call("_apply_authored_ghosts", packet)
+
+	var hunter_body := hunter.get_node_or_null("VisualRoot") as Node3D
+	var statue_body := statue.get_node_or_null("VisualRoot") as Node3D
+	var passed := hunter_body != null and hunter_body.visible \
+		and statue_body != null and not statue_body.visible \
+		and hunter.global_position.is_equal_approx(Vector3(12.0, 1.0, -4.0))
+
+	current_scene = null
+	replicator.free()
+	world.free()
+	if not passed:
+		return _fail(
+			"An authored ghost packet followed list order instead of its NodePath; "
+			+ "Darkness/Hunter/Statue can still swap bodies."
+		)
 	return true
 
 
