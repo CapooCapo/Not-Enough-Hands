@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://ce85ylfk2rbv6"
-path="res://.godot/imported/run.fbx-879b183d42907866b6c31e93f83c8a01.scn"
+uid="uid://bjqn7gf21rg5s"
+path="res://.godot/imported/boto-character-psx.glb-c58cf3b7f7c83978115e0e1e734b4151.scn"
 
 [deps]
 
-source_file="res://assets/player/Animations/run.fbx"
-dest_files=["res://.godot/imported/run.fbx-879b183d42907866b6c31e93f83c8a01.scn"]
+source_file="res://assets/player/Model/boto-character-psx.glb"
+dest_files=["res://.godot/imported/boto-character-psx.glb-c58cf3b7f7c83978115e0e1e734b4151.scn"]
 
 [params]
 
@@ -32,7 +32,7 @@ meshes/force_disable_compression=false
 skins/use_named_skins=true
 animation/import=true
 animation/fps=30
-animation/trimming=true
+animation/trimming=false
 animation/remove_immutable_tracks=true
 animation/import_rest_as_RESET=false
 import_script/path=""
@@ -41,13 +41,12 @@ materials/extract_format=0
 materials/extract_path=""
 _subresources={
 "nodes": {
-"PATH:Root/Skeleton3D": {
-"retarget/bone_map": Resource("res://assets/player/kenney_humanoid_bone_map.tres"),
+"PATH:simple_character/Skeleton3D": {
+"retarget/bone_map": Resource("res://assets/player/boto_humanoid_bone_map.tres"),
 "retarget/rest_fixer/fix_silhouette/enable": true
 }
 }
 }
-fbx/importer=0
-fbx/allow_geometry_helper_nodes=false
-fbx/embedded_image_handling=1
-fbx/naming_version=2
+gltf/naming_version=2
+gltf/embedded_image_handling=1
+gltf/texture_map_mode=1

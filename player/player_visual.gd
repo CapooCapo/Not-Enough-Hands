@@ -2,7 +2,7 @@ extends Node3D
 
 ## Presentation-only body for a player. Gameplay stays on Player so this scene
 ## can be hidden from the owning first-person camera and replicated later
-## without making the imported Kenney rig part of the movement controller.
+## without making the imported PSX rig part of the movement controller.
 
 const IDLE_SCENE: PackedScene = preload("res://assets/player/Animations/idle.fbx")
 const RUN_SCENE: PackedScene = preload("res://assets/player/Animations/run.fbx")
@@ -13,9 +13,12 @@ const JUMP_SCENE: PackedScene = preload("res://assets/player/Animations/jump.fbx
 ## cannot shadow the whole view. Nothing else uses layer 20.
 const LOCAL_BODY_VISUAL_LAYER := 20
 
+## Unused by the PSX rig, which ships one baked atlas for every player: a
+## per-player texture would have to be authored against this model's own UVs.
 @export var skin: Texture2D
-@export var model_scale: float = 0.46
-## Kenney's character faces +Z, while Godot gameplay/camera forward is -Z.
+## The PSX rig is authored at human scale, so it stands 1.75 m tall unscaled.
+@export var model_scale: float = 1.0
+## The character faces +Z, while Godot gameplay/camera forward is -Z.
 ## Keep this correction on the presentation rig so movement and flashlight
 ## transforms remain authoritative and unchanged.
 @export var model_forward_yaw_degrees: float = 180.0
@@ -36,7 +39,8 @@ const LOCAL_BODY_VISUAL_LAYER := 20
 @export var downed_pose_speed: float = 3.5
 
 @onready var character: Node3D = $Character
-@onready var body_mesh: MeshInstance3D = $Character/Root/Skeleton3D/characterMedium
+@onready var skeleton: Skeleton3D = $"Character/simple_character/GeneralSkeleton"
+@onready var body_mesh: MeshInstance3D = $"Character/simple_character/GeneralSkeleton/body"
 @onready var name_tag: Label3D = $NameTag
 
 var _animation_player: AnimationPlayer
@@ -54,7 +58,6 @@ var _preview_state_tag: Label3D
 
 func _ready() -> void:
 	_player = get_parent() as CharacterBody3D
-	_apply_skin()
 	_build_animation_player()
 	_align_to_player_capsule()
 	_collect_rig_geometry()
@@ -133,20 +136,11 @@ func _update_lobby_preview(delta: float) -> void:
 	character.rotation.y = base_yaw + sin(_preview_time * 0.55) * deg_to_rad(1.8)
 
 
-func _apply_skin() -> void:
-	if not body_mesh or not skin:
-		return
-	var material := StandardMaterial3D.new()
-	material.albedo_texture = skin
-	material.roughness = 0.9
-	body_mesh.set_surface_override_material(0, material)
-
-
 func _build_animation_player() -> void:
 	_animation_player = AnimationPlayer.new()
 	_animation_player.name = "CharacterAnimationPlayer"
-	# The source FBX animation tracks target Root/Skeleton3D. Parenting the
-	# player beside that Root preserves those paths without rewriting 40 tracks.
+	# _retarget_tracks() rewrites every track against this rig, so the player
+	# only has to sit above the skeleton it drives.
 	character.add_child(_animation_player)
 
 	var library := AnimationLibrary.new()
@@ -168,8 +162,24 @@ func _add_animation(
 	if source_player and source_player.has_animation(source_name):
 		var animation := source_player.get_animation(source_name).duplicate(true) as Animation
 		animation.loop_mode = Animation.LOOP_LINEAR if loop else Animation.LOOP_NONE
+		_retarget_tracks(animation)
 		library.add_animation(target_name, animation)
 	source_root.free()
+
+
+## Both rigs are imported through a humanoid bone map, so the Kenney clips
+## already name this model's bones - but they address them through their own
+## source scene (`%GeneralSkeleton`) and still carry the control/IK bones the
+## PSX rig has no counterpart for. Point every track at this skeleton and drop
+## the leftovers, so the mixer never has a track it cannot resolve.
+func _retarget_tracks(animation: Animation) -> void:
+	var skeleton_path := String(character.get_path_to(skeleton))
+	for index: int in range(animation.get_track_count() - 1, -1, -1):
+		var bone := animation.track_get_path(index).get_concatenated_subnames()
+		if bone.is_empty() or skeleton.find_bone(bone) == -1:
+			animation.remove_track(index)
+			continue
+		animation.track_set_path(index, NodePath("%s:%s" % [skeleton_path, bone]))
 
 
 func _align_to_player_capsule() -> void:
@@ -181,8 +191,8 @@ func _align_to_player_capsule() -> void:
 	character.rotation.y = deg_to_rad(model_forward_yaw_degrees)
 
 
-## The Kenney import is a single skinned mesh today, but the render decisions
-## below are about "this player's whole body", not about one node name -
+## The rig is arms/body/head today, but the render decisions below are about
+## "this player's whole body", not about any one node name -
 ## collect every drawable once so an added prop cannot leak into the view.
 func _collect_rig_geometry() -> void:
 	_rig_geometry.clear()

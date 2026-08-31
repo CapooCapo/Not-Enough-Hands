@@ -16,18 +16,22 @@ func _run() -> void:
 	player.set_physics_process(false)
 	var visual := player.get_node_or_null("PlayerVisual") as Node3D
 	var character := player.get_node_or_null("PlayerVisual/Character") as Node3D
+	var skeleton := player.get_node_or_null(
+		"PlayerVisual/Character/simple_character/GeneralSkeleton"
+	) as Skeleton3D
 	var mesh := player.get_node_or_null(
-		"PlayerVisual/Character/Root/Skeleton3D/characterMedium"
+		"PlayerVisual/Character/simple_character/GeneralSkeleton/body"
 	) as MeshInstance3D
 	var animation_player := player.get_node_or_null(
 		"PlayerVisual/Character/CharacterAnimationPlayer"
 	) as AnimationPlayer
 	var name_tag := player.get_node_or_null("PlayerVisual/NameTag") as Label3D
-	if not visual or not character or not mesh or not animation_player or not name_tag:
+	if not visual or not character or not skeleton or not mesh \
+			or not animation_player or not name_tag:
 		_fail("Player visual, body mesh, name tag, or runtime AnimationPlayer is missing.")
 		return
 	if absf(wrapf(character.rotation.y - PI, -PI, PI)) > 0.001:
-		_fail("The Kenney model must be yaw-corrected 180 degrees to face camera forward.")
+		_fail("The model must be yaw-corrected 180 degrees to face camera forward.")
 		return
 
 	for animation_name: StringName in [&"idle", &"run", &"jump"]:
@@ -37,7 +41,7 @@ func _run() -> void:
 
 	var material := mesh.get_active_material(0) as BaseMaterial3D
 	if not material or not material.albedo_texture:
-		_fail("Kenney player skin was not applied to the body mesh.")
+		_fail("The player model lost its baked texture.")
 		return
 	if mesh.cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY:
 		_fail("The local first-person body should render as shadows only.")
@@ -54,15 +58,24 @@ func _run() -> void:
 		_fail("The local player's door minigame must start hidden.")
 		return
 
-	var bounds: AABB = player.global_transform.affine_inverse() * mesh.global_transform * mesh.mesh.get_aabb()
+	# A skinned mesh keeps its AABB in bind space, which says nothing about where
+	# the rig ends up standing - measure the posed bones instead.
+	var to_player := player.global_transform.affine_inverse() * skeleton.global_transform
+	var lowest := INF
+	var highest := -INF
+	for bone_index: int in skeleton.get_bone_count():
+		var bone_y: float = (to_player * skeleton.get_bone_global_pose(bone_index).origin).y
+		lowest = minf(lowest, bone_y)
+		highest = maxf(highest, bone_y)
+	var model_height := highest - lowest
 	var expected_floor: float = -player.standing_height * 0.5
-	if bounds.size.y < 1.55 or bounds.size.y > 1.9:
-		_fail("Player model is %.2f m tall; expected it to fit the 1.75 m capsule." % bounds.size.y)
+	if model_height < 1.55 or model_height > 1.9:
+		_fail("Player model is %.2f m tall; expected it to fit the 1.75 m capsule." % model_height)
 		return
-	if absf(bounds.position.y - expected_floor) > 0.12:
+	if absf(lowest - expected_floor) > 0.12:
 		_fail(
 			"Player model feet are at %.2f m; capsule floor is %.2f m."
-			% [bounds.position.y, expected_floor]
+			% [lowest, expected_floor]
 		)
 		return
 
@@ -83,9 +96,9 @@ func _run() -> void:
 		return
 
 	print(
-		"Player visual smoke test passed: Kenney skin applied, idle/run/jump loaded, "
+		"Player visual smoke test passed: model textured, idle/run/jump retargeted, "
 		+ "%.2f m body aligned to capsule, local body shadows-only, crouch lowers, death falls."
-		% bounds.size.y
+		% model_height
 	)
 	quit()
 
