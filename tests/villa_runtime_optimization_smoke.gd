@@ -18,6 +18,20 @@ func _run() -> void:
 	var house := game.get_node_or_null("VillaHouse") as Node3D
 	if not house:
 		return _fail("VillaHouse is missing.")
+	var player := game.get_node_or_null("Player") as CharacterBody3D
+	var flashlight := game.get_node_or_null(
+		"Player/CameraPivot/Camera3D/Flashlight"
+	) as SpotLight3D
+	if not player or not flashlight or not flashlight.visible \
+			or not flashlight.is_visible_in_tree() or flashlight.light_energy <= 0.0 \
+			or flashlight.spot_range <= 0.0:
+		return _fail("The offline Villa player spawned without a working visible flashlight.")
+	for node: Node in player.get_node("PlayerVisual/Character").find_children(
+		"*", "GeometryInstance3D", true, false
+	):
+		var geometry := node as GeometryInstance3D
+		if geometry.cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_OFF:
+			return _fail("The Villa player's local rig can still shadow its flashlight.")
 
 	var expected_roots: Dictionary = {}
 	for node: Node in house.find_children("*", "MeshInstance3D", true, false):

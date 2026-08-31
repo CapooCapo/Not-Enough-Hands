@@ -9,8 +9,9 @@ const RUN_SCENE: PackedScene = preload("res://assets/player/Animations/run.fbx")
 const JUMP_SCENE: PackedScene = preload("res://assets/player/Animations/jump.fbx")
 
 ## Visual layer reserved for the owning player's own rig. Their flashlight
-## drops this layer from its cull mask so the body it is standing inside
-## cannot shadow the whole view. Nothing else uses layer 20.
+## drops this layer from its cull mask, while the local rig also disables
+## shadow casting because Godot shadow maps intentionally ignore light cull
+## masks. Nothing else uses layer 20.
 const LOCAL_BODY_VISUAL_LAYER := 20
 
 ## Unused by the boto rig, which ships one baked atlas for every player: a
@@ -223,13 +224,17 @@ func _update_local_render_mode() -> void:
 		# The owner's flashlight sits inside this body. Moving the rig onto its
 		# own visual layer and dropping that layer from the beam is what keeps
 		# a jump from smearing the player's own silhouette across the room.
+		var local_body_mask := 1 << (LOCAL_BODY_VISUAL_LAYER - 1)
 		for geometry: GeometryInstance3D in _rig_geometry:
-			geometry.layers |= 1 << (LOCAL_BODY_VISUAL_LAYER - 1)
+			# This must be an assignment, not an OR. If layer 1 remains set, the
+			# flashlight still matches the mesh through layer 1 and the head/arms
+			# directly in front of the camera cut the beam into dark polygons.
+			geometry.layers = local_body_mask
 		var flashlight := _player.get_node_or_null(
 			"CameraPivot/Camera3D/Flashlight"
 		) as SpotLight3D
 		if flashlight:
-			flashlight.light_cull_mask &= ~(1 << (LOCAL_BODY_VISUAL_LAYER - 1))
+			flashlight.light_cull_mask &= ~local_body_mask
 			_local_body_excluded_from_beam = true
 	_rig_hidden = not _should_render_rig()
 	_spectating = _player_flag("is_spectator")
@@ -238,17 +243,28 @@ func _update_local_render_mode() -> void:
 
 func _update_render_mode() -> void:
 	# The owner's flashlight stands inside this rig's head, so a body that never
-	# got dropped from the beam's cull mask shadows the entire view - the beam
-	# looks like it is simply not there. That treatment is applied once in
-	# _ready(), which reads ownership from the parent Player *before* the parent
-	# has run its own _ready(); if anything about that ordering leaves ownership
-	# unresolved for a frame the exclusion is silently skipped for the whole run.
-	# Re-check until it has actually been applied.
-	if not _local_body_excluded_from_beam \
-			and not show_local_body \
+	# got isolated shadows the entire view and makes the beam look absent.
+	# Re-check the actual render state rather than only a startup flag: ownership
+	# can settle after the child _ready(), and a live script reload must also fix
+	# an already-running player whose geometry still has the old layer/cast mode.
+	if not show_local_body \
 			and _player.has_method("is_local_player") \
 			and bool(_player.call("is_local_player")):
-		_update_local_render_mode()
+		var local_body_mask := 1 << (LOCAL_BODY_VISUAL_LAYER - 1)
+		var flashlight := _player.get_node_or_null(
+			"CameraPivot/Camera3D/Flashlight"
+		) as SpotLight3D
+		var isolation_valid := (
+			is_instance_valid(flashlight)
+			and flashlight.light_cull_mask & local_body_mask == 0
+			and not character.visible
+		)
+		for geometry: GeometryInstance3D in _rig_geometry:
+			isolation_valid = isolation_valid \
+				and geometry.layers == local_body_mask \
+				and geometry.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		if not isolation_valid:
+			_update_local_render_mode()
 	var should_hide := not _should_render_rig()
 	var spectating := _player_flag("is_spectator")
 	if should_hide == _rig_hidden and spectating == _spectating:
@@ -273,9 +289,15 @@ func _player_flag(property: String) -> bool:
 
 func _apply_rig_render_mode() -> void:
 	var spectating := _spectating
-	character.visible = not spectating
+	var hide_local_body := _is_local_rig and not show_local_body
+	# Cast-shadow modes only change how geometry enters the shadow pass. OFF
+	# makes the mesh render normally, which puts the owning camera inside the
+	# character's head. The first-person body itself must be hidden explicitly.
+	character.visible = not spectating and not hide_local_body
 	var cast_mode := (
-		GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
+		GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		if hide_local_body
+		else GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
 		if _rig_hidden
 		else GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 	)

@@ -26,8 +26,11 @@ func _run() -> void:
 		"PlayerVisual/Character/CharacterAnimationPlayer"
 	) as AnimationPlayer
 	var name_tag := player.get_node_or_null("PlayerVisual/NameTag") as Label3D
+	var flashlight := player.get_node_or_null(
+		"CameraPivot/Camera3D/Flashlight"
+	) as SpotLight3D
 	if not visual or not character or not skeleton or not mesh \
-			or not animation_player or not name_tag:
+			or not animation_player or not name_tag or not flashlight:
 		_fail("Player visual, body mesh, name tag, or runtime AnimationPlayer is missing.")
 		return
 	if absf(wrapf(character.rotation.y - PI, -PI, PI)) > 0.001:
@@ -43,8 +46,27 @@ func _run() -> void:
 	if not material or not material.albedo_texture:
 		_fail("The player model lost its baked texture.")
 		return
-	if mesh.cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY:
-		_fail("The local first-person body should render as shadows only.")
+	var local_body_mask := 1 << (20 - 1)
+	var rig_geometry := character.find_children("*", "GeometryInstance3D", true, false)
+	if rig_geometry.is_empty():
+		_fail("The local player rig has no render geometry.")
+		return
+	for node: Node in rig_geometry:
+		var geometry := node as GeometryInstance3D
+		if geometry.cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_OFF:
+			_fail("Every local first-person body part must stop casting flashlight shadows.")
+			return
+		if geometry.layers != local_body_mask:
+			_fail(
+				"Local body part %s still shares a world layer with its flashlight."
+				% geometry.name
+			)
+			return
+	if flashlight.light_cull_mask & local_body_mask:
+		_fail("The local flashlight still illuminates and shadows the local body layer.")
+		return
+	if character.visible:
+		_fail("The owning camera is still inside a visible local player model.")
 		return
 	if name_tag.visible:
 		_fail("The local player should not see their own name tag.")
@@ -126,7 +148,7 @@ func _run() -> void:
 
 	print(
 		"Player visual smoke test passed: model textured, idle/run/jump retargeted, "
-		+ "%.2f m body aligned to capsule, local body shadows-only, crouch lowers, death falls."
+		+ "%.2f m body aligned to capsule, local body cannot shadow flashlight, crouch lowers, death falls."
 		% model_height
 	)
 	quit()

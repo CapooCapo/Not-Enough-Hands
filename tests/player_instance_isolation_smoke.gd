@@ -41,6 +41,32 @@ func _run() -> void:
 	if not local_camera.current or remote_camera.current:
 		return _fail("A remote player replica stole the local viewport camera.")
 
+	# The owning camera sits inside its own rig. That rig must live exclusively
+	# on the private body layer or its head and arms still match the flashlight
+	# through world layer 1 and cast a broken silhouette across the whole beam.
+	var local_body_mask := 1 << (20 - 1)
+	var local_character := local_player.get_node("PlayerVisual/Character") as Node3D
+	var local_flashlight := local_player.get_node(
+		"CameraPivot/Camera3D/Flashlight"
+	) as SpotLight3D
+	for node: Node in local_character.find_children("*", "GeometryInstance3D", true, false):
+		var geometry := node as GeometryInstance3D
+		if geometry.layers != local_body_mask:
+			return _fail("The owning player's body still shares a layer with its flashlight.")
+		if geometry.cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_OFF:
+			return _fail("The owning player's body still casts a shadow into its flashlight.")
+	if local_flashlight.light_cull_mask & local_body_mask:
+		return _fail("The owning player's flashlight still includes its private body layer.")
+	var remote_character := remote_player.get_node("PlayerVisual/Character") as Node3D
+	if local_character.visible:
+		return _fail("The local camera is still trapped inside its visible player model.")
+	if not remote_character.visible:
+		return _fail("The remote player's body was hidden together with the local body.")
+	for node: Node in remote_character.find_children("*", "GeometryInstance3D", true, false):
+		var geometry := node as GeometryInstance3D
+		if geometry.layers & 1 == 0:
+			return _fail("A remote player's visible body was moved off the world layer.")
+
 	var local_collision := local_player.get_node("CollisionShape3D") as CollisionShape3D
 	var remote_collision := remote_player.get_node("CollisionShape3D") as CollisionShape3D
 	var local_shape := local_collision.shape as CapsuleShape3D
