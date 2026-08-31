@@ -238,7 +238,6 @@ func _spawn_hunter(at: Vector3) -> CharacterBody3D:
 
 func _spawn_player(at: Vector3) -> CharacterBody3D:
 	var player := (load("res://player/player.tscn") as PackedScene).instantiate() as CharacterBody3D
-	player.set("automatic_blink_enabled", false)
 	root.add_child(player)
 	player.global_position = at
 	return player

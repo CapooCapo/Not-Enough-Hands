@@ -418,10 +418,9 @@ func _build_player_from_spawn_data(data: Variant) -> Node:
 		# timer running out. Either can be the one that empties the house.
 		player.killed_by_ghost.connect(func(_ghost: Node3D) -> void: _check_run_over())
 		player.became_spectator.connect(_check_run_over)
-	player.walk_speed = 2.8
-	player.crouch_speed = 1.45
+	player.walk_speed = 3.5
+	player.crouch_speed = 1.8
 	player.sprint_speed_multiplier = 1.35
-	player.forced_blink_duration = 0.25
 	_configure_player_lighting.call_deferred(player)
 	return player
 

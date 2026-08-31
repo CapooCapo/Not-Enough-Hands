@@ -19,23 +19,6 @@ signal spotted_jumpscare_started()
 @export var acceleration: float = 22.0
 @export var turn_speed: float = 9.0
 @export var unseen_grace_time: float = 0.32
-## Shorter grace period used when the statue lost sight of its target
-## because that player's eyes involuntarily closed (blink), not because
-## they looked away. Without this, unseen_grace_time (0.32s) outlasts the
-## default forced_blink_duration (0.22s) and every automatic blink is a
-## free no-op. Looking away still uses the full unseen_grace_time.
-@export var blink_unseen_grace_time: float = 0.025
-## A blink is the statue's signature attack window. The farther away it is,
-## the harder it surges along its navigation path, so spotting it at the end of
-## a long hall does not make a normal 0.22-second blink feel harmless.
-## These are multipliers on base_speed, so they were divided down when the
-## patrol pace was raised: a blink must still cost the same metres it always
-## did, or a faster statue would silently shorten the window a blink is safe in.
-@export var blink_lunge_near_distance: float = 2.5
-@export var blink_lunge_far_distance: float = 11.0
-@export var blink_lunge_near_speed_multiplier: float = 1.16
-@export var blink_lunge_far_speed_multiplier: float = 4.15
-@export var blink_lunge_acceleration_multiplier: float = 12.0
 
 @export_category('Hunt Cycle')
 ## The statue spends most of its time absent, then sometimes starts an ambush
@@ -70,11 +53,6 @@ signal spotted_jumpscare_started()
 
 @export_category('Attack')
 @export var attack_range: float = 1.15
-## Once it is this close, a blink is not an opening the statue exploits, it is
-## the kill: no wind-up to notice, no reprieve for opening your eyes again. The
-## only counter is never letting it get this close. 0 turns it off and leaves
-## the normal wind-up as the only way it kills.
-@export var blink_kill_distance: float = 2.0
 @export var attack_windup: float = 0.48
 ## Pause after a swing before it may wind up again. Long enough that a survived
 ## attack is a real chance to break away rather than a one-second reprieve.
@@ -546,16 +524,7 @@ func _update_unseen_behavior(delta: float) -> void:
 		_update_attack_windup(delta)
 		return
 
-	# Checked before the grace period below: at this range the blink itself is
-	# the whole event, so it must not wait out even a fraction of a second.
-	if _try_blink_kill():
-		return
-
-	var effective_grace_time := unseen_grace_time
-	if is_instance_valid(current_target) and 'eyes_closed' in current_target and current_target.eyes_closed:
-		effective_grace_time = minf(unseen_grace_time, blink_unseen_grace_time)
-
-	if unseen_time < effective_grace_time or not is_instance_valid(current_target):
+	if unseen_time < unseen_grace_time or not is_instance_valid(current_target):
 		velocity.x = move_toward(velocity.x, 0.0, acceleration * delta)
 		velocity.z = move_toward(velocity.z, 0.0, acceleration * delta)
 		return
@@ -614,28 +583,6 @@ func _stalk_target(delta: float, target_offset: Vector3) -> void:
 	speed += lerpf(0.0, 1.5, night_aggression)
 	speed = minf(speed, maximum_speed)
 	var movement_acceleration := acceleration
-	var target_is_blinking: bool = is_instance_valid(current_target) \
-		and 'eyes_closed' in current_target \
-		and current_target.eyes_closed
-	if target_is_blinking:
-		var distance_span := maxf(
-			blink_lunge_far_distance - blink_lunge_near_distance,
-			0.01
-		)
-		var distance_ratio := clampf(
-			(target_offset.length() - blink_lunge_near_distance) / distance_span,
-			0.0,
-			1.0
-		)
-		# Smooth the curve so middle distances escalate naturally while the far
-		# end still delivers the dramatic multi-metre rush the blink promises.
-		distance_ratio = distance_ratio * distance_ratio * (3.0 - 2.0 * distance_ratio)
-		speed *= lerpf(
-			blink_lunge_near_speed_multiplier,
-			blink_lunge_far_speed_multiplier,
-			distance_ratio
-		)
-		movement_acceleration *= blink_lunge_acceleration_multiplier
 	var burst := lerpf(0.82, 1.18, sin(movement_phase * 0.63) * 0.5 + 0.5)
 	var desired_velocity := direction * speed * burst
 	velocity.x = move_toward(velocity.x, desired_velocity.x, movement_acceleration * delta)
@@ -673,40 +620,6 @@ func _navigation_direction(fallback_offset: Vector3) -> Vector3:
 		and fallback_offset.length_squared() > 0.0001:
 		return fallback_offset.normalized()
 	return Vector3.ZERO
-
-
-## Closes the distance the statue has already won: a player who blinks inside
-## blink_kill_distance is killed on the spot, with no wind-up to react to. It
-## still obeys everything a normal swing does - dev suspension, the floor/
-## ceiling height limit and the occlusion ray - so it cannot reach through a
-## wall or a storey.
-func _try_blink_kill() -> bool:
-	if blink_kill_distance <= 0.0 or _attacks_blocked():
-		return false
-	if not is_instance_valid(current_target):
-		return false
-	if not ('eyes_closed' in current_target) or not current_target.eyes_closed:
-		return false
-
-	var offset := current_target.global_position - global_position
-	if absf(offset.y) > max_attack_height_difference:
-		return false
-	offset.y = 0.0
-	if offset.length() > blink_kill_distance:
-		return false
-	if not _has_attack_line_of_sight(current_target):
-		return false
-
-	velocity.x = 0.0
-	velocity.z = 0.0
-	WorldNet.play_shared(attack_audio)
-	attack_started.emit(current_target)
-	_apply_attack_pose(1.0)
-	if current_target.has_method('kill_by_ghost'):
-		current_target.kill_by_ghost(self)
-	state = StatueState.COOLDOWN
-	cooldown_timer = attack_cooldown
-	return true
 
 
 func _begin_attack() -> void:
@@ -862,8 +775,6 @@ func _player_foot_y(player: CharacterBody3D) -> float:
 func _is_position_observed_by_any_player(position: Vector3) -> bool:
 	var observation_point := position + Vector3.UP * observation_point_height
 	for player: CharacterBody3D in _living_players():
-		if 'eyes_closed' in player and player.eyes_closed:
-			continue
 		var camera := player.get_node_or_null('CameraPivot/Camera3D') as Camera3D
 		if camera and _camera_can_see_point(camera, player, observation_point):
 			return true
@@ -897,9 +808,6 @@ func _is_observed_by_any_player() -> bool:
 			continue
 		if 'is_alive' in player and not player.is_alive:
 			continue
-		if 'eyes_closed' in player and player.eyes_closed:
-			continue
-
 		var camera := player.get_node_or_null('CameraPivot/Camera3D') as Camera3D
 		if camera and _camera_can_see_point(camera, player, observation_point):
 			return true

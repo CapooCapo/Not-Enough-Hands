@@ -117,7 +117,7 @@ counterpart to `try_pick_up_item()`; nothing reaches into the equipment slots.
 
 ### Player & threat reporting
 
-`player/player.gd` owns movement, camera, stamina, and blink. All three ghosts report danger through `Player.set_threat_from(...)`, which the horror overlay (`ui/`) uses to always reflect whichever threat is currently worse — new ghosts/hazards should report through this same call rather than driving the overlay directly.
+`player/player.gd` owns movement, camera, and stamina. All three ghosts report danger through `Player.set_threat_from(...)`, which the horror overlay (`ui/`) uses to always reflect whichever threat is currently worse — new ghosts/hazards should report through this same call rather than driving the overlay directly.
 
 ### Multiplayer: one authority, three kinds of seam
 

@@ -1280,8 +1280,6 @@ func _standable_point(near: Vector3) -> Vector3:
 
 func _is_visible_to_any_player() -> bool:
 	for player: CharacterBody3D in _living_players():
-		if 'eyes_closed' in player and player.eyes_closed:
-			continue
 		var camera := player.get_node_or_null('CameraPivot/Camera3D') as Camera3D
 		if not camera:
 			continue

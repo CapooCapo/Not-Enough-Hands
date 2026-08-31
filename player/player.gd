@@ -1,6 +1,5 @@
 extends CharacterBody3D
 
-signal eyes_closed_changed(closed: bool)
 signal killed_by_ghost(ghost: Node3D)
 signal downed_changed(downed: bool)
 signal became_spectator()
@@ -74,12 +73,6 @@ signal toilet_ghost_stun_changed(active: bool)
 @export var crouch_step_interval: float = 0.7
 @export var footstep_slice_duration: float = 0.38
 
-@export_category('Blink')
-@export var automatic_blink_enabled: bool = true
-@export var blink_interval: float = 7.0
-@export var forced_blink_duration: float = 0.22
-@export var eyelid_transition_speed: float = 16.0
-
 var is_crouching: bool = false
 @export var max_stamina: float = 100.0
 @export var sprint_stamina_drain: float = 20.0
@@ -88,7 +81,6 @@ var is_crouching: bool = false
 
 var current_stamina: float = max_stamina
 var head_bob_time: float = 0.0
-var eyes_closed: bool = false
 var is_alive: bool = true
 ## Downed players are deliberately not alive: every ghost's target scan already
 ## skips `is_alive == false`, so going down removes this player from all three
@@ -97,15 +89,12 @@ var is_downed: bool = false
 var is_spectator: bool = false
 var downed_time_remaining: float = 180.0
 var revive_progress: float = 0.0
-var blink_time_remaining: float = blink_interval
-var forced_blink_remaining: float = 0.0
 ## Highest threat currently reported by any ghost - drives the horror overlay
 ## and the camera sway. Kept under its original name because the shader
 ## parameter and the camera code already read it.
 var statue_threat: float = 0.0
 var threat_sources: Dictionary = {}
 var hunter_gaze_strength: float = 0.0
-var eyelid_closure: float = 0.0
 @export var mouse_sensitivity: float = 0.002
 @export var max_interaction_range: float = 10.0
 
@@ -145,7 +134,6 @@ var dev_invincible: bool = false
 var dev_fast_movement: bool = false
 var dev_noclip: bool = false
 var dev_clear_vision: bool = false
-var _blink_before_clear_vision: bool = true
 var _dev_vision_light: OmniLight3D
 var hunter_trap_source: Node3D
 
@@ -153,8 +141,6 @@ var hunter_trap_source: Node3D
 @onready var interact_ray: RayCast3D = $CameraPivot/Camera3D/InteractRay
 @onready var flashlight: SpotLight3D = $CameraPivot/Camera3D/Flashlight
 @onready var collision_shape: CollisionShape3D = $CollisionShape3D
-@onready var blink_overlay: ColorRect = $BlinkOverlay/Eyelids
-@onready var blink_bar: ProgressBar = $BlinkUI/BlinkContainer/VBoxContainer/BlinkBar
 @onready var horror_overlay_rect: ColorRect = $HorrorOverlay/VignetteAndGrain
 @onready var death_ui: CanvasLayer = $DeathUI
 @onready var jumpscare: JumpscareController = $Jumpscare
@@ -246,7 +232,6 @@ var _network_move := Vector2.ZERO
 var _network_jump: bool = false
 var _network_crouch: bool = false
 var _network_run: bool = false
-var _network_blink: bool = false
 ## Held rather than pressed: reviving a teammate is the one interaction that
 ## needs the key's continuous state on the server, not a single edge.
 var _network_interact: bool = false
@@ -277,7 +262,6 @@ func _ready() -> void:
 	_footstep_rng.randomize()
 	current_stamina = max_stamina
 	downed_time_remaining = downed_time_budget
-	blink_time_remaining = blink_interval
 	var shape := collision_shape.shape as CapsuleShape3D
 	shape.radius = player_radius
 	shape.height = standing_height
@@ -329,7 +313,7 @@ func _update_hunter_gaze_interference(delta: float) -> void:
 
 
 func _hunter_gaze_target_strength() -> float:
-	if dev_clear_vision or not is_alive or eyes_closed or hunter_gaze_range <= 0.0:
+	if dev_clear_vision or not is_alive or hunter_gaze_range <= 0.0:
 		return 0.0
 	var camera := camera_pivot.get_node_or_null("Camera3D") as Camera3D
 	if not camera or not camera.current:
@@ -481,8 +465,6 @@ func _configure_player_presentation() -> void:
 		&"InteractionUI",
 		&"StatusUI",
 		&"EquipmentUI",
-		&"BlinkUI",
-		&"BlinkOverlay",
 		&"DoorGhostMinigame",
 		&"DownedUI",
 		&"DeathUI",
@@ -545,7 +527,6 @@ func _capture_and_send_network_input() -> void:
 	var jump := Input.is_action_pressed("jump")
 	var crouch := Input.is_action_pressed("crouch")
 	var run_pressed := Input.is_action_pressed("run")
-	var blink_pressed := Input.is_action_pressed("blink")
 	var interact_held := Input.is_action_pressed("interact")
 	var yaw := rotation.y
 	var pitch := camera_pivot.rotation.x
@@ -556,7 +537,6 @@ func _capture_and_send_network_input() -> void:
 			jump,
 			crouch,
 			run_pressed,
-			blink_pressed,
 			interact_held,
 			yaw,
 			pitch,
@@ -569,7 +549,6 @@ func _capture_and_send_network_input() -> void:
 			jump,
 			crouch,
 			run_pressed,
-			blink_pressed,
 			interact_held,
 			yaw,
 			pitch,
@@ -583,7 +562,6 @@ func _submit_network_input(
 	jump: bool,
 	crouch: bool,
 	run_pressed: bool,
-	blink_pressed: bool,
 	interact_held: bool,
 	yaw: float,
 	pitch: float,
@@ -601,7 +579,6 @@ func _submit_network_input(
 		jump,
 		crouch,
 		run_pressed,
-		blink_pressed,
 		interact_held,
 		yaw,
 		pitch,
@@ -614,7 +591,6 @@ func _apply_network_input(
 	jump: bool,
 	crouch: bool,
 	run_pressed: bool,
-	blink_pressed: bool,
 	interact_held: bool,
 	yaw: float,
 	pitch: float,
@@ -624,7 +600,6 @@ func _apply_network_input(
 	_network_jump = jump
 	_network_crouch = crouch
 	_network_run = run_pressed
-	_network_blink = blink_pressed
 	_network_interact = interact_held
 	_network_yaw = wrapf(yaw, -PI, PI)
 	_network_pitch = clampf(pitch, -PI * 0.5, PI * 0.5)
@@ -647,8 +622,6 @@ func _input_action_pressed(action: StringName) -> bool:
 				return _network_crouch
 			&"run":
 				return _network_run
-			&"blink":
-				return _network_blink
 			&"interact":
 				return _network_interact
 	return Input.is_action_pressed(action)
@@ -702,9 +675,6 @@ func _send_network_state(peer_id: int) -> void:
 		is_crouching,
 		is_alive,
 		current_stamina,
-		eyes_closed,
-		blink_time_remaining,
-		eyelid_closure,
 		is_downed,
 		is_spectator,
 		downed_time_remaining,
@@ -724,9 +694,6 @@ func _receive_network_state(
 	server_crouching: bool,
 	server_alive: bool,
 	server_stamina: float,
-	server_eyes_closed: bool,
-	server_blink_remaining: float,
-	server_eyelid_closure: float,
 	server_downed: bool,
 	server_spectator: bool,
 	server_downed_remaining: float,
@@ -753,9 +720,6 @@ func _receive_network_state(
 	current_stamina = clampf(server_stamina, 0.0, max_stamina)
 	if bladder and not is_toilet_minigame_active():
 		bladder.set_bladder(server_bladder)
-	eyes_closed = server_eyes_closed
-	blink_time_remaining = server_blink_remaining
-	eyelid_closure = server_eyelid_closure
 	if server_crouching != is_crouching:
 		if server_crouching:
 			_crouch()
@@ -912,9 +876,6 @@ func _interpolate_network_snapshot(delta: float) -> void:
 	velocity = _snapshot_velocity
 	if is_local_player():
 		_update_camera_motion(delta)
-		var eyelid_material := blink_overlay.material as ShaderMaterial
-		if eyelid_material:
-			eyelid_material.set_shader_parameter("closure", eyelid_closure)
 
 
 ## Footsteps for somebody else's body, derived from the 20 Hz snapshot.
@@ -1178,13 +1139,11 @@ func _physics_process(delta: float) -> void:
 
 	_update_minigame_ghost_safety(delta)
 	if _is_any_minigame_active():
-		_open_eyes_for_minigame()
 		velocity = Vector3.ZERO
 		_stop_footsteps()
 		_finish_player_tick(delta)
 		return
 
-	_update_blink(delta)
 	if not is_alive:
 		velocity = Vector3.ZERO
 		_stop_footsteps()
@@ -1280,96 +1239,6 @@ func _physics_process(delta: float) -> void:
 	_finish_player_tick(delta)
 
 
-func _update_blink(delta: float) -> void:
-	var was_closed := eyes_closed
-	var manual_close := _input_action_pressed(&"blink") and is_alive
-
-	if manual_close:
-		eyes_closed = true
-		blink_time_remaining = blink_interval
-	elif forced_blink_remaining > 0.0:
-		eyes_closed = true
-		forced_blink_remaining = maxf(forced_blink_remaining - delta, 0.0)
-	else:
-		eyes_closed = false
-		if automatic_blink_enabled and is_alive:
-			blink_time_remaining -= delta
-			if blink_time_remaining <= 0.0:
-				forced_blink_remaining = forced_blink_duration
-				blink_time_remaining = blink_interval
-				eyes_closed = true
-
-	var target_closure := 1.0 if eyes_closed else 0.0
-	eyelid_closure = move_toward(
-		eyelid_closure,
-		target_closure,
-		eyelid_transition_speed * delta
-	)
-	var eyelid_material := blink_overlay.material as ShaderMaterial
-	if eyelid_material:
-		eyelid_material.set_shader_parameter('closure', eyelid_closure)
-
-	if blink_bar:
-		blink_bar.value = clampf(blink_time_remaining / maxf(blink_interval, 0.01), 0.0, 1.0) * 100.0
-
-	if was_closed != eyes_closed:
-		eyes_closed_changed.emit(eyes_closed)
-
-
-func force_blink(duration: float = -1.0) -> void:
-	# Ghosts force blinks to blind the player. That is exactly the kind of
-	# thing clear vision exists to switch off.
-	if dev_clear_vision:
-		return
-	forced_blink_remaining = forced_blink_duration if duration < 0.0 else duration
-	blink_time_remaining = blink_interval
-	if not eyes_closed and is_alive:
-		eyes_closed = true
-		eyes_closed_changed.emit(true)
-
-
-## Minigame-safe variant of force_blink(): the eyelid animation and
-## forced_blink_remaining's own countdown are both driven by _update_blink(),
-## which only runs from _physics_process() - and minigames such as the
-## toilet's disable physics processing for their whole duration to lock the
-## player. Plain force_blink() would therefore set the logical state but
-## never actually animate, and would only resolve once physics processing
-## resumes after the minigame already ended (a blink playing out of
-## context). This sets the eyelid shader parameter directly instead -
-## mirroring _open_eyes_for_minigame()'s existing "set it directly" pattern
-## for the opposite case - so the close reads immediately regardless of
-## whether physics processing is running. The caller owns reopening (see
-## end_forced_blink()) since there is no running update loop left to expire
-## forced_blink_remaining on its own.
-func force_blink_now() -> void:
-	if dev_clear_vision or not is_alive:
-		return
-	forced_blink_remaining = forced_blink_duration
-	eyelid_closure = 1.0
-	var eyelid_material := blink_overlay.material as ShaderMaterial
-	if eyelid_material:
-		eyelid_material.set_shader_parameter('closure', 1.0)
-	if not eyes_closed:
-		eyes_closed = true
-		eyes_closed_changed.emit(true)
-
-
-## Reopens eyes closed by force_blink_now(), independent of _physics_process -
-## see that method's doc comment for why this is needed. Safe to call even
-## if force_blink_now() was never actually called (e.g. cleanup running
-## unconditionally).
-func end_forced_blink() -> void:
-	if not eyes_closed and forced_blink_remaining <= 0.0 and eyelid_closure <= 0.0:
-		return
-	forced_blink_remaining = 0.0
-	eyelid_closure = 0.0
-	eyes_closed = false
-	var eyelid_material := blink_overlay.material as ShaderMaterial
-	if eyelid_material:
-		eyelid_material.set_shader_parameter('closure', 0.0)
-	eyes_closed_changed.emit(false)
-
-
 func set_statue_threat(amount: float) -> void:
 	set_threat_from('statue', amount)
 
@@ -1410,8 +1279,6 @@ func kill_by_ghost(ghost: Node3D) -> void:
 	if not is_alive or is_protected_from_ghost_attacks():
 		return
 	is_alive = false
-	forced_blink_remaining = 0.0
-	eyes_closed = false
 	velocity = Vector3.ZERO
 	_stop_footsteps()
 	# Alone, a kill is still a kill and the jumpscare/game-over runs as before.
@@ -1511,10 +1378,6 @@ func _enter_downed() -> void:
 		return
 	is_downed = true
 	revive_progress = 0.0
-	# _update_blink() no longer runs from here on, so a player caught mid-blink
-	# would lie there behind shut eyelids - the one thing being downed is not
-	# supposed to take away. end_forced_blink() clears the shader directly.
-	end_forced_blink()
 	_clear_all_ghost_threat()
 	downed_changed.emit(true)
 	_publish_life_state()
@@ -1532,7 +1395,6 @@ func _enter_spectator() -> void:
 	# Same reasoning as dev noclip: disable the shape, not the layers, so a
 	# spectator can drift through the house without shoving anything.
 	collision_shape.disabled = true
-	end_forced_blink()
 	_clear_all_ghost_threat()
 	_stop_footsteps()
 	downed_changed.emit(false)
@@ -1604,7 +1466,6 @@ func revive() -> void:
 	# Back up with nothing left in the tank: the rescue is a reprieve, not a
 	# reset, and the downed budget itself is never refilled.
 	current_stamina = 0.0
-	blink_time_remaining = blink_interval
 	downed_changed.emit(false)
 	_publish_life_state()
 
@@ -2102,28 +1963,17 @@ func set_dev_noclip(enabled: bool) -> void:
 
 
 ## Strips every effect that makes the house hard to read: the vignette and
-## grain, the threat distortion, the involuntary blinking, and the darkness
-## itself. The environment side of it (fog, ambient) belongs to the scene, so
-## DevTools handles that; this covers everything the player owns.
+## grain, the threat distortion, and the darkness itself. The environment side
+## of it (fog, ambient) belongs to the scene, so DevTools handles that; this
+## covers everything the player owns.
 func set_dev_clear_vision(enabled: bool) -> void:
 	dev_clear_vision = enabled
 	horror_overlay_rect.visible = not enabled
 
 	if enabled:
-		_blink_before_clear_vision = automatic_blink_enabled
-		automatic_blink_enabled = false
-		forced_blink_remaining = 0.0
-		blink_time_remaining = blink_interval
-		eyes_closed = false
-		eyelid_closure = 0.0
-		var eyelid_material := blink_overlay.material as ShaderMaterial
-		if eyelid_material:
-			eyelid_material.set_shader_parameter("closure", 0.0)
 		var overlay_material := horror_overlay_rect.material as ShaderMaterial
 		if overlay_material:
 			overlay_material.set_shader_parameter("threat_strength", 0.0)
-	else:
-		automatic_blink_enabled = _blink_before_clear_vision
 
 	if not _dev_vision_light:
 		_dev_vision_light = OmniLight3D.new()
@@ -2180,18 +2030,6 @@ func _clear_all_ghost_threat() -> void:
 	var overlay_material := horror_overlay_rect.material as ShaderMaterial
 	if overlay_material:
 		overlay_material.set_shader_parameter("threat_strength", 0.0)
-
-
-func _open_eyes_for_minigame() -> void:
-	var was_closed := eyes_closed
-	forced_blink_remaining = 0.0
-	eyes_closed = false
-	eyelid_closure = 0.0
-	var eyelid_material := blink_overlay.material as ShaderMaterial
-	if eyelid_material:
-		eyelid_material.set_shader_parameter("closure", 0.0)
-	if was_closed:
-		eyes_closed_changed.emit(false)
 
 
 func _update_footsteps(delta: float, is_sprinting: bool) -> void:

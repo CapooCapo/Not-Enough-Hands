@@ -37,7 +37,7 @@ The complete export, container, registry, App Version, and join checklist is in
 1. Open `project.godot` in Godot 4.7.
 2. Press F5, enter a player name, then host locally or join a server.
 3. Move with WASD, sprint with Shift, crouch with Ctrl, jump with Space, interact
-   with E, blink with B, and press Alt to show or recapture the mouse.
+   with E, and press Alt to show or recapture the mouse.
 
 The toilet minigame starts peeing automatically, building pressure for 0.75
 seconds before it reaches full flow. Move the mouse to aim the stream and look
@@ -83,8 +83,7 @@ counted from anywhere without walking the ring. It reads the `defense_doors`
 group, so it works on both maps.
 
 **Sáng tối đa** takes the night off: no fog or volumetric fog, no vignette,
-grain or threat distortion, no involuntary blinking (a ghost calling
-`force_blink` is ignored), ambient light raised and a soft lamp on the camera.
+grain or threat distortion, ambient light raised and a soft lamp on the camera.
 The original `Environment` is kept and put straight back when the toggle is
 cleared, so it never leaks into a real run.
 
@@ -258,11 +257,11 @@ nothing about surviving the others.
 | | Statue (`ghosts/statue_ghost.gd`) | Crawler (`ghosts/crawler_ghost.gd`) | Huntsman (`ghosts/hunter_ghost.gd`) |
 |---|---|---|---|
 | Senses | Sight — it freezes while any player can see it | Sound — it is blind, and hears movement | Tracks the floor you walked on, then sees you — in every direction at once |
-| Counterplay | Keep looking at it, do not blink, and never let it inside 2 m | Go quiet: crouch, or stop moving entirely | Keep a wall between you for five whole seconds — then it walks away from you, not toward you |
+| Counterplay | Keep looking at it, and never let it close the last few metres | Go quiet: crouch, or stop moving entirely | Keep a wall between you for five whole seconds — then it walks away from you, not toward you |
 | Space | Floors and stairs, on the navmesh | Floors, walls and ceilings; travels overhead | Every room on every floor, on foot, room by room |
 | Arrival | Teleports into a scripted ambush, then vanishes | Announces itself with a fly-past, then sweeps the house | Walks in through a door it has already broken |
 | Presence | Gone the moment you look away | Gone between hunts | Never teleports, never vanishes while inside |
-| Kill | Grabs you during a blink or a look-away; distant statues surge much farther per blink, and a blink inside `blink_kill_distance` (2 m) kills outright with no wind-up | Leaps 13 m at 21 m/s, or mauls what it touches | Roars for 2.5 s, then charges a shade faster than a sprint and grabs |
+| Kill | Grabs you the moment you look away for longer than `unseen_grace_time` | Leaps `pounce_range` at 21 m/s, or mauls what it touches — then bolts for the far side of the house | Roars for 2.5 s, then charges a shade faster than a sprint and grabs |
 
 Standing still is the correct answer to the crawler, staring is the correct
 answer to the statue, and neither does anything at all to the huntsman. That is
@@ -295,11 +294,19 @@ It is not a permanent threat. It runs an announced cycle out of its attic lair:
    biased upward so it travels the walls and ceilings. It can crawl right over a
    player who is holding still, and will.
 4. **Hunt.** A noise above `patrol_alert_loudness` breaks the sweep. This is the
-   dangerous state: from up to `pounce_range` (13 m) it launches at
-   `pounce_speed` (21 m/s), so making a noise anywhere near it is fatal. A
+   dangerous state, and `pounce_range` is the line it turns on: inside it the
+   creature launches at `pounce_speed` (21 m/s), so making a noise anywhere near
+   it is fatal, while a noise further off than that is simply walked down — it
+   closes at `hunting_speed` and does not leap until you are inside the line. A
    missed pounce leaves it face down and helpless for `pounce_recovery` seconds;
    that window is the escape.
-5. **Retreat.** Laps finished with nobody found: one scream, and it is gone.
+5. **Leave.** It will not camp on anybody. Spend longer than `loiter_tolerance`
+   (4.5 s) within `loiter_radius` of it — or die to it, the corpse being the one
+   body guaranteed to still be underneath it — and it bolts at `leave_speed` for
+   the patrol marker furthest from everyone, deaf the whole way. That is what
+   ends a hunt at a player it cannot resolve, and what stops it wedging itself
+   on the body after one it did.
+6. **Retreat.** Laps finished with nobody found: one scream, and it is gone.
    That scream is also the all-clear.
 
 Route markers and the lair are level data, not code — drop `Marker3D`s into the

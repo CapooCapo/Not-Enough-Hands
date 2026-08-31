@@ -109,7 +109,6 @@ func _run() -> void:
 	# starts on first sight and continues even if the player later looks away.
 	var player_scene := load('res://player/player.tscn') as PackedScene
 	var observer := player_scene.instantiate() as CharacterBody3D
-	observer.set('automatic_blink_enabled', false)
 	root.add_child(observer)
 	observer.global_position = Vector3(0.0, 0.9, 0.0)
 	observer.global_rotation = Vector3.ZERO
