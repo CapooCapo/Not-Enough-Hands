@@ -58,26 +58,55 @@ func _run() -> void:
 		_fail("The local player's door minigame must start hidden.")
 		return
 
-	# A skinned mesh keeps its AABB in bind space, which says nothing about where
-	# the rig ends up standing - measure the posed bones instead.
+	# The importer bakes the rig's node transforms into the skeleton, so every
+	# mesh AABB is already metres in skeleton space. Their union is the body the
+	# other players see, and it has to fit the capsule it rides in: a head
+	# sticking out of the capsule is a head sticking through ceilings and
+	# doorframes that same capsule walks under.
 	var to_player := player.global_transform.affine_inverse() * skeleton.global_transform
-	var lowest := INF
-	var highest := -INF
-	for bone_index: int in skeleton.get_bone_count():
-		var bone_y: float = (to_player * skeleton.get_bone_global_pose(bone_index).origin).y
-		lowest = minf(lowest, bone_y)
-		highest = maxf(highest, bone_y)
-	var model_height := highest - lowest
+	var bounds := to_player * mesh.mesh.get_aabb()
+	for part_name: String in ["arms", "head"]:
+		var part := skeleton.get_node_or_null(part_name) as MeshInstance3D
+		if part:
+			bounds = bounds.merge(to_player * part.mesh.get_aabb())
+	var model_height := bounds.size.y
 	var expected_floor: float = -player.standing_height * 0.5
-	if model_height < 1.55 or model_height > 1.9:
-		_fail("Player model is %.2f m tall; expected it to fit the 1.75 m capsule." % model_height)
-		return
-	if absf(lowest - expected_floor) > 0.12:
+	if model_height < 1.5 or model_height > player.standing_height:
 		_fail(
-			"Player model feet are at %.2f m; capsule floor is %.2f m."
-			% [lowest, expected_floor]
+			"Player model is %.2f m tall; it has to fit the %.2f m capsule."
+			% [model_height, player.standing_height]
 		)
 		return
+	if absf(bounds.position.y - expected_floor) > 0.12:
+		_fail(
+			"Player model feet are at %.2f m; capsule floor is %.2f m."
+			% [bounds.position.y, expected_floor]
+		)
+		return
+
+	# The Kenney clips were authored against a different rig and carry hip
+	# position tracks to match: the jump one parked this body a metre under the
+	# floor, which read in game as sinking through the ground on every jump,
+	# fall and step-up. No clip may drive the skeleton below its own capsule.
+	for animation_name: StringName in [&"idle", &"run", &"jump"]:
+		var clip := animation_player.get_animation(animation_name)
+		animation_player.play(animation_name)
+		var sample := 0.0
+		while sample <= clip.length:
+			animation_player.seek(sample, true)
+			skeleton.force_update_all_bone_transforms()
+			for bone_index: int in skeleton.get_bone_count():
+				var bone_y: float = (
+					to_player * skeleton.get_bone_global_pose(bone_index).origin
+				).y
+				if bone_y < expected_floor - 0.05:
+					_fail(
+						"The %s animation drives the rig %.2f m under the capsule floor."
+						% [animation_name, expected_floor - bone_y]
+					)
+					return
+			sample += 0.05
+	animation_player.play(&"idle")
 
 	var standing_scale_y: float = visual.scale.y
 	player.is_crouching = true

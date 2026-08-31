@@ -2,7 +2,7 @@ extends Node3D
 
 ## Presentation-only body for a player. Gameplay stays on Player so this scene
 ## can be hidden from the owning first-person camera and replicated later
-## without making the imported PSX rig part of the movement controller.
+## without making the imported boto rig part of the movement controller.
 
 const IDLE_SCENE: PackedScene = preload("res://assets/player/Animations/idle.fbx")
 const RUN_SCENE: PackedScene = preload("res://assets/player/Animations/run.fbx")
@@ -13,11 +13,13 @@ const JUMP_SCENE: PackedScene = preload("res://assets/player/Animations/jump.fbx
 ## cannot shadow the whole view. Nothing else uses layer 20.
 const LOCAL_BODY_VISUAL_LAYER := 20
 
-## Unused by the PSX rig, which ships one baked atlas for every player: a
+## Unused by the boto rig, which ships one baked atlas for every player: a
 ## per-player texture would have to be authored against this model's own UVs.
 @export var skin: Texture2D
-## The PSX rig is authored at human scale, so it stands 1.75 m tall unscaled.
-@export var model_scale: float = 1.0
+## The rig is 2.05 m tall unscaled, which pushes its head a clear 30 cm through
+## the 1.75 m capsule it rides in - and through every ceiling and doorframe that
+## capsule fits under. Scale it to stand inside its own collision shape.
+@export var model_scale: float = 0.85
 ## The character faces +Z, while Godot gameplay/camera forward is -Z.
 ## Keep this correction on the presentation rig so movement and flashlight
 ## transforms remain authoritative and unchanged.
@@ -170,13 +172,20 @@ func _add_animation(
 ## Both rigs are imported through a humanoid bone map, so the Kenney clips
 ## already name this model's bones - but they address them through their own
 ## source scene (`%GeneralSkeleton`) and still carry the control/IK bones the
-## PSX rig has no counterpart for. Point every track at this skeleton and drop
+## boto rig has no counterpart for. Point every track at this skeleton and drop
 ## the leftovers, so the mixer never has a track it cannot resolve.
+##
+## Position tracks go too, rotation only from here. The clips were authored
+## against Kenney proportions, and the jump one parks its hips 1.5 m below the
+## rest pose - on this rig that buried the whole body a metre under the floor
+## every time somebody jumped, fell, or stepped up onto anything. The capsule
+## already carries the body through the world; the animation only has to bend it.
 func _retarget_tracks(animation: Animation) -> void:
 	var skeleton_path := String(character.get_path_to(skeleton))
 	for index: int in range(animation.get_track_count() - 1, -1, -1):
 		var bone := animation.track_get_path(index).get_concatenated_subnames()
-		if bone.is_empty() or skeleton.find_bone(bone) == -1:
+		if animation.track_get_type(index) == Animation.TYPE_POSITION_3D \
+				or bone.is_empty() or skeleton.find_bone(bone) == -1:
 			animation.remove_track(index)
 			continue
 		animation.track_set_path(index, NodePath("%s:%s" % [skeleton_path, bone]))

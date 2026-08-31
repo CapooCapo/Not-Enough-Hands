@@ -1,7 +1,7 @@
 [gd_scene format=3]
 
 [ext_resource type="Script" path="res://player/player_visual.gd" id="1_visual_script"]
-[ext_resource type="PackedScene" path="res://assets/player/Model/boto-character-psx.glb" id="2_character"]
+[ext_resource type="PackedScene" path="res://assets/player/Model/boto.glb" id="2_character"]
 
 [node name="PlayerVisual" type="Node3D"]
 script = ExtResource("1_visual_script")
@@ -9,7 +9,7 @@ script = ExtResource("1_visual_script")
 [node name="Character" parent="." instance=ExtResource("2_character")]
 
 [node name="NameTag" type="Label3D" parent="."]
-position = Vector3(0, 2.05, 0)
+position = Vector3(0, 2.15, 0)
 billboard = 1
 text = "Player"
 font_size = 48
