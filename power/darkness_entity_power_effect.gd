@@ -86,12 +86,15 @@ func cause_first_available_zone_outage() -> ElectricalZone:
 	return cause_zone_outage(candidates[0])
 
 
-func cause_zone_outage(zone: ElectricalZone) -> ElectricalZone:
+## `lock_chance` is forwarded per zone: the fraction of fixtures whose switch
+## stays dead until the hunt is over. Zero keeps the old behaviour, where every
+## cut light can be walked back on one switch at a time.
+func cause_zone_outage(zone: ElectricalZone, lock_chance: float = 0.0) -> ElectricalZone:
 	_prune_restored_zones()
 	if not zone or not zone.is_powered:
 		return null
 	active_zone = zone
-	if not zone.begin_switch_restore_outage():
+	if not zone.begin_switch_restore_outage(lock_chance):
 		active_zone = null
 		return null
 	if zone not in darkened_zones:
@@ -99,10 +102,13 @@ func cause_zone_outage(zone: ElectricalZone) -> ElectricalZone:
 	return zone
 
 
-func cause_zone_outages(zones: Array[ElectricalZone]) -> Array[ElectricalZone]:
+func cause_zone_outages(
+	zones: Array[ElectricalZone],
+	lock_chance: float = 0.0
+) -> Array[ElectricalZone]:
 	var result: Array[ElectricalZone] = []
 	for zone: ElectricalZone in zones:
-		var darkened := cause_zone_outage(zone)
+		var darkened := cause_zone_outage(zone, lock_chance)
 		if darkened:
 			result.append(darkened)
 	return result
@@ -174,9 +180,17 @@ func has_active_zone_outage() -> bool:
 	return not darkened_zones.is_empty()
 
 
-func clear_zone_outage() -> void:
-	# The zone intentionally remains off after the entity retreats. A player
-	# must reach a LightSwitch in that zone to restore it.
+## The hunt is what holds the pocket dark, so it comes back with the hunt. That
+## is not a convenience: the next haunting selects the zone the marked player is
+## standing in and can only cut a *powered* one, so a wing left off by hand would
+## quietly retire itself from the rest of the night. Fixtures a player had
+## deliberately switched off before the outage stay off - ElectricalDevice
+## restores the state it recorded, not "on".
+func clear_zone_outage(restore_power: bool = true) -> void:
+	if restore_power:
+		for zone: ElectricalZone in darkened_zones:
+			if is_instance_valid(zone):
+				zone.set_powered(true)
 	active_zone = null
 	darkened_zones.clear()
 

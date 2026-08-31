@@ -138,35 +138,64 @@ func _run() -> void:
 	)
 	_assert(manager.get_total_load() < initial_total_load, "DarknessGhost outage did not reduce whole-house load")
 
-	# The chased player cannot reset a light. Once a closer living player steals
-	# aggro, the previous target may help restore that same circuit.
+	# Restoring a cut circuit is a gamble on which fixture you reached, not a
+	# question of who you are: the chased player may work any switch the hunt did
+	# not jam, and nobody can work one it did.
 	var darkened_zone := dark_zone.active_zone
-	var reset_device := darkened_zone.get_devices()[0]
-	var other_dark_device := darkened_zone.get_devices()[1]
-	var reset_switch := switches.get_node_or_null(String(reset_device.device_id) + "LightSwitch") as StaticBody3D
+	var free_device: ElectricalDevice
+	var locked_device: ElectricalDevice
+	for device: ElectricalDevice in darkened_zone.get_devices():
+		if darkened_zone.is_device_restore_locked(device):
+			if locked_device == null:
+				locked_device = device
+		elif free_device == null:
+			free_device = device
+	_assert(free_device != null, "A cut zone must always leave at least one fixture restorable")
+	if locked_device:
+		var locked_switch := switches.get_node_or_null(
+			String(locked_device.device_id) + "LightSwitch"
+		) as StaticBody3D
+		_assert(locked_switch != null, "Jammed fixture has no switch to refuse")
+		locked_switch._on_interacted(target_player)
+		await process_frame
+		_assert(
+			not locked_device.powered_light.visible,
+			"A fixture the hunt jammed was restored by its switch anyway"
+		)
+	var reset_switch := switches.get_node_or_null(String(free_device.device_id) + "LightSwitch") as StaticBody3D
 	_assert(reset_switch != null, "Darkened zone has no usable reset switch")
 	var load_before_switch_restore := manager.get_total_load()
 	reset_switch._on_interacted(target_player)
 	await process_frame
-	_assert(not reset_device.powered_light.visible, "Chased player was allowed to restore a dark light")
+	_assert(free_device.powered_light.visible, "Switch did not restore its own fixture")
+	_assert(manager.get_total_load() > load_before_switch_restore, "Restored fixture did not return its consumption to total load")
+	_assert(not darkened_zone.is_powered and darkened_zone.requires_switch_restore, "One switch incorrectly restored the entire zone")
+
+	# Aggro is recomputed from the ghost every frame, never held by the player it
+	# first marked.
 	var closer_player := TestLivingPlayer.new()
 	villa.add_child(closer_player)
 	closer_player.global_position = darkness_ghost.global_position + Vector3(3.0, 0.0, 0.0)
 	closer_player.add_to_group(&"players")
 	darkness_ghost._physics_process(0.016)
 	_assert(darkness_ghost._target_player == closer_player, "DarknessGhost did not switch to the closer player")
-	reset_switch._on_interacted(target_player)
-	await process_frame
-	_assert(reset_device.powered_light.visible, "Switch did not restore its own fixture")
-	_assert(manager.get_total_load() > load_before_switch_restore, "Restored fixture did not return its consumption to total load")
-	_assert(not other_dark_device.powered_light.visible, "One switch incorrectly restored another zone fixture")
-	_assert(not darkened_zone.is_powered and darkened_zone.requires_switch_restore, "One switch incorrectly restored the entire zone")
 	closer_player.queue_free()
+
 	darkness_ghost.retreat()
 	await process_frame
 	_assert(not darkness_ghost.is_manifested(), "DarknessGhost did not retreat")
 	_assert(dark_zone.active_zone == null, "DarknessGhost did not release its zone outage")
-	_assert(not darkened_zone.is_powered and darkened_zone.requires_switch_restore, "DarknessGhost zone must remain off after retreat")
+	# The pocket comes back with the hunt. Leaving it off retired those zones for
+	# the rest of the night: the next manifest can only cut a *powered* zone.
+	_assert(
+		darkened_zone.is_powered and not darkened_zone.requires_switch_restore,
+		"DarknessGhost did not give its zones back when the hunt ended"
+	)
+	if locked_device:
+		_assert(
+			not darkened_zone.is_device_restore_locked(locked_device),
+			"The end of a hunt did not lift the fixture jam it caused"
+		)
 	dev_tools.set_all_zones_powered(false)
 	await process_frame
 	_assert(manager.is_blackout, "DevTools all-zones-off must cause full blackout")

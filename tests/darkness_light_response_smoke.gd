@@ -70,6 +70,26 @@ func _run() -> void:
 
 	for flashlight: SpotLight3D in flashlights:
 		flashlight.visible = false
+	await process_frame
+
+	# A hunt that only ends on a kill, three flashlights or a light death is a
+	# hunt that usually never ends - which left a whole night holding exactly one
+	# encounter. It now gives up on its own, and that is what paces the next one.
+	ghost._hunt_time_left = ghost.hunt_duration
+	ghost._process(ghost.hunt_duration - 0.1)
+	if not ghost.is_manifested():
+		_fail("Darkness Ghost abandoned its hunt before hunt_duration elapsed.")
+		return
+	ghost._process(0.2)
+	if ghost.is_manifested() or ghost.is_dead():
+		_fail("Darkness Ghost did not end its hunt after hunt_duration and retreat.")
+		return
+	if not is_equal_approx(ghost._next_manifest_in, ghost.manifest_interval):
+		_fail("A timed-out hunt did not schedule the next manifest.")
+		return
+	ghost._set_manifested(true)
+	ghost.encounter_phase = DarknessGhost.EncounterPhase.CHASING
+
 	var room_light := OmniLight3D.new()
 	room_light.omni_range = 8.0
 	room_light.light_energy = 1.0

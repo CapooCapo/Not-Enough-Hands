@@ -677,7 +677,12 @@ func _apply_power(power: Array) -> void:
 			continue
 		var zone: Node = zones_by_id.get(String(row[0]))
 		if zone and zone.has_method(&"apply_network_state"):
-			zone.call(&"apply_network_state", bool(row[1]), bool(row[2]), row[3])
+			# row[4] is the darkness's jam list. Older rows without it still
+			# apply; the zone defaults it to "nothing jammed".
+			var locked: PackedStringArray = (
+				row[4] if row.size() >= 5 else PackedStringArray()
+			)
+			zone.call(&"apply_network_state", bool(row[1]), bool(row[2]), row[3], locked)
 
 
 @rpc("authority", "call_remote", "reliable")

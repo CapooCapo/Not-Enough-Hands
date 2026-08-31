@@ -47,6 +47,7 @@ var _is_local_rig: bool = true
 var _rig_hidden: bool = true
 var _spectating: bool = false
 var _downed_pose: float = 0.0
+var _local_body_excluded_from_beam: bool = false
 var _preview_time: float = 0.0
 var _preview_state_tag: Label3D
 
@@ -210,12 +211,25 @@ func _update_local_render_mode() -> void:
 		) as SpotLight3D
 		if flashlight:
 			flashlight.light_cull_mask &= ~(1 << (LOCAL_BODY_VISUAL_LAYER - 1))
+			_local_body_excluded_from_beam = true
 	_rig_hidden = not _should_render_rig()
 	_spectating = _player_flag("is_spectator")
 	_apply_rig_render_mode()
 
 
 func _update_render_mode() -> void:
+	# The owner's flashlight stands inside this rig's head, so a body that never
+	# got dropped from the beam's cull mask shadows the entire view - the beam
+	# looks like it is simply not there. That treatment is applied once in
+	# _ready(), which reads ownership from the parent Player *before* the parent
+	# has run its own _ready(); if anything about that ordering leaves ownership
+	# unresolved for a frame the exclusion is silently skipped for the whole run.
+	# Re-check until it has actually been applied.
+	if not _local_body_excluded_from_beam \
+			and not show_local_body \
+			and _player.has_method("is_local_player") \
+			and bool(_player.call("is_local_player")):
+		_update_local_render_mode()
 	var should_hide := not _should_render_rig()
 	var spectating := _player_flag("is_spectator")
 	if should_hide == _rig_hidden and spectating == _spectating:

@@ -41,11 +41,11 @@ func _ready() -> void:
 	_update_prompt()
 
 
-func _on_interacted(player: Node) -> void:
+func _on_interacted(_player: Node) -> void:
 	if not _controlled_device:
 		return
 	interactable.lock()
-	if _restore_is_blocked_for_target(player):
+	if _controlled_zone_restore_locked():
 		_unlock_timer.start()
 		return
 	if _restore_darkness_zone_from_switch():
@@ -96,6 +96,8 @@ func _update_prompt() -> void:
 			if not controlled_device_id.is_empty()
 			else "CHƯA GÁN THIẾT BỊ"
 		)
+	elif _controlled_zone_restore_locked():
+		interactable.prompt_text = "CẦU DAO KẸT"
 	elif _controlled_zone_requires_restore():
 		interactable.prompt_text = "KHÔI PHỤC ĐIỆN"
 	elif _controlled_device.is_forced_off():
@@ -112,16 +114,15 @@ func _restore_darkness_zone_from_switch() -> bool:
 	return false
 
 
-func _restore_is_blocked_for_target(player: Node) -> bool:
+## The darkness jams a share of the fixtures it cuts for the length of its hunt.
+## The list is part of the zone's replicated state, so every peer - and the
+## server - refuses the same switches and the light cannot flicker back off a
+## fifth of a second after a client turned it on.
+func _controlled_zone_restore_locked() -> bool:
 	if not _electrical_zone:
 		_electrical_zone = _find_controlled_zone()
-	if not _electrical_zone:
-		return false
-	for node: Node in get_tree().get_nodes_in_group(&"darkness_ghosts"):
-		if node.has_method(&"blocks_light_restore_for") \
-			and bool(node.call(&"blocks_light_restore_for", player, _electrical_zone)):
-			return true
-	return false
+	return _electrical_zone != null \
+		and _electrical_zone.is_device_restore_locked(_controlled_device)
 
 
 func _controlled_zone_requires_restore() -> bool:
@@ -136,5 +137,15 @@ func _find_controlled_zone() -> ElectricalZone:
 	for node: Node in get_tree().get_nodes_in_group("electrical_zones"):
 		var zone := node as ElectricalZone
 		if zone and zone.contains_device_id(_controlled_device.device_id):
+			# A fixture the player had already switched off before the outage is
+			# restored without changing its on/off state, so state_changed never
+			# fires and the prompt would keep offering a restore that is already
+			# done. The zone's own gate is the reliable edge to listen for.
+			if not zone.switch_restore_required_changed.is_connected(_on_zone_restore_gate_changed):
+				zone.switch_restore_required_changed.connect(_on_zone_restore_gate_changed)
 			return zone
 	return null
+
+
+func _on_zone_restore_gate_changed(_required: bool) -> void:
+	_update_prompt()

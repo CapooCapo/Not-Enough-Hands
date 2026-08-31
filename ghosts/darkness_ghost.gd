@@ -19,7 +19,13 @@ enum EncounterPhase {
 @export_category("Darkness Ghost")
 @export var auto_manifest := true
 @export_range(1.0, 300.0, 1.0) var first_manifest_delay := 10.0
-@export_range(1.0, 300.0, 1.0) var manifest_interval := 25.0
+@export_range(1.0, 300.0, 1.0) var manifest_interval := 70.0
+## How long one hunt lasts before the ghost gives up and the circuits it cut
+## come back. Without this the very first manifest never ends - it holds the
+## pocket dark and chases until it kills somebody or dies in light - so a night
+## contained exactly one encounter. A night is 547.5 real seconds, which at the
+## shipped warning/hunt/interval pacing is five.
+@export_range(5.0, 300.0, 1.0) var hunt_duration := 40.0
 @export_range(2.0, 30.0, 0.5) var threat_range := 12.0
 @export_range(0.5, 4.0, 0.05) var kill_distance := 1.15
 @export_range(1.0, 40.0, 0.5) var minimum_spawn_distance := 15.0
@@ -27,6 +33,11 @@ enum EncounterPhase {
 ## The target's zone plus this many authored neighbour rings flicker and fail
 ## together. One ring is already a broad multi-room pocket in the villa.
 @export_range(0, 3, 1) var blackout_neighbour_depth := 1
+## Chance that any one fixture in the cut pocket comes back jammed: its switch
+## is dead for the whole hunt, so walking the lights back on is a gamble rather
+## than a checklist. A zone never has every fixture jammed at once, and the jam
+## lifts with the hunt.
+@export_range(0.0, 1.0, 0.05) var hunt_light_lock_chance := 0.4
 @export_range(0.5, 20.0, 0.05) var normal_speed := 3.2
 @export_range(0.5, 20.0, 0.05) var darkness_speed := 4.2
 ## Powered world lights kill the ghost after one uninterrupted exposure.
@@ -72,6 +83,7 @@ var _is_manifested := false
 var encounter_phase := EncounterPhase.DORMANT
 var _next_manifest_in := 0.0
 var _warning_time_left := 0.0
+var _hunt_time_left := 0.0
 var _target_player: Node3D
 var _encounter_zones: Array[ElectricalZone] = []
 var _warning_visual_active := false
@@ -132,6 +144,10 @@ func _process(delta: float) -> void:
 		# Restoring the grid no longer makes the ghost disappear instantly. It
 		# must remain inside light for light_death_seconds, giving it a chance to
 		# escape a briefly lit doorway while rewarding a sustained exposure.
+		if encounter_phase == EncounterPhase.CHASING:
+			_hunt_time_left -= delta
+			if _hunt_time_left <= 0.0:
+				retreat()
 		return
 	if auto_manifest and not _is_dead:
 		_next_manifest_in -= delta
@@ -212,13 +228,19 @@ func _begin_manifest_for_target(player: Node3D) -> bool:
 func _finish_warning() -> void:
 	if encounter_phase != EncounterPhase.WARNING or not _power_effect:
 		return
-	var cut_zones := _power_effect.cause_zone_outages(_encounter_zones)
+	# Which fixtures the hunt refuses to give back is rolled here, once, and kept
+	# on ElectricalZone where it replicates. It used to be answered from
+	# `_target_player` instead - a variable only the authority ever assigns - so a
+	# client believed every switch would work, turned one on locally, and watched
+	# the server's next snapshot put it straight back out.
+	var cut_zones := _power_effect.cause_zone_outages(_encounter_zones, hunt_light_lock_chance)
 	if cut_zones.is_empty():
 		retreat()
 		return
 	_encounter_zones.assign(cut_zones)
 	encounter_phase = EncounterPhase.CHASING
 	_warning_time_left = 0.0
+	_hunt_time_left = hunt_duration
 	_patrol_target = _random_patrol_point()
 	_patrol_retarget_in = patrol_retarget_seconds
 	_stop_warning_visuals(false)
@@ -235,6 +257,7 @@ func retreat() -> void:
 	_encounter_zones.clear()
 	_stuck_timer = 0.0
 	_unstick_seconds_left = 0.0
+	_hunt_time_left = 0.0
 	_reset_light_exposure()
 	if _power_effect:
 		_power_effect.clear_zone_outage()
@@ -248,15 +271,6 @@ func is_manifested() -> bool:
 
 func is_dead() -> bool:
 	return _is_dead
-
-
-## The marked player cannot undo the outage while the ghost is actively on
-## them. A teammate may restore those same lights; if that teammate gets closer
-## and steals aggro, the previous target can operate the switch too.
-func blocks_light_restore_for(player: Node, zone: ElectricalZone) -> bool:
-	return encounter_phase == EncounterPhase.CHASING \
-		and player == _target_player \
-		and zone in _encounter_zones
 
 
 func get_replication_state() -> Array:
@@ -290,6 +304,12 @@ func apply_replication_state(state: Array) -> void:
 func _set_manifested(value: bool) -> void:
 	_is_manifested = value
 	chase_enabled = value
+	if value:
+		# _finish_warning() restarts this when the chase actually begins. Arming
+		# it here as well means a body dropped straight into CHASING - the dev
+		# panel, a test - still gets a whole hunt instead of a clock already at
+		# zero, which the countdown below would read as "time to leave".
+		_hunt_time_left = hunt_duration
 	$AnimatedModel.visible = value
 	# IdleAnimationSource is an internal animation-retargeting helper, not a
 	# renderable state of the ghost — it must never be visible, manifested or
@@ -707,6 +727,7 @@ func _die_in_light() -> void:
 	_encounter_zones.clear()
 	_stuck_timer = 0.0
 	_unstick_seconds_left = 0.0
+	_hunt_time_left = 0.0
 	if _power_effect:
 		_power_effect.clear_zone_outage()
 	_reset_light_exposure()
