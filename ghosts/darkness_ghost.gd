@@ -26,9 +26,9 @@ enum EncounterPhase {
 ## The target's zone plus this many authored neighbour rings flicker and fail
 ## together. One ring is already a broad multi-room pocket in the villa.
 @export_range(0, 3, 1) var blackout_neighbour_depth := 1
-@export_range(0.5, 20.0, 0.05) var normal_speed := 5.0
-@export_range(0.5, 20.0, 0.05) var darkness_speed := 8.0
-@export_range(0.5, 15.0, 0.05) var patrol_speed := 5.0
+@export_range(0.5, 20.0, 0.05) var normal_speed := 6.0
+@export_range(0.5, 20.0, 0.05) var darkness_speed := 7.5
+@export_range(0.5, 15.0, 0.05) var patrol_speed := 6.0
 @export_range(0.5, 15.0, 0.1) var patrol_retarget_seconds := 3.0
 ## Used only when a manifest attempt fails outright (e.g. no powered zone
 ## could be found near the player). Short on purpose: manifest_interval is
@@ -44,6 +44,13 @@ enum EncounterPhase {
 @export_range(1.0, 15.0, 0.5) var stuck_detection_seconds := 3.0
 @export_range(0.05, 2.0, 0.05) var stuck_movement_threshold := 0.4
 @export_range(0.1, 2.0, 0.05) var stuck_nudge_seconds := 0.6
+## At 9m/s the ghost can cross a narrow stair-link waypoint between physics
+## frames. A wider acceptance radius lets NavigationAgent3D advance to the
+## next hop instead of ordering it back down the stair it just climbed.
+@export_range(0.35, 1.5, 0.05) var stair_waypoint_tolerance := 0.7
+@export_range(0.1, 1.0, 0.05) var max_step_height := 0.6
+@export_range(0.05, 0.2, 0.01) var step_floor_margin := 0.08
+@export_range(0.1, 0.8, 0.05) var step_probe_distance := 0.3
 
 var _power_effect: DarknessEntityPowerEffect
 var _is_manifested := false
@@ -60,6 +67,7 @@ var _patrol_retarget_in := 0.0
 ## We stash the delta from the physics frame that requested it so the actual
 ## move_and_slide() (done in the callback) still uses the right timestep.
 var _pending_move_delta := 0.0
+var _moving_directly_on_stair := false
 ## Stuck watchdog state.
 var _stuck_timer := 0.0
 var _stuck_reference_position := Vector3.ZERO
@@ -71,6 +79,7 @@ func _ready() -> void:
 	super._ready()
 	add_to_group("darkness_ghosts")
 	_power_effect = get_node_or_null("DarknessEntityPowerEffect") as DarknessEntityPowerEffect
+	$NavigationAgent3D.path_desired_distance = stair_waypoint_tolerance
 	# NavigationAgent3D has avoidance_enabled = true in the scene, but avoidance
 	# only takes effect once we feed it a desired velocity via set_velocity()
 	# and consume the resolved, collision-avoided result from this signal.
@@ -357,6 +366,25 @@ func _move_within_dark_zone(target_position: Vector3, speed: float, delta: float
 		play_walk()
 		$NavigationAgent3D.set_velocity(_unstick_direction * speed)
 		return
+	# NavigationLink3D supplies the route onto the staircase, but a fast agent
+	# can oscillate around its intermediate ramp waypoint. Once physically on a
+	# villa ramp, follow the ramp's own axis until reaching the landing; this is
+	# still ordinary collision movement, not a teleport.
+	var stair_direction := _stair_direction_toward(target_position)
+	if not stair_direction.is_zero_approx():
+		_moving_directly_on_stair = true
+		look_at(global_position + stair_direction, Vector3.UP, true)
+		play_walk()
+		velocity.x = move_toward(velocity.x, stair_direction.x * speed, acceleration * delta)
+		velocity.z = move_toward(velocity.z, stair_direction.z * speed, acceleration * delta)
+		if not is_on_floor():
+			velocity.y -= ProjectSettings.get_setting("physics/3d/default_gravity") * delta
+		else:
+			velocity.y = 0.0
+		_try_step_up(Vector3(velocity.x, 0.0, velocity.z) * delta)
+		move_and_slide()
+		return
+	_moving_directly_on_stair = false
 	var direction := target_position - global_position
 	direction.y = 0.0
 	var desired_horizontal_velocity := Vector3.ZERO
@@ -383,8 +411,76 @@ func _move_within_dark_zone(target_position: Vector3, speed: float, delta: float
 	$NavigationAgent3D.set_velocity(desired_horizontal_velocity)
 
 
+func _stair_direction_toward(target_position: Vector3) -> Vector3:
+	var query := PhysicsRayQueryParameters3D.create(
+		global_position + Vector3.UP * 0.45,
+		global_position + Vector3.DOWN * 0.9,
+		collision_mask
+	)
+	query.exclude = [get_rid()]
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	var ramp := hit.get("collider") as StaticBody3D
+	if not ramp or not ramp.is_in_group(&"villa_stair_ramps"):
+		return Vector3.ZERO
+	var uphill := ramp.global_basis.x
+	uphill.y = 0.0
+	if uphill.length_squared() <= 0.001:
+		return Vector3.ZERO
+	uphill = uphill.normalized()
+	return uphill if target_position.y > global_position.y + 0.25 else -uphill
+
+
+## The side entry at V01 meets the smooth ramp above floor level. This probe
+## lets the capsule mount that lip immediately instead of waiting for the
+## generic three-second stuck recovery to kick it sideways at random.
+func _try_step_up(horizontal_motion: Vector3) -> void:
+	if horizontal_motion.is_zero_approx():
+		return
+	if is_on_floor() and get_floor_normal().dot(up_direction) < 0.98:
+		return
+	var forward_collision := KinematicCollision3D.new()
+	if not test_move(global_transform, horizontal_motion, forward_collision, safe_margin, false):
+		return
+	if forward_collision.get_normal().dot(up_direction) >= cos(floor_max_angle):
+		return
+	var available_step_height := max_step_height
+	var up_collision := KinematicCollision3D.new()
+	if test_move(
+		global_transform,
+		Vector3.UP * max_step_height,
+		up_collision,
+		safe_margin,
+		false
+	):
+		available_step_height = up_collision.get_travel().y
+	if available_step_height <= 0.02:
+		return
+	var probe_motion := horizontal_motion
+	if probe_motion.length() < step_probe_distance:
+		probe_motion = probe_motion.normalized() * step_probe_distance
+	var raised_transform := global_transform
+	raised_transform.origin += Vector3.UP * available_step_height
+	if test_move(raised_transform, probe_motion):
+		return
+	var forward_transform := raised_transform
+	forward_transform.origin += probe_motion
+	var down_collision := KinematicCollision3D.new()
+	if not test_move(
+		forward_transform,
+		Vector3.DOWN * (available_step_height + step_floor_margin),
+		down_collision
+	):
+		return
+	if down_collision.get_normal().dot(up_direction) < 0.65:
+		return
+	var landing_y := forward_transform.origin.y + down_collision.get_travel().y
+	var step_height := landing_y - global_position.y
+	if step_height > 0.02 and step_height <= available_step_height + step_floor_margin:
+		global_position.y += step_height
+
+
 func _on_navigation_velocity_computed(safe_velocity: Vector3) -> void:
-	if not _is_manifested:
+	if not _is_manifested or _moving_directly_on_stair:
 		return
 	var delta := _pending_move_delta
 	velocity.x = move_toward(velocity.x, safe_velocity.x, acceleration * delta)
@@ -393,6 +489,7 @@ func _on_navigation_velocity_computed(safe_velocity: Vector3) -> void:
 		velocity.y -= ProjectSettings.get_setting("physics/3d/default_gravity") * delta
 	else:
 		velocity.y = 0.0
+	_try_step_up(Vector3(velocity.x, 0.0, velocity.z) * delta)
 	move_and_slide()
 
 

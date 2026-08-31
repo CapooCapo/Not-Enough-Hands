@@ -8,6 +8,10 @@
 script = ExtResource("2_darkness")
 chase_speed = 8.0
 stopping_distance = 0.75
+floor_snap_length = 0.4
+floor_constant_speed = true
+floor_block_on_wall = false
+floor_max_angle = 0.959931
 
 [node name="DarknessEntityPowerEffect" type="Node" parent="."]
 script = ExtResource("3_power")
