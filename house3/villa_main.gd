@@ -157,6 +157,11 @@ func _place_defense_doors() -> void:
 		# through so the far cellar door really is the one worth abandoning.
 		door.set("max_durability", float(anchor.get_meta("layers")) * 40.0)
 		door.set("repair_per_interaction", 60.0 / float(anchor.get_meta("repair_seconds")))
+		# add_child() above already ran the door's own _ready(), which filled it
+		# to the stock 100. Reset it again now that the spec's boarding budget is
+		# in place, or a 2-layer entrance starts at 100/80 and the attack
+		# director reads its damage ratio as "untouched" for the first 20 points.
+		door.call("reset_door")
 
 
 ## villa_main.tscn contains artist-baked editable architecture. Older bakes

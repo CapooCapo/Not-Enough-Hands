@@ -34,6 +34,8 @@ func _run() -> void:
 
 	if not await _test_enters_through_a_breach():
 		return
+	if not await _test_breach_manifests_immediately():
+		return
 	if not await _test_sealing_before_arrival_keeps_it_out():
 		return
 	if not await _test_patrols_without_player_history():
@@ -112,10 +114,17 @@ func _add_door() -> Node3D:
 	return door
 
 
-func _spawn_hunter(at: Vector3, overrides: Dictionary = {}) -> CharacterBody3D:
+func _spawn_hunter(
+	at: Vector3,
+	overrides: Dictionary = {},
+	keep_entry_delay: bool = false
+) -> CharacterBody3D:
 	var hunter := hunter_scene.instantiate() as CharacterBody3D
-	hunter.set('entry_delay_min', 0.4)
-	hunter.set('entry_delay_max', 0.4)
+	# Most tests only want to reach the arrival quickly. The one that measures
+	# the gap between the breach and the body has to see the shipped value.
+	if not keep_entry_delay:
+		hunter.set('entry_delay_min', 0.4)
+		hunter.set('entry_delay_max', 0.4)
 	for key: String in overrides:
 		hunter.set(key, overrides[key])
 	root.add_child(hunter)
@@ -199,6 +208,51 @@ func _test_enters_through_a_breach() -> bool:
 				% hunter.global_position.z,
 			hunter
 		)
+
+	await _despawn(hunter)
+	await _despawn(door)
+	await _despawn_all(markers)
+	return true
+
+
+## The breach *is* the announcement. Nothing may sit between a door reaching
+## zero and the huntsman being on its feet at the hole, so this measures the gap
+## in physics frames with the shipped delays rather than a test's own.
+func _test_breach_manifests_immediately() -> bool:
+	var markers := _add_sweep_markers()
+	var door := _add_door()
+	var hunter := await _spawn_hunter(Vector3(0.0, 0.15, 20.0), {}, true)
+
+	# A lambda captures locals by value, so the frame has to come back in
+	# something the callback can actually mutate.
+	var breached_frame: Array[int] = [-1]
+	door.breached.connect(func(_door: Node) -> void:
+		breached_frame[0] = Engine.get_physics_frames()
+	)
+	door.call('take_damage', 999.0, true)
+	if breached_frame[0] < 0:
+		return _fail('The door did not emit breached when it reached zero.', hunter)
+
+	var manifested_frame := -1
+	for _step: int in 30:
+		await physics_frame
+		if bool(hunter.get('manifested')):
+			manifested_frame = Engine.get_physics_frames()
+			break
+	if manifested_frame < 0:
+		return _fail('The huntsman never manifested after the breach.', hunter)
+
+	# _update_dormant() runs on the tick after the signal and there is nothing
+	# else in between, so one frame is the whole budget. Anything larger means a
+	# waiting period has come back.
+	var waited := manifested_frame - breached_frame[0]
+	if waited > 2:
+		return _fail(
+			'The huntsman waited %d physics frames after the breach.' % waited,
+			hunter
+		)
+	if int(hunter.get('state')) != HunterState_ENTERING:
+		return _fail('The huntsman manifested without beginning its entry.', hunter)
 
 	await _despawn(hunter)
 	await _despawn(door)
