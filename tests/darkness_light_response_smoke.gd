@@ -17,6 +17,17 @@ func _run() -> void:
 	ghost.auto_manifest = false
 	ghost._set_manifested(true)
 	ghost.encounter_phase = DarknessGhost.EncounterPhase.CHASING
+	ghost.velocity = Vector3(2.6, 0.0, 0.0)
+	ghost._update_footsteps(0.1)
+	var footstep_audio := ghost.get_node_or_null("FootstepAudio") as AudioStreamPlayer3D
+	if not footstep_audio or not footstep_audio.playing:
+		_fail("A moving Darkness Ghost did not play a spatial footstep.")
+		return
+	ghost.velocity = Vector3.ZERO
+	ghost._update_footsteps(0.1)
+	if footstep_audio.playing:
+		_fail("Darkness Ghost footsteps continued after it stopped moving.")
+		return
 
 	var flashlights: Array[SpotLight3D] = []
 	for index: int in 3:
@@ -27,7 +38,10 @@ func _run() -> void:
 		for index: int in flashlights.size():
 			flashlights[index].visible = index < count
 		await process_frame
-		var expected_speed := ghost.darkness_speed - count * ghost.flashlight_speed_penalty
+		var expected_speed := maxf(
+			ghost.minimum_illuminated_speed,
+			ghost.darkness_speed - count * ghost.flashlight_speed_penalty
+		)
 		if not is_equal_approx(ghost._chase_speed_at(GHOST_POSITION), expected_speed):
 			_fail("Flashlight slowdown did not stack once per illuminating player.")
 			return
@@ -77,7 +91,7 @@ func _run() -> void:
 		_fail("Three continuous seconds of environmental light did not permanently kill the ghost.")
 		return
 
-	print("Darkness light response smoke test passed: stacked 1.5 slowdown, 3-player 5s retreat, continuous 3s environmental-light death.")
+	print("Darkness light response smoke test passed: nerfed chase speeds, spatial footsteps, stacked 1.5 slowdown, 3-player 5s retreat, continuous 3s environmental-light death.")
 	quit()
 
 

@@ -27,8 +27,8 @@ enum EncounterPhase {
 ## The target's zone plus this many authored neighbour rings flicker and fail
 ## together. One ring is already a broad multi-room pocket in the villa.
 @export_range(0, 3, 1) var blackout_neighbour_depth := 1
-@export_range(0.5, 20.0, 0.05) var normal_speed := 6.0
-@export_range(0.5, 20.0, 0.05) var darkness_speed := 8.0
+@export_range(0.5, 20.0, 0.05) var normal_speed := 3.2
+@export_range(0.5, 20.0, 0.05) var darkness_speed := 4.2
 ## Powered world lights kill the ghost after one uninterrupted exposure.
 @export_range(0.1, 10.0, 0.1) var light_death_seconds := 3.0
 ## Each distinct living player's flashlight applies this penalty while its
@@ -37,13 +37,19 @@ enum EncounterPhase {
 @export_range(1, 8, 1) var flashlight_retreat_player_count := 3
 @export_range(0.1, 15.0, 0.1) var flashlight_retreat_seconds := 5.0
 @export_range(0.0, 5.0, 0.1) var minimum_illuminated_speed := 0.5
-@export_range(0.5, 15.0, 0.05) var patrol_speed := 6.0
+@export_range(0.5, 15.0, 0.05) var patrol_speed := 2.6
 @export_range(0.5, 15.0, 0.1) var patrol_retarget_seconds := 3.0
 ## Used only when a manifest attempt fails outright (e.g. no powered zone
 ## could be found near the player). Short on purpose: manifest_interval is
 ## the pacing between *successful* hauntings, not the retry backoff for a
 ## failed lookup that may resolve itself a few seconds later.
 @export_range(1.0, 60.0, 0.5) var failed_manifest_retry_delay := 8.0
+
+@export_category("Darkness Footsteps")
+@export_range(0.2, 1.5, 0.05) var footstep_interval := 0.55
+@export_range(-30.0, 12.0, 0.5) var footstep_volume_db := -2.0
+@export_range(0.5, 1.5, 0.01) var footstep_pitch_min := 0.76
+@export_range(0.5, 1.5, 0.01) var footstep_pitch_max := 0.88
 
 @export_category("Stuck Recovery")
 ## If the ghost hasn't covered stuck_movement_threshold metres toward its
@@ -53,9 +59,9 @@ enum EncounterPhase {
 @export_range(1.0, 15.0, 0.5) var stuck_detection_seconds := 3.0
 @export_range(0.05, 2.0, 0.05) var stuck_movement_threshold := 0.4
 @export_range(0.1, 2.0, 0.05) var stuck_nudge_seconds := 0.6
-## At 9m/s the ghost can cross a narrow stair-link waypoint between physics
-## frames. A wider acceptance radius lets NavigationAgent3D advance to the
-## next hop instead of ordering it back down the stair it just climbed.
+## Even at chase pace the ghost can cross a narrow stair-link waypoint between
+## physics frames. A wider acceptance radius lets NavigationAgent3D advance to
+## the next hop instead of ordering it back down the stair it just climbed.
 @export_range(0.35, 1.5, 0.05) var stair_waypoint_tolerance := 0.7
 @export_range(0.1, 1.0, 0.05) var max_step_height := 0.6
 @export_range(0.05, 0.2, 0.01) var step_floor_margin := 0.08
@@ -86,6 +92,13 @@ var _environment_light_exposure := 0.0
 var _flashlight_focus_time := 0.0
 var _flashlight_player_count := 0
 var _is_dead := false
+var _footstep_time_left := 0.0
+var _footstep_slice_left := 0.0
+
+@onready var _footstep_audio: AudioStreamPlayer3D = $FootstepAudio
+
+const FOOTSTEP_OFFSETS: Array[float] = [0.12, 0.68, 1.21, 1.79, 2.34, 2.92, 3.44]
+const FOOTSTEP_SLICE := 0.34
 
 
 func _ready() -> void:
@@ -103,6 +116,7 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	_update_footsteps(delta)
 	_update_warning_visuals()
 	# Manifesting, expanding and retreating all cut real circuits, so they are
 	# the server's alone; a client takes the darkened zones through
@@ -286,6 +300,51 @@ func _set_manifested(value: bool) -> void:
 		play_idle()
 	else:
 		velocity = Vector3.ZERO
+		_stop_footsteps()
+
+
+## Runs on every peer. The server/host hears its authoritative body directly;
+## clients derive the same local 3D presentation from replicated velocity, so
+## footsteps need no extra audio RPC and stay positioned on the ghost.
+func _update_footsteps(delta: float) -> void:
+	if _footstep_slice_left > 0.0:
+		_footstep_slice_left -= delta
+		if _footstep_slice_left <= 0.0 and _footstep_audio.playing:
+			_footstep_audio.stop()
+	var horizontal_speed := Vector2(velocity.x, velocity.z).length()
+	if not _is_manifested \
+		or encounter_phase != EncounterPhase.CHASING \
+		or horizontal_speed <= 0.15:
+		_footstep_time_left = 0.0
+		if _footstep_audio.playing:
+			_footstep_audio.stop()
+		_footstep_slice_left = 0.0
+		return
+	_footstep_time_left -= delta
+	if _footstep_time_left > 0.0:
+		return
+	_play_footstep(horizontal_speed)
+	var pace_scale := clampf(3.2 / maxf(horizontal_speed, 0.1), 0.8, 1.15)
+	_footstep_time_left = footstep_interval * pace_scale
+
+
+func _play_footstep(horizontal_speed: float) -> void:
+	if not _footstep_audio.stream:
+		return
+	_footstep_audio.pitch_scale = randf_range(
+		minf(footstep_pitch_min, footstep_pitch_max),
+		maxf(footstep_pitch_min, footstep_pitch_max)
+	)
+	_footstep_audio.volume_db = footstep_volume_db + minf(horizontal_speed * 0.35, 1.5)
+	_footstep_audio.play(FOOTSTEP_OFFSETS.pick_random())
+	_footstep_slice_left = FOOTSTEP_SLICE
+
+
+func _stop_footsteps() -> void:
+	_footstep_time_left = 0.0
+	_footstep_slice_left = 0.0
+	if is_instance_valid(_footstep_audio) and _footstep_audio.playing:
+		_footstep_audio.stop()
 
 
 ## Wraps a movement call with stuck-progress tracking. Every other call site
