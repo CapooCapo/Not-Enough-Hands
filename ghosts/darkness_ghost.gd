@@ -11,8 +11,8 @@ signal killed_player(player: Node3D)
 
 @export_category("Darkness Ghost")
 @export var auto_manifest := true
-@export_range(1.0, 300.0, 1.0) var first_manifest_delay := 20.0
-@export_range(1.0, 300.0, 1.0) var manifest_interval := 55.0
+@export_range(1.0, 300.0, 1.0) var first_manifest_delay := 10.0
+@export_range(1.0, 300.0, 1.0) var manifest_interval := 25.0
 @export_range(2.0, 30.0, 0.5) var threat_range := 12.0
 @export_range(0.5, 4.0, 0.05) var kill_distance := 1.15
 @export_range(0.1, 10.0, 0.1) var minimum_spawn_distance := 7.0
@@ -21,7 +21,7 @@ signal killed_player(player: Node3D)
 ## this radius wherever they are, and only falls back to spreading the darkness
 ## when nobody is within reach. Its own zone always counts, however far away -
 ## a player in the dark is being hunted regardless of this number.
-@export_range(2.0, 60.0, 0.5) var hunt_range := 22.0
+@export_range(2.0, 60.0, 0.5) var hunt_range := 35.0
 ## Patrolling and spreading are the *fast* half of this ghost. It crosses the
 ## house at well above a sprint when it is not chasing anybody, so the quiet
 ## between hauntings is short and it is already somewhere else by the time the
@@ -29,7 +29,7 @@ signal killed_player(player: Node3D)
 ## player's sprint - being caught is a mistake, never a foregone conclusion.
 @export_range(0.5, 15.0, 0.05) var patrol_speed := 8.0
 @export_range(0.5, 15.0, 0.1) var patrol_retarget_seconds := 3.0
-@export_range(2.0, 120.0, 0.5) var zone_expansion_seconds := 6.0
+@export_range(2.0, 120.0, 0.5) var zone_expansion_seconds := 3.5
 @export_range(0.3, 15.0, 0.05) var zone_expansion_walk_speed := 8.0
 @export_range(0.5, 5.0, 0.05) var zone_blackout_arrival_distance := 1.4
 ## Used only when a manifest attempt fails outright (e.g. no powered zone
@@ -222,7 +222,7 @@ func _set_manifested(value: bool) -> void:
 func _begin_expansion_travel() -> void:
 	if not _power_effect:
 		return
-	var next_zone := _power_effect.get_next_neighbouring_zone()
+	var next_zone := _pick_expansion_zone()
 	if not next_zone:
 		# The current dark territory has no powered neighbour left. Try again
 		# later in case the player restores/changes the grid.
@@ -232,6 +232,35 @@ func _begin_expansion_travel() -> void:
 	_pending_expansion_position = _spawn_position_for_zone(next_zone)
 	# Avoid an immediate repeated call while moving toward the lit zone.
 	_zone_expansion_in = 0.0
+
+
+## Which zone the darkness eats next. The frontier itself is authored (the
+## component's zone_neighbours graph), but the choice among it is made here,
+## from where the players are: the darkness always grows toward the nearest one,
+## so leaving the dark rooms delays the ghost rather than shaking it off. With
+## no player to steer by it falls back to the component's authored order.
+func _pick_expansion_zone() -> ElectricalZone:
+	var candidates := _power_effect.get_frontier_zones()
+	if candidates.is_empty():
+		return null
+	var player := _nearest_player()
+	if not player:
+		return candidates[0]
+	var best: ElectricalZone = candidates[0]
+	var best_distance := INF
+	for zone: ElectricalZone in candidates:
+		var distance := _zone_distance_to(zone, player.global_position)
+		if distance < best_distance:
+			best_distance = distance
+			best = zone
+	return best
+
+
+func _zone_distance_to(zone: ElectricalZone, point: Vector3) -> float:
+	var nearest := INF
+	for candidate: Vector3 in _zone_clear_points(zone):
+		nearest = minf(nearest, candidate.distance_to(point))
+	return nearest
 
 
 ## Wraps a movement call with stuck-progress tracking. Every other call site
@@ -284,16 +313,24 @@ func _recover_from_stuck(target_position: Vector3, context: StringName) -> void:
 			_unstick_seconds_left = stuck_nudge_seconds
 
 
-func _spawn_position_for_zone(zone: ElectricalZone) -> Vector3:
-	var player := _nearest_player()
-	var candidates: Array[Vector3] = []
+## Every point inside a zone the ghost may legitimately stand on: the authored
+## room clear points plus a spot under each of the zone's lights. Spawning,
+## patrolling and zone ranking all read the same list.
+func _zone_clear_points(zone: ElectricalZone) -> Array[Vector3]:
+	var points: Array[Vector3] = []
 	for marker_node: Node in get_tree().get_nodes_in_group("villa_rooms"):
 		var marker := marker_node as Marker3D
 		if marker and zone.contains_device_id(StringName(marker.get_meta("room_id", marker.name))):
-			candidates.append(marker.get_meta("clear_point", marker.global_position) as Vector3)
+			points.append(marker.get_meta("clear_point", marker.global_position) as Vector3)
 	for device: ElectricalDevice in zone.get_devices():
 		if device.powered_light:
-			candidates.append(device.powered_light.global_position - Vector3.UP * 2.7)
+			points.append(device.powered_light.global_position - Vector3.UP * 2.7)
+	return points
+
+
+func _spawn_position_for_zone(zone: ElectricalZone) -> Vector3:
+	var player := _nearest_player()
+	var candidates := _zone_clear_points(zone)
 	if candidates.is_empty():
 		return global_position
 	if not player:
@@ -442,13 +479,7 @@ func _random_patrol_point() -> Vector3:
 		return global_position
 	var candidates: Array[Vector3] = []
 	for zone: ElectricalZone in _power_effect.darkened_zones:
-		for marker_node: Node in get_tree().get_nodes_in_group("villa_rooms"):
-			var marker := marker_node as Marker3D
-			if marker and zone.contains_device_id(StringName(marker.get_meta("room_id", marker.name))):
-				candidates.append(marker.get_meta("clear_point", marker.global_position) as Vector3)
-		for device: ElectricalDevice in zone.get_devices():
-			if device.powered_light:
-				candidates.append(device.powered_light.global_position - Vector3.UP * 2.7)
+		candidates.append_array(_zone_clear_points(zone))
 	if candidates.is_empty():
 		return global_position
 	return candidates.pick_random() + Vector3.UP * 0.05

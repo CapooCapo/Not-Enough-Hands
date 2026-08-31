@@ -105,18 +105,24 @@ func cause_zone_outage(zone: ElectricalZone) -> ElectricalZone:
 ## does not alter it. The ghost uses this to walk into a lit zone before it
 ## cuts its electricity.
 func get_next_neighbouring_zone() -> ElectricalZone:
+	var candidates := get_frontier_zones()
+	return candidates[0] if not candidates.is_empty() else null
+
+
+## Every powered zone adjacent to the darkness, in authored neighbour order.
+## The order is the component's opinion; a caller that knows where the players
+## are (DarknessGhost does) is free to pick a different one from this list.
+func get_frontier_zones() -> Array[ElectricalZone]:
 	_prune_restored_zones()
-	if darkened_zones.is_empty():
-		return null
 	var candidates: Array[ElectricalZone] = []
+	if darkened_zones.is_empty():
+		return candidates
 	for source: ElectricalZone in darkened_zones:
 		for neighbour_id: StringName in zone_neighbours.get(source.zone_id, PackedStringArray()):
 			var neighbour := _zone_by_id(neighbour_id)
 			if neighbour and neighbour.is_powered and neighbour not in candidates:
 				candidates.append(neighbour)
-	if candidates.is_empty():
-		return null
-	return candidates[0]
+	return candidates
 
 
 ## Immediate version kept as a reusable component API. DarknessGhost itself

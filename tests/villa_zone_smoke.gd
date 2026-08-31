@@ -66,6 +66,24 @@ func _run() -> void:
 	_assert(dark_zone.active_zone != null and not dark_zone.active_zone.is_powered, "DarknessGhost did not cut one zone")
 	var first_dark_zone := dark_zone.active_zone
 	var expected_next_zone_ids := dark_zone.zone_neighbours.get(first_dark_zone.zone_id, PackedStringArray()) as PackedStringArray
+	# The frontier is authored, but the pick among it is made from where the
+	# players are: the darkness grows toward the nearest one. Recompute that
+	# choice here rather than asserting a fixed zone id, which would only pin
+	# the neighbour table.
+	var expansion_player := villa.get_node("Player") as Node3D
+	var expected_next_zone: ElectricalZone = null
+	var expected_next_distance := INF
+	for candidate_zone: ElectricalZone in dark_zone.get_frontier_zones():
+		var candidate_distance: float = darkness_ghost._zone_distance_to(
+			candidate_zone, expansion_player.global_position
+		)
+		if candidate_distance < expected_next_distance:
+			expected_next_distance = candidate_distance
+			expected_next_zone = candidate_zone
+	_assert(
+		expected_next_zone != null and String(expected_next_zone.zone_id) in expected_next_zone_ids,
+		"The frontier must be a powered subset of the first dark zone's authored neighbours"
+	)
 	var load_after_darkness := manager.get_total_load()
 	_assert(load_after_darkness < initial_total_load, "DarknessGhost outage did not reduce whole-house load")
 	darkness_ghost._process(darkness_ghost.zone_expansion_seconds + 1.0)
@@ -73,8 +91,8 @@ func _run() -> void:
 	_assert(dark_zone.darkened_zones.size() == 1, "Next zone must stay lit while DarknessGhost walks to it")
 	_assert(
 		darkness_ghost._pending_expansion_zone != null
-		and darkness_ghost._pending_expansion_zone.zone_id == StringName(expected_next_zone_ids[0]),
-		"DarknessGhost did not choose the first authored neighbouring zone to approach"
+		and darkness_ghost._pending_expansion_zone == expected_next_zone,
+		"DarknessGhost did not approach the frontier zone nearest the player"
 	)
 	# Walking to the next zone is not hunting. A player who was in reach and then
 	# left must not keep wearing this ghost's threat for the rest of the trip -
@@ -105,8 +123,8 @@ func _run() -> void:
 	darkness_ghost._physics_process(0.016)
 	_assert(dark_zone.darkened_zones.size() >= 2, "DarknessGhost did not expand into an adjacent zone")
 	_assert(
-		dark_zone.active_zone.zone_id == StringName(expected_next_zone_ids[0]),
-		"DarknessGhost did not expand to the first authored neighbouring zone"
+		dark_zone.active_zone == expected_next_zone,
+		"DarknessGhost did not expand into the frontier zone nearest the player"
 	)
 	for device: ElectricalDevice in dark_zone.active_zone.get_devices():
 		_assert(not device.powered_light.visible, "DarknessGhost outage did not turn off its fixture light")
