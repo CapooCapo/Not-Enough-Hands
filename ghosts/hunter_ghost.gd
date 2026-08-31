@@ -289,6 +289,10 @@ var current_target: CharacterBody3D
 var last_seen_position: Vector3
 var entry_door: Node3D
 var dev_attack_suspended: bool = false
+## The game director's own hold, kept apart from the flag above because that one
+## is not a dev flag at all: player.gd refcounts it as the minigame safety lock.
+## A director sharing it would release somebody's lock mid-encounter.
+var director_attacks_suspended: bool = false
 var attack_resume_grace_remaining: float = 0.0
 
 var _clock: float = 0.0
@@ -1356,10 +1360,40 @@ func _try_step_up(horizontal_motion: Vector3) -> void:
 
 
 func set_dev_attack_suspended(suspended: bool) -> void:
-	if dev_attack_suspended == suspended:
+	_set_attack_suspension(suspended, director_attacks_suspended)
+
+
+## The director's hold on this ghost's attacks. Held separately from the lock
+## above so the two cannot overwrite each other: either one alone blocks, and
+## attacks only resume once both have let go.
+func set_director_attacks_suspended(suspended: bool) -> void:
+	_set_attack_suspension(dev_attack_suspended, suspended)
+
+
+## True while this ghost is a live threat the director has to count against its
+## concurrency budget.
+##
+## Patrol deliberately does not count, unlike the crawler's. The huntsman never
+## leaves once it is inside, so counting SWEEPING would pin a permanent point of
+## the budget from the first breach until dawn and the director could never
+## schedule anything again. It is only *engaged* once it has a lead.
+func is_engaged() -> bool:
+	return state in [
+		HunterState.TRACKING,
+		HunterState.ROARING,
+		HunterState.LOCKED,
+		HunterState.SEIZING,
+	]
+
+
+func _set_attack_suspension(dev_held: bool, director_held: bool) -> void:
+	var was_blocked := dev_attack_suspended or director_attacks_suspended
+	dev_attack_suspended = dev_held
+	director_attacks_suspended = director_held
+	var is_blocked := dev_held or director_held
+	if is_blocked == was_blocked:
 		return
-	dev_attack_suspended = suspended
-	if suspended:
+	if is_blocked:
 		attack_resume_grace_remaining = 0.0
 		if state == HunterState.SEIZING:
 			_seize_cooldown_timer = seize_cooldown
@@ -1370,7 +1404,9 @@ func set_dev_attack_suspended(suspended: bool) -> void:
 
 
 func _attacks_blocked() -> bool:
-	return dev_attack_suspended or attack_resume_grace_remaining > 0.0
+	return dev_attack_suspended \
+		or director_attacks_suspended \
+		or attack_resume_grace_remaining > 0.0
 
 
 ## Development hook: puts it in the house immediately, beside the chosen player,

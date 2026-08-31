@@ -45,15 +45,23 @@ enum AttackPhase {
 @export var attack_damage_min: float = 50.0
 @export var attack_damage_max: float = 70.0
 ## Scratches are deliberately spaced out so players have time to hear, locate,
-## and answer the attacked entrance. The bite above is more than twice what it
-## was, so the interval was shortened and the strong tick raised to match -
-## otherwise one visit would occupy its door for the best part of half a minute
-## and the director could never run the waves any denser than it already does.
+## and answer the attacked entrance. These ticks set the *rate* the door bleeds
+## at, not what a visit is worth: the bite above is unchanged, so an unanswered
+## entrance still falls to the second visit, it just takes about nineteen
+## seconds to get there rather than thirteen. Those extra six seconds are the
+## whole crossing time of the villa, and are what make hearing an entrance from
+## across the house worth anything.
+##
+## Lengthening a visit used to be unaffordable because DoorAttackDirector ran on
+## a blind 9-16 s timer and a long visit would starve it. GameDirector now owns
+## when a wave happens and counts an attacked door against its concurrency
+## budget, so a slower visit costs pacing nothing - it is the director's job to
+## decide the night is quiet, not this timer's.
 @export var damage_tick_interval: float = 1.5
-@export var weak_damage_min: float = 3.0
-@export var weak_damage_max: float = 5.0
-@export var strong_damage_min: float = 10.0
-@export var strong_damage_max: float = 14.0
+@export var weak_damage_min: float = 2.0
+@export var weak_damage_max: float = 3.5
+@export var strong_damage_min: float = 6.5
+@export var strong_damage_max: float = 9.0
 
 @export_category("Audio variation")
 @export var warning_pitch_min: float = 0.88

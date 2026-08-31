@@ -217,6 +217,15 @@ func _on_hunter_clock_minute_changed(_minutes_of_day: int, _formatted: String) -
 	_try_spawn_second_hunter.call_deferred()
 
 
+## Defaults to true where no director is present - a bare villa scene, or a
+## smoke test - so this map keeps working on its own exactly as it did.
+func _escalation_allowed() -> bool:
+	var director := get_tree().get_first_node_in_group(&"game_director")
+	if director == null or not director.has_method(&"can_escalate"):
+		return true
+	return bool(director.call(&"can_escalate"))
+
+
 func _try_spawn_second_hunter() -> void:
 	# A client hears `breached` too - apply_network_state() emits it when the
 	# server's durability arrives - but the huntsman that answers it is one
@@ -227,6 +236,13 @@ func _try_spawn_second_hunter() -> void:
 		return
 	if _night_clock == null \
 		or int(_night_clock.get("elapsed_game_minutes")) < SECOND_HUNTER_UNLOCK_MINUTES:
+		return
+	# The clock says the reinforcement is *allowed*; the director says whether
+	# now is the moment. This used to arrive on the bare clock alone, which put a
+	# second huntsman in the house at the same minute whether the team was ahead
+	# or being wiped. The check is retried on every clock minute, so a team under
+	# pressure only delays it - nothing here can cancel it.
+	if not _escalation_allowed():
 		return
 	var doorway := _deferred_second_hunter_door
 	if not _door_is_breached(doorway):

@@ -103,9 +103,17 @@ var unseen_time: float = 0.0
 var attack_timer: float = 0.0
 var cooldown_timer: float = 0.0
 var dev_attack_suspended: bool = false
+## The game director's own hold, kept apart from the flag above because that one
+## is not a dev flag at all: player.gd refcounts it as the minigame safety lock.
+## A director sharing it would release somebody's lock mid-encounter.
+var director_attacks_suspended: bool = false
 var attack_resume_grace_remaining: float = 0.0
 var target_refresh_timer: float = 0.0
 var hidden_timer: float = 0.0
+## Set by request_hunt_soon(). The next hidden roll skips its dice and commits,
+## so an ambush the director has already spent an event slot on cannot quietly
+## evaporate into another no_hunt_retry_delay. Cleared the moment it is used.
+var forced_hunt_pending: bool = false
 var spotted_disappear_timer: float = -1.0
 var movement_phase: float = 0.0
 var stuck_timer: float = 0.0
@@ -283,10 +291,47 @@ func _physics_process(delta: float) -> void:
 
 
 func set_dev_attack_suspended(suspended: bool) -> void:
-	if dev_attack_suspended == suspended:
+	_set_attack_suspension(suspended, director_attacks_suspended)
+
+
+## The director's hold on this ghost's attacks. Held separately from the lock
+## above so the two cannot overwrite each other: either one alone blocks, and
+## attacks only resume once both have let go.
+func set_director_attacks_suspended(suspended: bool) -> void:
+	_set_attack_suspension(dev_attack_suspended, suspended)
+
+
+## True while this ghost is a live threat the director has to count against its
+## concurrency budget. FROZEN counts: it is standing in the room, and the only
+## thing holding it there is somebody spending their eyes on it.
+func is_engaged() -> bool:
+	return state in [
+		StatueState.FROZEN,
+		StatueState.STALKING,
+		StatueState.ATTACK_WINDUP,
+	]
+
+
+## Director hook: brings the next ambush forward without starting one. It only
+## shortens a wait that is already running, so a hunt already underway is left
+## alone - the director changes the schedule, never a live encounter. The roll
+## is forced as well, or the director would spend an event slot on a coin flip.
+func request_hunt_soon(within_seconds: float) -> bool:
+	if not active or not intermittent_hunts_enabled or state != StatueState.HIDDEN:
+		return false
+	hidden_timer = minf(hidden_timer, maxf(within_seconds, 0.0))
+	forced_hunt_pending = true
+	return true
+
+
+func _set_attack_suspension(dev_held: bool, director_held: bool) -> void:
+	var was_blocked := dev_attack_suspended or director_attacks_suspended
+	dev_attack_suspended = dev_held
+	director_attacks_suspended = director_held
+	var is_blocked := dev_held or director_held
+	if is_blocked == was_blocked:
 		return
-	dev_attack_suspended = suspended
-	if suspended:
+	if is_blocked:
 		attack_resume_grace_remaining = 0.0
 		if state == StatueState.ATTACK_WINDUP:
 			attack_cancelled.emit()
@@ -300,7 +345,9 @@ func set_dev_attack_suspended(suspended: bool) -> void:
 
 
 func _attacks_blocked() -> bool:
-	return dev_attack_suspended or attack_resume_grace_remaining > 0.0
+	return dev_attack_suspended \
+		or director_attacks_suspended \
+		or attack_resume_grace_remaining > 0.0
 
 
 ## Forces the existing statue instance to manifest for development testing,
@@ -341,10 +388,14 @@ func _update_hidden_hunt(delta: float) -> void:
 		return
 
 	# A failed roll creates a real quiet interval instead of checking every
-	# frame until success, which would make the probability meaningless.
-	if hunt_activation_chance <= 0.0 or (
+	# frame until success, which would make the probability meaningless. A hunt
+	# the director asked for skips the dice entirely - it already decided this
+	# is the moment, and paid an event slot for it.
+	var forced := forced_hunt_pending
+	forced_hunt_pending = false
+	if not forced and (hunt_activation_chance <= 0.0 or (
 		hunt_activation_chance < 1.0 and randf() > hunt_activation_chance
-	):
+	)):
 		hidden_timer = no_hunt_retry_delay
 		return
 

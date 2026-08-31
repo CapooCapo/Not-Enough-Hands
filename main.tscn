@@ -6,6 +6,7 @@
 [ext_resource type="Script" uid="uid://q7p5bw5b7fxt" path="res://main.gd" id="3_main"]
 [ext_resource type="PackedScene" path="res://ghosts/statue_ghost.tscn" id="5_statue"]
 [ext_resource type="Script" uid="uid://d3dtpcwe6oum" path="res://door/door_attack_director.gd" id="6_door_director"]
+[ext_resource type="Script" path="res://director/game_director.gd" id="6_game_director"]
 [ext_resource type="Script" uid="uid://c5asiy3bo4o3p" path="res://audio/house_ambience.gd" id="7_house_ambience"]
 [ext_resource type="PackedScene" path="res://ghosts/crawler_ghost.tscn" id="8_crawler"]
 [ext_resource type="PackedScene" path="res://ui/night_clock.tscn" id="9_night_clock"]
@@ -57,7 +58,10 @@ script = ExtResource("3_main")
 
 [node name="DoorAttackDirector" type="Node" parent="." unique_id=759908914]
 script = ExtResource("6_door_director")
-automatic_waves = true
+automatic_waves = false
+
+[node name="GameDirector" type="Node" parent="." unique_id=1900014321]
+script = ExtResource("6_game_director")
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=480636631]
 environment = SubResource("Environment_main")

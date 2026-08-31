@@ -358,6 +358,10 @@ var pounce_timer: float = 0.0
 var pounce_cooldown_timer: float = 0.0
 var pounce_air_time: float = 0.0
 var dev_attack_suspended: bool = false
+## The game director's own hold, kept apart from the flag above because that one
+## is not a dev flag at all: player.gd refcounts it as the minigame safety lock.
+## A director sharing it would release somebody's lock mid-encounter.
+var director_attacks_suspended: bool = false
 var attack_resume_grace_remaining: float = 0.0
 var recovery_timer: float = 0.0
 var regrip_cooldown_timer: float = 0.0
@@ -554,10 +558,48 @@ func _physics_process(delta: float) -> void:
 
 
 func set_dev_attack_suspended(suspended: bool) -> void:
-	if dev_attack_suspended == suspended:
+	_set_attack_suspension(suspended, director_attacks_suspended)
+
+
+## The director's hold on this ghost's attacks. Held separately from the lock
+## above so the two cannot overwrite each other: either one alone blocks, and
+## attacks only resume once both have let go.
+func set_director_attacks_suspended(suspended: bool) -> void:
+	_set_attack_suspension(dev_attack_suspended, suspended)
+
+
+## True while this ghost is a live threat the director has to count against its
+## concurrency budget. Patrolling counts here, unlike the huntsman's: the
+## crawler is only ever on patrol during a hunt, and is absent between them.
+func is_engaged() -> bool:
+	return state in [
+		CrawlerState.OMEN,
+		CrawlerState.PATROL,
+		CrawlerState.HUNTING,
+		CrawlerState.SEARCHING,
+		CrawlerState.POUNCE_WINDUP,
+		CrawlerState.POUNCING,
+	]
+
+
+## Director hook: brings the next hunt forward without starting one. It only
+## ever shortens a wait that is already running, so a cycle already underway is
+## left alone - the director changes the schedule, never a live encounter.
+func request_hunt_soon(within_seconds: float) -> bool:
+	if not active or not hunt_cycle_enabled or state != CrawlerState.HIDDEN:
+		return false
+	hidden_timer = minf(hidden_timer, maxf(within_seconds, 0.0))
+	return true
+
+
+func _set_attack_suspension(dev_held: bool, director_held: bool) -> void:
+	var was_blocked := dev_attack_suspended or director_attacks_suspended
+	dev_attack_suspended = dev_held
+	director_attacks_suspended = director_held
+	var is_blocked := dev_held or director_held
+	if is_blocked == was_blocked:
 		return
-	dev_attack_suspended = suspended
-	if suspended:
+	if is_blocked:
 		attack_resume_grace_remaining = 0.0
 		if state == CrawlerState.POUNCE_WINDUP or state == CrawlerState.POUNCING:
 			WorldNet.stop_shared(scream_audio)
@@ -575,7 +617,9 @@ func set_dev_attack_suspended(suspended: bool) -> void:
 
 
 func _attacks_blocked() -> bool:
-	return dev_attack_suspended or attack_resume_grace_remaining > 0.0
+	return dev_attack_suspended \
+		or director_attacks_suspended \
+		or attack_resume_grace_remaining > 0.0
 
 
 ## Forces the existing crawler instance into the world near the chosen player.
