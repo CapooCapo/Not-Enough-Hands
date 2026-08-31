@@ -413,7 +413,7 @@ cone that sweeps the corridor is now cosmetic (`gaze_sweep_speed`,
 the player.
 
 **It also has ears.** Not the crawler's — that creature *is* its hearing, and
-reaches 16 m — but good enough that being near it while upright brings it over.
+reaches 20 m — but good enough that being near it while upright brings it over.
 Range scales with how loud you are on the same curve, over a smaller radius
 (`hearing_range`, 13 m at a full sprint, about a room's width at a walk).
 Crouch-walking falls under `hearing_loudness_floor` at any distance and standing

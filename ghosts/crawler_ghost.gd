@@ -183,7 +183,13 @@ signal containment_recovered(escaped_position: Vector3, recovered_position: Vect
 ## here, so crouch-walking is audible only from a few metres. Roughly one floor
 ## of the house rather than the whole building: it has to physically patrol into
 ## your half of the map before your footsteps matter.
-@export var hearing_range: float = 16.0
+##
+## This is the outer edge of hearing, not the edge of the charge. `reach` is
+## this scaled by loudness, and `search_confidence` then splits what it hears in
+## two at 80% of that reach: a walking player is run down inside 16 m and only
+## groped around for between 16 and 20 m, which is the band where the creature
+## is looking for you rather than coming for you.
+@export var hearing_range: float = 20.0
 ## Player speed treated as maximum loudness. Slightly above the player's sprint
 ## speed so even sprinting is not quite a 1.0 - there is always a louder noise.
 @export var loud_reference_speed: float = 3.9
