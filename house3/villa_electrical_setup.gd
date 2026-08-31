@@ -19,6 +19,8 @@ extends Node3D
 @export var ceiling_lamp_light_offset := Vector3(0.0, -0.35, 0.0)
 @export_range(0.0, 10000.0, 1.0) var room_light_consumption := 60.0
 @export_range(0.0, 10000.0, 1.0) var junction_light_consumption := 35.0
+@export_range(0.1, 5.0, 0.05) var fixture_light_energy := 1.25
+@export_range(0.5, 2.0, 0.05) var fixture_range_multiplier := 1.15
 @export var rebuild_on_ready := true
 
 @export_category("Client Lighting Budget")
@@ -85,7 +87,11 @@ func build_fixtures() -> void:
 		if room_id.is_empty():
 			continue
 		var room_size := room.get_meta("room_size", Vector3(8.0, 3.5, 8.0)) as Vector3
-		var light_range := clampf(maxf(room_size.x, room_size.z) * 0.55, 4.5, 12.0)
+		var light_range := clampf(
+			maxf(room_size.x, room_size.z) * 0.55 * fixture_range_multiplier,
+			5.0,
+			13.5
+		)
 		_create_fixture(
 			root,
 			switches,
@@ -109,7 +115,7 @@ func build_fixtures() -> void:
 			StringName(junction.get_meta("junction_id", junction.name)),
 			junction.global_position,
 			JUNCTION_LIGHT_COLOR,
-			5.5,
+			5.5 * fixture_range_multiplier,
 			junction_light_consumption,
 			Vector3(4.0, 3.5, 4.0)
 		)
@@ -146,7 +152,7 @@ func _create_fixture(
 	# The light belongs under the lamp shade, not at the ceiling attachment.
 	light.position = ceiling_lamp_light_offset
 	light.light_color = color
-	light.light_energy = 0.72
+	light.light_energy = fixture_light_energy
 	light.omni_range = light_range
 	light.omni_attenuation = 1.35
 	# Start cheap. _update_shadow_budget() promotes only the nearest useful
@@ -155,6 +161,7 @@ func _create_fixture(
 	if disable_fixture_volumetric_fog:
 		light.light_volumetric_fog_energy = 0.0
 	light.add_to_group("flickering_house_lights")
+	light.add_to_group("local_light_sources")
 	light.set_meta("electrical_device_id", device_id)
 	fixture.add_child(light)
 	_fixture_lights.append(light)

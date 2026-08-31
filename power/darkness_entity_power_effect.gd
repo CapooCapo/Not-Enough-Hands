@@ -35,9 +35,7 @@ func _ready() -> void:
 
 
 ## zone_neighbours is authored by hand and is not checked by the editor, so a
-## typo or a renamed zone_id silently breaks expansion (get_next_neighbouring_zone
-## just returns null forever, retried every zone_expansion_seconds with no
-## visible symptom besides "the ghost never spreads past its first zone").
+## typo or renamed zone_id silently shrinks the neighbouring blackout cluster.
 ## This flags that mismatch loudly in debug builds instead.
 func _validate_zone_neighbours() -> void:
 	var known_ids: Dictionary = {}
@@ -99,6 +97,46 @@ func cause_zone_outage(zone: ElectricalZone) -> ElectricalZone:
 	if zone not in darkened_zones:
 		darkened_zones.append(zone)
 	return zone
+
+
+func cause_zone_outages(zones: Array[ElectricalZone]) -> Array[ElectricalZone]:
+	var result: Array[ElectricalZone] = []
+	for zone: ElectricalZone in zones:
+		var darkened := cause_zone_outage(zone)
+		if darkened:
+			result.append(darkened)
+	return result
+
+
+## Breadth-first collection of the target zone and its authored neighbours.
+## Only powered zones are included so an existing failure does not shrink the
+## useful outage or accidentally become owned by this encounter.
+func get_zone_cluster(center: ElectricalZone, neighbour_depth: int = 1) -> Array[ElectricalZone]:
+	var result: Array[ElectricalZone] = []
+	if not center:
+		return result
+	var queue: Array = [[center, 0]]
+	var visited: Dictionary = {}
+	while not queue.is_empty():
+		var entry: Array = queue.pop_front()
+		var zone := entry[0] as ElectricalZone
+		var depth := int(entry[1])
+		if not zone or visited.has(zone.zone_id):
+			continue
+		visited[zone.zone_id] = true
+		if zone.is_powered:
+			result.append(zone)
+		if depth >= neighbour_depth:
+			continue
+		for neighbour_id: StringName in zone_neighbours.get(zone.zone_id, PackedStringArray()):
+			var neighbour := _zone_by_id(neighbour_id)
+			if neighbour and not visited.has(neighbour.zone_id):
+				queue.append([neighbour, depth + 1])
+	return result
+
+
+func find_zone(zone_id: StringName) -> ElectricalZone:
+	return _zone_by_id(zone_id)
 
 
 ## Returns the first powered frontier zone in authored neighbour order, but

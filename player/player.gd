@@ -2130,6 +2130,7 @@ func set_dev_clear_vision(enabled: bool) -> void:
 		_dev_vision_light.omni_range = 18.0
 		_dev_vision_light.omni_attenuation = 1.2
 		_dev_vision_light.light_color = Color(0.92, 0.95, 1.0)
+		_dev_vision_light.add_to_group(&"local_light_sources")
 		camera_pivot.add_child(_dev_vision_light)
 	_dev_vision_light.visible = enabled
 

@@ -41,10 +41,13 @@ func _ready() -> void:
 	_update_prompt()
 
 
-func _on_interacted(_player: Node) -> void:
+func _on_interacted(player: Node) -> void:
 	if not _controlled_device:
 		return
 	interactable.lock()
+	if _restore_is_blocked_for_target(player):
+		_unlock_timer.start()
+		return
 	if _restore_darkness_zone_from_switch():
 		_update_prompt()
 	else:
@@ -106,6 +109,18 @@ func _restore_darkness_zone_from_switch() -> bool:
 		_electrical_zone = _find_controlled_zone()
 	if _electrical_zone and _electrical_zone.restore_device_from_switch(_controlled_device):
 		return true
+	return false
+
+
+func _restore_is_blocked_for_target(player: Node) -> bool:
+	if not _electrical_zone:
+		_electrical_zone = _find_controlled_zone()
+	if not _electrical_zone:
+		return false
+	for node: Node in get_tree().get_nodes_in_group(&"darkness_ghosts"):
+		if node.has_method(&"blocks_light_restore_for") \
+			and bool(node.call(&"blocks_light_restore_for", player, _electrical_zone)):
+			return true
 	return false
 
 

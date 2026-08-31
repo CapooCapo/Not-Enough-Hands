@@ -1,6 +1,12 @@
 extends SceneTree
 
 
+class TestLivingPlayer extends CharacterBody3D:
+	var is_alive := true
+	var is_downed := false
+	var is_spectator := false
+
+
 func _initialize() -> void:
 	_run.call_deferred()
 
@@ -22,6 +28,26 @@ func _run() -> void:
 	_assert(dev_tools != null, "villa_main is missing DevTools")
 	_assert(manager.get_house_light_count() == 56, "Expected 56 Villa room/junction lights")
 	_assert(manager.devices.size() == 56, "Expected 56 registered Villa electrical devices")
+	var first_fixture := manager.devices[0] as ElectricalDevice
+	_assert(
+		first_fixture != null and is_equal_approx(first_fixture.powered_light.light_energy, 1.25),
+		"Villa fixtures must use the brighter 1.25 energy setting"
+	)
+	var player_flashlight := (villa.get_node("Player") as Node3D).get_node(
+		"CameraPivot/Camera3D/Flashlight"
+	) as SpotLight3D
+	_assert(
+		is_equal_approx(player_flashlight.light_energy, 2.4)
+			and is_equal_approx(player_flashlight.spot_range, 15.0)
+			and is_equal_approx(player_flashlight.spot_angle, 31.0),
+		"Player flashlight did not receive the small visibility increase"
+	)
+	var villa_environment := (villa.get_node("WorldEnvironment") as WorldEnvironment).environment
+	_assert(
+		is_equal_approx(villa_environment.ambient_light_energy, 0.28)
+			and is_equal_approx(villa_environment.tonemap_exposure, 0.9),
+		"Villa ambient visibility did not receive the requested increase"
+	)
 	_assert(manager.enable_power_drain, "Villa PowerManager must consume total power")
 	var initial_total_load := manager.get_total_load()
 	_assert(initial_total_load > 0.0, "Powered Villa fixtures must contribute to total load")
@@ -31,10 +57,26 @@ func _run() -> void:
 	var darkness_ghost := villa.get_node_or_null("DarknessGhost") as DarknessGhost
 	_assert(darkness_ghost != null, "villa_main is missing DarknessGhost")
 	_assert(not darkness_ghost.is_manifested(), "DarknessGhost must begin hidden")
+	var target_player := villa.get_node("Player") as CharacterBody3D
 	_assert(dev_tools.spawn_darkness_ghost(), "DevTools could not manifest DarknessGhost")
 	await process_frame
 	_assert(darkness_ghost.is_manifested(), "DarknessGhost did not enter its hunt state")
 	_assert(darkness_ghost.get_node("AnimatedModel").visible, "DarknessGhost model did not become visible")
+	_assert(
+		darkness_ghost.encounter_phase == DarknessGhost.EncounterPhase.WARNING,
+		"DarknessGhost must warn before cutting power"
+	)
+	_assert(is_equal_approx(darkness_ghost.warning_duration, 4.0), "DarknessGhost warning must last four seconds")
+	_assert(
+		darkness_ghost.global_position.distance_to(target_player.global_position)
+			>= darkness_ghost.minimum_spawn_distance,
+		"DarknessGhost spawned within the 15m safety radius"
+	)
+	_assert(
+		is_equal_approx(darkness_ghost.normal_speed, 6.0)
+			and is_equal_approx(darkness_ghost.darkness_speed, 9.0),
+		"DarknessGhost must move at 6m/s normally and 9m/s without direct light"
+	)
 	dev_tools.ghost_box_picker.select(0)
 	dev_tools.set_ghost_box_enabled(true)
 	_assert(
@@ -47,104 +89,83 @@ func _run() -> void:
 		removed_marker == null or removed_marker.is_queued_for_deletion(),
 		"DevTools did not remove the collision box marker"
 	)
-	_assert(dev_tools.teleport_to_selected_ghost(), "DevTools could not teleport to the selected ghost")
-	var teleported_player := villa.get_node("Player") as Node3D
-	var teleport_offset := teleported_player.global_position - darkness_ghost.global_position
-	teleport_offset.y = 0.0
-	_assert(
-		is_equal_approx(teleport_offset.length(), 2.4),
-		"DevTools teleported the player to an unsafe distance from the selected ghost"
-	)
-	_assert(
-		Vector2(
-			darkness_ghost.global_position.x - (villa.get_node("Player") as Node3D).global_position.x,
-			darkness_ghost.global_position.z - (villa.get_node("Player") as Node3D).global_position.z,
-		).length() <= 6.0,
-		"DevTools must place DarknessGhost near the player"
-	)
 	var dark_zone := darkness_ghost.get_node("DarknessEntityPowerEffect") as DarknessEntityPowerEffect
-	_assert(dark_zone.active_zone != null and not dark_zone.active_zone.is_powered, "DarknessGhost did not cut one zone")
-	var first_dark_zone := dark_zone.active_zone
-	var expected_next_zone_ids := dark_zone.zone_neighbours.get(first_dark_zone.zone_id, PackedStringArray()) as PackedStringArray
-	# The frontier is authored, but the pick among it is made from where the
-	# players are: the darkness grows toward the nearest one. Recompute that
-	# choice here rather than asserting a fixed zone id, which would only pin
-	# the neighbour table.
-	var expansion_player := villa.get_node("Player") as Node3D
-	var expected_next_zone: ElectricalZone = null
-	var expected_next_distance := INF
-	for candidate_zone: ElectricalZone in dark_zone.get_frontier_zones():
-		var candidate_distance: float = darkness_ghost._zone_distance_to(
-			candidate_zone, expansion_player.global_position
-		)
-		if candidate_distance < expected_next_distance:
-			expected_next_distance = candidate_distance
-			expected_next_zone = candidate_zone
+	_assert(darkness_ghost._encounter_zones.size() >= 2, "DarknessGhost warning must cover neighbouring zones")
+	for warning_zone: ElectricalZone in darkness_ghost._encounter_zones:
+		_assert(warning_zone.is_powered, "Warning flicker cut a zone before four seconds elapsed")
+	var warning_device := darkness_ghost._encounter_zones[0].get_devices()[0] as ElectricalDevice
+	darkness_ghost._warning_time_left = 0.15
+	darkness_ghost._update_warning_visuals()
+	var light_probe := warning_device.powered_light.global_position + Vector3.DOWN
 	_assert(
-		expected_next_zone != null and String(expected_next_zone.zone_id) in expected_next_zone_ids,
-		"The frontier must be a powered subset of the first dark zone's authored neighbours"
+		darkness_ghost._is_position_locally_lit(light_probe),
+		"Powered room light was not recognised as a speed-limiting light source"
 	)
-	var load_after_darkness := manager.get_total_load()
-	_assert(load_after_darkness < initial_total_load, "DarknessGhost outage did not reduce whole-house load")
-	darkness_ghost._process(darkness_ghost.zone_expansion_seconds + 1.0)
-	_assert(darkness_ghost.is_manifested(), "DarknessGhost must persist until its dark zones are restored")
-	_assert(dark_zone.darkened_zones.size() == 1, "Next zone must stay lit while DarknessGhost walks to it")
 	_assert(
-		darkness_ghost._pending_expansion_zone != null
-		and darkness_ghost._pending_expansion_zone == expected_next_zone,
-		"DarknessGhost did not approach the frontier zone nearest the player"
+		is_equal_approx(darkness_ghost._chase_speed_at(light_probe), 6.0),
+		"DarknessGhost did not stay at 6m/s under a powered room light"
 	)
-	# Walking to the next zone is not hunting. A player who was in reach and then
-	# left must not keep wearing this ghost's threat for the rest of the trip -
-	# the horror overlay reads the worst live threat, so a latched value never
-	# comes back down.
-	var threatened := villa.get_node("Player") as CharacterBody3D
-	var threatened_home := threatened.global_position
-	threatened.global_position = darkness_ghost.global_position \
-		+ Vector3(darkness_ghost.hunt_range + 25.0, 0.0, 0.0)
-	_assert(
-		not darkness_ghost._player_is_within_hunt_range(threatened)
-		and not darkness_ghost._player_is_in_active_zone(threatened),
-		"Latch check needs the player genuinely out of reach to mean anything"
-	)
-	threatened.set_threat_from(&"darkness_ghost", 0.8)
-	_assert(
-		threatened.threat_sources.has(&"darkness_ghost"),
-		"Player did not take the darkness threat this check depends on"
-	)
-	darkness_ghost._physics_process(0.016)
-	_assert(
-		not threatened.threat_sources.has(&"darkness_ghost"),
-		"DarknessGhost left its threat latched on a player outside hunt_range"
-	)
-	threatened.global_position = threatened_home
-
-	darkness_ghost.global_position = darkness_ghost._pending_expansion_position
-	darkness_ghost._physics_process(0.016)
-	_assert(dark_zone.darkened_zones.size() >= 2, "DarknessGhost did not expand into an adjacent zone")
-	_assert(
-		dark_zone.active_zone == expected_next_zone,
-		"DarknessGhost did not expand into the frontier zone nearest the player"
-	)
-	for device: ElectricalDevice in dark_zone.active_zone.get_devices():
-		_assert(not device.powered_light.visible, "DarknessGhost outage did not turn off its fixture light")
-	var darkened_zone := dark_zone.active_zone
-	darkness_ghost.retreat()
+	darkness_ghost._warning_time_left = 0.05
+	darkness_ghost._update_warning_visuals()
+	_assert(not warning_device.powered_light.visible, "Four-second warning did not flicker its lights off")
+	darkness_ghost._warning_time_left = 0.15
+	darkness_ghost._update_warning_visuals()
+	_assert(warning_device.powered_light.visible, "Four-second warning did not flicker its lights back on")
+	darkness_ghost._warning_time_left = darkness_ghost.warning_duration
+	darkness_ghost._process(darkness_ghost.warning_duration + 0.01)
 	await process_frame
-	_assert(not darkness_ghost.is_manifested(), "DarknessGhost did not retreat")
-	_assert(dark_zone.active_zone == null, "DarknessGhost did not release its zone outage")
-	_assert(not darkened_zone.is_powered and darkened_zone.requires_switch_restore, "DarknessGhost zone must remain off after retreat")
+	_assert(
+		darkness_ghost.encounter_phase == DarknessGhost.EncounterPhase.CHASING,
+		"DarknessGhost did not begin chasing after its warning"
+	)
+	_assert(
+		dark_zone.darkened_zones.size() == darkness_ghost._encounter_zones.size()
+			and dark_zone.darkened_zones.size() >= 2,
+		"DarknessGhost did not cut its whole neighbouring-zone cluster together"
+	)
+	for cut_zone: ElectricalZone in dark_zone.darkened_zones:
+		_assert(not cut_zone.is_powered, "A warned DarknessGhost zone remained powered")
+		for device: ElectricalDevice in cut_zone.get_devices():
+			_assert(not device.powered_light.visible, "A warned fixture remained visible after blackout")
+	_assert(
+		not darkness_ghost._is_position_locally_lit(light_probe),
+		"Blackout position was still treated as directly lit"
+	)
+	_assert(
+		is_equal_approx(darkness_ghost._chase_speed_at(light_probe), 9.0),
+		"DarknessGhost did not accelerate to 9m/s in unlit space"
+	)
+	_assert(manager.get_total_load() < initial_total_load, "DarknessGhost outage did not reduce whole-house load")
+
+	# The chased player cannot reset a light. Once a closer living player steals
+	# aggro, the previous target may help restore that same circuit.
+	var darkened_zone := dark_zone.active_zone
 	var reset_device := darkened_zone.get_devices()[0]
 	var other_dark_device := darkened_zone.get_devices()[1]
 	var reset_switch := switches.get_node_or_null(String(reset_device.device_id) + "LightSwitch") as StaticBody3D
 	_assert(reset_switch != null, "Darkened zone has no usable reset switch")
 	var load_before_switch_restore := manager.get_total_load()
-	(reset_switch.get_node("Interactable") as Interactable).interact(villa)
+	reset_switch._on_interacted(target_player)
+	await process_frame
+	_assert(not reset_device.powered_light.visible, "Chased player was allowed to restore a dark light")
+	var closer_player := TestLivingPlayer.new()
+	villa.add_child(closer_player)
+	closer_player.global_position = darkness_ghost.global_position + Vector3(3.0, 0.0, 0.0)
+	closer_player.add_to_group(&"players")
+	darkness_ghost._physics_process(0.016)
+	_assert(darkness_ghost._target_player == closer_player, "DarknessGhost did not switch to the closer player")
+	reset_switch._on_interacted(target_player)
 	await process_frame
 	_assert(reset_device.powered_light.visible, "Switch did not restore its own fixture")
 	_assert(manager.get_total_load() > load_before_switch_restore, "Restored fixture did not return its consumption to total load")
 	_assert(not other_dark_device.powered_light.visible, "One switch incorrectly restored another zone fixture")
 	_assert(not darkened_zone.is_powered and darkened_zone.requires_switch_restore, "One switch incorrectly restored the entire zone")
+	closer_player.queue_free()
+	darkness_ghost.retreat()
+	await process_frame
+	_assert(not darkness_ghost.is_manifested(), "DarknessGhost did not retreat")
+	_assert(dark_zone.active_zone == null, "DarknessGhost did not release its zone outage")
+	_assert(not darkened_zone.is_powered and darkened_zone.requires_switch_restore, "DarknessGhost zone must remain off after retreat")
 	dev_tools.set_all_zones_powered(false)
 	await process_frame
 	_assert(manager.is_blackout, "DevTools all-zones-off must cause full blackout")

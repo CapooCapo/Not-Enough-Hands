@@ -888,22 +888,22 @@ func _make_mesh_two_sided(mesh_instance: MeshInstance3D) -> void:
 func _apply_horror_lighting() -> void:
 	var environment := world_environment.environment
 	environment.ambient_light_color = Color(0.075, 0.105, 0.15)
-	environment.ambient_light_energy = 0.22
-	environment.tonemap_exposure = 0.84
+	environment.ambient_light_energy = 0.28
+	environment.tonemap_exposure = 0.9
 	environment.adjustment_enabled = true
-	environment.adjustment_brightness = 0.86
+	environment.adjustment_brightness = 0.92
 	environment.adjustment_contrast = 1.14
 	environment.adjustment_saturation = 0.68
 	environment.fog_enabled = true
 	environment.fog_light_color = Color(0.075, 0.105, 0.13)
 	environment.fog_light_energy = 0.42
-	environment.fog_density = 0.042
+	environment.fog_density = 0.036
 	environment.fog_height = 2.0
 	environment.fog_height_density = 0.08
 	environment.fog_aerial_perspective = 0.8
 	environment.fog_sky_affect = 1.0
 	environment.volumetric_fog_enabled = true
-	environment.volumetric_fog_density = 0.038
+	environment.volumetric_fog_density = 0.033
 	environment.volumetric_fog_albedo = Color(0.38, 0.46, 0.5)
 	environment.volumetric_fog_emission = Color(0.008, 0.012, 0.016)
 	environment.volumetric_fog_emission_energy = 0.48

@@ -386,6 +386,9 @@ func _ghost_state(ghost: Node3D) -> Array:
 	var velocity := Vector3.ZERO
 	if ghost is CharacterBody3D:
 		velocity = (ghost as CharacterBody3D).velocity
+	var custom_state: Array = []
+	if ghost.has_method(&"get_replication_state"):
+		custom_state = ghost.call(&"get_replication_state") as Array
 	return [
 		ghost.global_position,
 		ghost.rotation.y,
@@ -393,6 +396,7 @@ func _ghost_state(ghost: Node3D) -> Array:
 		ghost.visible,
 		velocity,
 		_ghost_manifested(ghost),
+		custom_state,
 	]
 
 
@@ -619,6 +623,8 @@ func _apply_ghost(ghost: Node3D, state: Array) -> void:
 		var manifested := bool(state[5])
 		if _ghost_manifested(ghost) != manifested:
 			ghost.call(&"_set_manifested", manifested)
+	if state.size() >= 7 and ghost.has_method(&"apply_replication_state"):
+		ghost.call(&"apply_replication_state", state[6])
 	if ghost.has_method(&"_update_presentation"):
 		ghost.call(&"_update_presentation", FAST_INTERVAL)
 

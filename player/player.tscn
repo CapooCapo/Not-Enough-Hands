@@ -207,13 +207,13 @@ fov = 70.0
 near = 0.02
 far = 45.0
 
-[node name="Flashlight" type="SpotLight3D" parent="CameraPivot/Camera3D"]
+[node name="Flashlight" type="SpotLight3D" parent="CameraPivot/Camera3D" groups=["local_light_sources"]]
 light_color = Color(0.82, 0.86, 0.9, 1)
-light_energy = 2.1
+light_energy = 2.4
 light_volumetric_fog_energy = 0.6
 shadow_enabled = true
-spot_range = 13.0
-spot_angle = 28.0
+spot_range = 15.0
+spot_angle = 31.0
 spot_angle_attenuation = 2.0
 spot_attenuation = 1.2
 

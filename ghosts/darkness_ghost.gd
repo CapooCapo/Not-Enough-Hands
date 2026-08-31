@@ -1,13 +1,19 @@
 class_name DarknessGhost
 extends WomanGhost
 
-## The Darkness Ghost turns off one coherent electrical zone, materialises in
-## that zone and hunts the player while the room is dark. It deliberately uses
-## the reusable WomanGhost model/controller and the zone power contract.
+## The Darkness Ghost marks one player, materialises at a safe distance, warns
+## them by flickering the surrounding electrical zones, then cuts that whole
+## pocket of the villa and hunts whoever is currently closest to it.
 
 signal manifested(zone: ElectricalZone)
 signal retreated
 signal killed_player(player: Node3D)
+
+enum EncounterPhase {
+	DORMANT,
+	WARNING,
+	CHASING,
+}
 
 @export_category("Darkness Ghost")
 @export var auto_manifest := true
@@ -15,23 +21,15 @@ signal killed_player(player: Node3D)
 @export_range(1.0, 300.0, 1.0) var manifest_interval := 25.0
 @export_range(2.0, 30.0, 0.5) var threat_range := 12.0
 @export_range(0.5, 4.0, 0.05) var kill_distance := 1.15
-@export_range(0.1, 10.0, 0.1) var minimum_spawn_distance := 7.0
-## How far it will come for somebody. Standing in a lit room is no longer a
-## sanctuary: once it is manifested it hunts the nearest living player inside
-## this radius wherever they are, and only falls back to spreading the darkness
-## when nobody is within reach. Its own zone always counts, however far away -
-## a player in the dark is being hunted regardless of this number.
-@export_range(2.0, 60.0, 0.5) var hunt_range := 35.0
-## Patrolling and spreading are the *fast* half of this ghost. It crosses the
-## house at well above a sprint when it is not chasing anybody, so the quiet
-## between hauntings is short and it is already somewhere else by the time the
-## lights come back. The chase itself stays at `chase_speed`, which is under a
-## player's sprint - being caught is a mistake, never a foregone conclusion.
-@export_range(0.5, 15.0, 0.05) var patrol_speed := 8.0
+@export_range(1.0, 40.0, 0.5) var minimum_spawn_distance := 15.0
+@export_range(1.0, 10.0, 0.25) var warning_duration := 4.0
+## The target's zone plus this many authored neighbour rings flicker and fail
+## together. One ring is already a broad multi-room pocket in the villa.
+@export_range(0, 3, 1) var blackout_neighbour_depth := 1
+@export_range(0.5, 20.0, 0.05) var normal_speed := 5.0
+@export_range(0.5, 20.0, 0.05) var darkness_speed := 8.0
+@export_range(0.5, 15.0, 0.05) var patrol_speed := 5.0
 @export_range(0.5, 15.0, 0.1) var patrol_retarget_seconds := 3.0
-@export_range(2.0, 120.0, 0.5) var zone_expansion_seconds := 3.5
-@export_range(0.3, 15.0, 0.05) var zone_expansion_walk_speed := 8.0
-@export_range(0.5, 5.0, 0.05) var zone_blackout_arrival_distance := 1.4
 ## Used only when a manifest attempt fails outright (e.g. no powered zone
 ## could be found near the player). Short on purpose: manifest_interval is
 ## the pacing between *successful* hauntings, not the retry backoff for a
@@ -49,12 +47,14 @@ signal killed_player(player: Node3D)
 
 var _power_effect: DarknessEntityPowerEffect
 var _is_manifested := false
+var encounter_phase := EncounterPhase.DORMANT
 var _next_manifest_in := 0.0
+var _warning_time_left := 0.0
+var _target_player: Node3D
+var _encounter_zones: Array[ElectricalZone] = []
+var _warning_visual_active := false
 var _patrol_target := Vector3.ZERO
 var _patrol_retarget_in := 0.0
-var _zone_expansion_in := 0.0
-var _pending_expansion_zone: ElectricalZone
-var _pending_expansion_position := Vector3.ZERO
 ## Godot resolves avoidance-aware velocity asynchronously via the
 ## NavigationAgent3D's velocity_computed signal, which does not carry delta.
 ## We stash the delta from the physics frame that requested it so the actual
@@ -81,21 +81,23 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	_update_warning_visuals()
 	# Manifesting, expanding and retreating all cut real circuits, so they are
 	# the server's alone; a client takes the darkened zones through
 	# PowerManager.apply_network_state() and this body through WorldReplicator.
 	if not WorldNet.is_world_authority():
 		return
 	if _is_manifested:
+		if encounter_phase == EncounterPhase.WARNING:
+			_warning_time_left -= delta
+			if _warning_time_left <= 0.0:
+				_finish_warning()
+			return
 		# Darkness is a persistent hunting ground. It ends only when players
 		# have reset every lamp in its zone, not after an arbitrary timer.
 		if not _power_effect or not _power_effect.has_active_zone_outage():
 			retreat()
 			return
-		if not _pending_expansion_zone:
-			_zone_expansion_in -= delta
-			if _zone_expansion_in <= 0.0:
-				_begin_expansion_travel()
 		return
 	if auto_manifest:
 		_next_manifest_in -= delta
@@ -106,39 +108,21 @@ func _process(delta: float) -> void:
 func _physics_process(delta: float) -> void:
 	if not _is_manifested or not WorldNet.is_world_authority():
 		return
-	var player := _nearest_player()
-	var player_in_dark_zone := _player_is_in_active_zone(player)
-	# Somebody within reach outranks the next light switch. Spreading is what it
-	# does with the time nobody gives it, not something it finishes first while a
-	# player stands two rooms away.
-	var hunting := player_in_dark_zone or _player_is_within_hunt_range(player)
-	# The next zone stays lit while the ghost is on its way, and is cut the
-	# moment the ghost is standing in it. That arrival is checked even mid-chase:
-	# it costs no time, so being chased across the threshold puts the lights out
-	# exactly as walking there deliberately would.
-	if _pending_expansion_zone:
-		if global_position.distance_to(_pending_expansion_position) <= zone_blackout_arrival_distance:
-			_power_effect.cause_zone_outage(_pending_expansion_zone)
-			_pending_expansion_zone = null
-			_zone_expansion_in = zone_expansion_seconds
-			_patrol_retarget_in = 0.0
-			_stuck_timer = 0.0
-			return
-		if not hunting:
-			# Same contract as the patrol branch below: nobody is being hunted, so
-			# nobody may be left wearing this ghost's threat. Without this a player
-			# who walks out of hunt_range while a zone is pending keeps the horror
-			# overlay latched at whatever it read on the last frame it was chased.
-			_clear_player_threat()
-			_pursue(_pending_expansion_position, zone_expansion_walk_speed, delta, &"expansion")
-			return
+	if encounter_phase != EncounterPhase.CHASING:
+		velocity = Vector3.ZERO
+		play_idle()
+		return
+	var player := _nearest_living_player()
+	# Aggro is recalculated from the ghost every frame. This is deliberately not
+	# sticky: the moment another living player is closer, they become the target.
+	var hunting := player != null
 	if hunting:
-		# The pending zone is kept rather than dropped: the walk to it resumes
-		# from wherever the chase ends, so a player who keeps the ghost busy
-		# delays the next blackout instead of cancelling it.
-		_pursue(player.global_position, chase_speed, delta, &"chase")
+		_target_player = player
+		var speed := _chase_speed_at(global_position)
+		_pursue(player.global_position, speed, delta, &"chase")
 		_update_player_threat_and_contact(player)
 	else:
+		_target_player = null
 		_clear_player_threat()
 		_patrol_retarget_in -= delta
 		if _patrol_retarget_in <= 0.0 or global_position.distance_to(_patrol_target) <= stopping_distance:
@@ -149,49 +133,68 @@ func _physics_process(delta: float) -> void:
 		_pursue(_patrol_target, patrol_speed, delta, &"patrol")
 
 
-## Public gameplay hook. The first affected zone is the Player's current (or
-## nearest) zone, so the ghost never teleports to a random remote wing.
+## Public gameplay hook. The affected cluster begins at the selected player's
+## current (or nearest) zone, never a random remote wing.
 func manifest() -> bool:
-	return _manifest_in_zone(_zone_near_player())
+	return _begin_manifest_for_target(_nearest_living_player())
 
 
-## Used by the F1 panel: cut the developer's nearby zone and place the ghost
-## a few metres away on valid room floor, ready to be observed immediately.
-## Automatic appearances use that same Player-near zone through manifest().
+## The F1 panel uses the exact production warning/spawn rules too, including
+## the 15m safety check, so debugging cannot hide an invalid spawn layout.
 func manifest_for_dev() -> bool:
-	if not _manifest_in_zone(_zone_near_player()):
-		return false
-	global_position = _spawn_near_player()
-	return true
+	return _begin_manifest_for_target(_nearest_living_player())
 
 
-func _manifest_in_zone(preferred_zone: ElectricalZone) -> bool:
-	if _is_manifested or not _power_effect:
+func _begin_manifest_for_target(player: Node3D) -> bool:
+	if _is_manifested or not _power_effect or not player:
 		return false
-	var zone := _power_effect.cause_zone_outage(preferred_zone) if preferred_zone \
-		else _power_effect.cause_first_available_zone_outage()
-	if not zone:
+	var preferred_zone := _zone_near_position(player.global_position)
+	if not preferred_zone:
 		_next_manifest_in = failed_manifest_retry_delay
 		return false
-	global_position = _spawn_position_for_zone(zone)
+	var zones := _power_effect.get_zone_cluster(preferred_zone, blackout_neighbour_depth)
+	var spawn_position := _safe_spawn_position(zones)
+	if spawn_position == Vector3.INF:
+		_next_manifest_in = failed_manifest_retry_delay
+		return false
+	_target_player = player
+	_encounter_zones.assign(zones)
+	global_position = spawn_position
+	encounter_phase = EncounterPhase.WARNING
+	_warning_time_left = warning_duration
 	_set_manifested(true)
-	_patrol_target = _random_patrol_point()
-	_patrol_retarget_in = patrol_retarget_seconds
-	_zone_expansion_in = zone_expansion_seconds
-	_pending_expansion_zone = null
+	velocity = Vector3.ZERO
 	_stuck_timer = 0.0
 	_stuck_reference_position = global_position
 	_unstick_seconds_left = 0.0
-	manifested.emit(zone)
+	manifested.emit(preferred_zone)
 	return true
+
+
+func _finish_warning() -> void:
+	if encounter_phase != EncounterPhase.WARNING or not _power_effect:
+		return
+	var cut_zones := _power_effect.cause_zone_outages(_encounter_zones)
+	if cut_zones.is_empty():
+		retreat()
+		return
+	_encounter_zones.assign(cut_zones)
+	encounter_phase = EncounterPhase.CHASING
+	_warning_time_left = 0.0
+	_patrol_target = _random_patrol_point()
+	_patrol_retarget_in = patrol_retarget_seconds
+	_stop_warning_visuals(false)
 
 
 func retreat() -> void:
 	if not _is_manifested:
 		return
 	_clear_player_threat()
+	_stop_warning_visuals(true)
 	_set_manifested(false)
-	_pending_expansion_zone = null
+	encounter_phase = EncounterPhase.DORMANT
+	_target_player = null
+	_encounter_zones.clear()
 	_stuck_timer = 0.0
 	_unstick_seconds_left = 0.0
 	if _power_effect:
@@ -202,6 +205,41 @@ func retreat() -> void:
 
 func is_manifested() -> bool:
 	return _is_manifested
+
+
+## The marked player cannot undo the outage while the ghost is actively on
+## them. A teammate may restore those same lights; if that teammate gets closer
+## and steals aggro, the previous target can operate the switch too.
+func blocks_light_restore_for(player: Node, zone: ElectricalZone) -> bool:
+	return encounter_phase == EncounterPhase.CHASING \
+		and player == _target_player \
+		and zone in _encounter_zones
+
+
+func get_replication_state() -> Array:
+	var zone_ids := PackedStringArray()
+	for zone: ElectricalZone in _encounter_zones:
+		if is_instance_valid(zone):
+			zone_ids.append(String(zone.zone_id))
+	return [encounter_phase, _warning_time_left, zone_ids]
+
+
+func apply_replication_state(state: Array) -> void:
+	if state.size() < 3:
+		return
+	var incoming_phase := int(state[0])
+	var incoming_ids := state[2] as PackedStringArray
+	var changed := incoming_phase != encounter_phase or not _zone_ids_match(incoming_ids)
+	encounter_phase = incoming_phase
+	_warning_time_left = float(state[1])
+	if changed:
+		_encounter_zones.clear()
+		for zone_id: String in incoming_ids:
+			var zone := _power_effect.find_zone(StringName(zone_id)) if _power_effect else null
+			if zone:
+				_encounter_zones.append(zone)
+		if encounter_phase == EncounterPhase.DORMANT:
+			_stop_warning_visuals(true)
 
 
 func _set_manifested(value: bool) -> void:
@@ -217,50 +255,6 @@ func _set_manifested(value: bool) -> void:
 		play_idle()
 	else:
 		velocity = Vector3.ZERO
-
-
-func _begin_expansion_travel() -> void:
-	if not _power_effect:
-		return
-	var next_zone := _pick_expansion_zone()
-	if not next_zone:
-		# The current dark territory has no powered neighbour left. Try again
-		# later in case the player restores/changes the grid.
-		_zone_expansion_in = zone_expansion_seconds
-		return
-	_pending_expansion_zone = next_zone
-	_pending_expansion_position = _spawn_position_for_zone(next_zone)
-	# Avoid an immediate repeated call while moving toward the lit zone.
-	_zone_expansion_in = 0.0
-
-
-## Which zone the darkness eats next. The frontier itself is authored (the
-## component's zone_neighbours graph), but the choice among it is made here,
-## from where the players are: the darkness always grows toward the nearest one,
-## so leaving the dark rooms delays the ghost rather than shaking it off. With
-## no player to steer by it falls back to the component's authored order.
-func _pick_expansion_zone() -> ElectricalZone:
-	var candidates := _power_effect.get_frontier_zones()
-	if candidates.is_empty():
-		return null
-	var player := _nearest_player()
-	if not player:
-		return candidates[0]
-	var best: ElectricalZone = candidates[0]
-	var best_distance := INF
-	for zone: ElectricalZone in candidates:
-		var distance := _zone_distance_to(zone, player.global_position)
-		if distance < best_distance:
-			best_distance = distance
-			best = zone
-	return best
-
-
-func _zone_distance_to(zone: ElectricalZone, point: Vector3) -> float:
-	var nearest := INF
-	for candidate: Vector3 in _zone_clear_points(zone):
-		nearest = minf(nearest, candidate.distance_to(point))
-	return nearest
 
 
 ## Wraps a movement call with stuck-progress tracking. Every other call site
@@ -288,15 +282,8 @@ func _track_stuck_progress(target_position: Vector3, delta: float, context: Stri
 	_recover_from_stuck(target_position, context)
 
 
-func _recover_from_stuck(target_position: Vector3, context: StringName) -> void:
+func _recover_from_stuck(_target_position: Vector3, context: StringName) -> void:
 	match context:
-		&"expansion":
-			# The next zone's clear point must eventually be reached for the
-			# darkness to keep spreading; if pathing to it is physically
-			# blocked (closed door, misplaced marker, dynamic obstacle), snap
-			# there directly rather than soft-locking expansion forever.
-			push_warning("DarknessGhost: stuck walking to next zone (%s), snapping to it." % target_position)
-			global_position = target_position
 		&"patrol":
 			# The chosen patrol point may simply be unreachable (bad navmesh
 			# marker) — pick a different one instead of waiting out the full
@@ -328,24 +315,21 @@ func _zone_clear_points(zone: ElectricalZone) -> Array[Vector3]:
 	return points
 
 
-func _spawn_position_for_zone(zone: ElectricalZone) -> Vector3:
-	var player := _nearest_player()
-	var candidates := _zone_clear_points(zone)
-	if candidates.is_empty():
-		return global_position
-	if not player:
-		return candidates[0] + Vector3.UP * 0.05
-	# Farthest-from-player first. This guarantees the fallback below (when no
-	# candidate clears minimum_spawn_distance, e.g. a small zone) still picks
-	# the safest point available instead of whichever happened to be added
-	# first to the array.
-	candidates.sort_custom(func(a: Vector3, b: Vector3) -> bool:
-		return a.distance_to(player.global_position) > b.distance_to(player.global_position)
-	)
+func _safe_spawn_position(zones: Array[ElectricalZone]) -> Vector3:
+	var candidates: Array[Vector3] = []
+	for zone: ElectricalZone in zones:
+		candidates.append_array(_zone_clear_points(zone))
+	var players := _living_players()
+	var best := Vector3.INF
+	var best_nearest_distance := -INF
 	for candidate: Vector3 in candidates:
-		if candidate.distance_to(player.global_position) >= minimum_spawn_distance:
-			return candidate + Vector3.UP * 0.05
-	return candidates[0] + Vector3.UP * 0.05
+		var nearest_distance := INF
+		for player: Node3D in players:
+			nearest_distance = minf(nearest_distance, candidate.distance_to(player.global_position))
+		if nearest_distance >= minimum_spawn_distance and nearest_distance > best_nearest_distance:
+			best = candidate + Vector3.UP * 0.05
+			best_nearest_distance = nearest_distance
+	return best
 
 
 func _update_player_threat_and_contact(player: Node3D) -> void:
@@ -418,10 +402,37 @@ func _clear_player_threat() -> void:
 			player_node.call("set_threat_from", &"darkness_ghost", 0.0)
 
 
+func _living_players() -> Array[Node3D]:
+	var result: Array[Node3D] = []
+	for node: Node in get_tree().get_nodes_in_group(&"players"):
+		var player := node as Node3D
+		if player \
+			and (not "is_alive" in player or bool(player.get("is_alive"))) \
+			and (not "is_downed" in player or not bool(player.get("is_downed"))) \
+			and (not "is_spectator" in player or not bool(player.get("is_spectator"))):
+			result.append(player)
+	return result
+
+
+func _nearest_living_player() -> Node3D:
+	var nearest: Node3D
+	var nearest_distance := INF
+	for player: Node3D in _living_players():
+		var distance := global_position.distance_squared_to(player.global_position)
+		if distance < nearest_distance:
+			nearest = player
+			nearest_distance = distance
+	return nearest
+
+
 func _zone_near_player() -> ElectricalZone:
-	var player := _nearest_player()
+	var player := _nearest_living_player()
 	if not player:
 		return null
+	return _zone_near_position(player.global_position)
+
+
+func _zone_near_position(position: Vector3) -> ElectricalZone:
 	var closest: ElectricalZone
 	var closest_distance := INF
 	for marker_node: Node in get_tree().get_nodes_in_group("villa_rooms"):
@@ -429,7 +440,7 @@ func _zone_near_player() -> ElectricalZone:
 		if not marker:
 			continue
 		var size := marker.get_meta("room_size", Vector3.ZERO) as Vector3
-		var offset := player.global_position - marker.global_position
+		var offset := position - marker.global_position
 		var room_id := StringName(marker.get_meta("room_id", marker.name))
 		for zone_node: Node in get_tree().get_nodes_in_group("electrical_zones"):
 			var zone := zone_node as ElectricalZone
@@ -444,34 +455,85 @@ func _zone_near_player() -> ElectricalZone:
 	return closest
 
 
-## The straight-line half of the hunt. A wall does not call the chase off - the
-## navigation agent still has to walk around it - but a player on the far side of
-## the villa is somebody else's problem.
-func _player_is_within_hunt_range(player: Node3D) -> bool:
-	return player != null \
-		and global_position.distance_to(player.global_position) <= hunt_range
+## Darkness speed follows the light that actually reaches the ghost, rather
+## than merely trusting a zone flag. A powered room lamp or a player's torch
+## aimed at it keeps the chase at normal_speed; walls block both checks.
+func _chase_speed_at(position: Vector3) -> float:
+	return normal_speed if _is_position_locally_lit(position) else darkness_speed
 
 
-func _player_is_in_active_zone(player: Node3D) -> bool:
-	if not player or not _power_effect:
-		return false
-	for marker_node: Node in get_tree().get_nodes_in_group("villa_rooms"):
-		var marker := marker_node as Marker3D
-		if not marker:
-			continue
-		var room_id := StringName(marker.get_meta("room_id", marker.name))
-		var in_dark_territory := false
-		for zone: ElectricalZone in _power_effect.darkened_zones:
-			if zone.contains_device_id(room_id):
-				in_dark_territory = true
-				break
-		if not in_dark_territory:
-			continue
-		var size := marker.get_meta("room_size", Vector3.ZERO) as Vector3
-		var offset := player.global_position - marker.global_position
-		if absf(offset.x) <= size.x * 0.5 and absf(offset.z) <= size.z * 0.5:
+func _is_position_locally_lit(position: Vector3) -> bool:
+	for node: Node in get_tree().get_nodes_in_group(&"local_light_sources"):
+		var light := node as Light3D
+		if light and _light_reaches_position(light, position):
 			return true
 	return false
+
+
+func _light_reaches_position(light: Light3D, position: Vector3) -> bool:
+	if not light.visible or not light.is_visible_in_tree() or light.light_energy <= 0.05:
+		return false
+	var offset := position - light.global_position
+	var distance := offset.length()
+	if light is OmniLight3D:
+		if distance > (light as OmniLight3D).omni_range:
+			return false
+	elif light is SpotLight3D:
+		var spot := light as SpotLight3D
+		if distance > spot.spot_range or distance <= 0.001:
+			return false
+		var forward := -spot.global_basis.z.normalized()
+		var cone_cosine := cos(deg_to_rad(spot.spot_angle * 0.5))
+		if forward.dot(offset / distance) < cone_cosine:
+			return false
+	else:
+		return false
+	var query := PhysicsRayQueryParameters3D.create(light.global_position, position, 1)
+	query.exclude = [get_rid()]
+	return get_world_3d().direct_space_state.intersect_ray(query).is_empty()
+
+
+func _update_warning_visuals() -> void:
+	if encounter_phase == EncounterPhase.DORMANT:
+		if _warning_visual_active:
+			_stop_warning_visuals(true)
+		return
+	if encounter_phase != EncounterPhase.WARNING:
+		_warning_visual_active = false
+		return
+	_warning_visual_active = true
+	var lights_on := fmod(maxf(_warning_time_left, 0.0), 0.22) >= 0.09
+	for zone: ElectricalZone in _encounter_zones:
+		if not is_instance_valid(zone):
+			continue
+		for device: ElectricalDevice in zone.get_devices():
+			if device.powered_light:
+				device.powered_light.visible = lights_on and device.is_on
+			if device.powered_emission:
+				device.powered_emission.visible = lights_on and device.is_on
+
+
+func _stop_warning_visuals(restore_from_device_state: bool) -> void:
+	_warning_visual_active = false
+	if not restore_from_device_state:
+		return
+	for zone: ElectricalZone in _encounter_zones:
+		if not is_instance_valid(zone):
+			continue
+		for device: ElectricalDevice in zone.get_devices():
+			if device.powered_light:
+				device.powered_light.visible = device.is_on
+			if device.powered_emission:
+				device.powered_emission.visible = device.is_on
+
+
+func _zone_ids_match(ids: PackedStringArray) -> bool:
+	if ids.size() != _encounter_zones.size():
+		return false
+	for index: int in ids.size():
+		if String(_encounter_zones[index].zone_id) != ids[index]:
+			return false
+	return true
 
 
 func _random_patrol_point() -> Vector3:
@@ -483,26 +545,3 @@ func _random_patrol_point() -> Vector3:
 	if candidates.is_empty():
 		return global_position
 	return candidates.pick_random() + Vector3.UP * 0.05
-
-
-func _spawn_near_player() -> Vector3:
-	var player := _nearest_player()
-	if not player or not _power_effect or not _power_effect.active_zone:
-		return global_position
-	# _spawn_position_for_zone() picks a clear authored floor point. Move from
-	# the player towards it, but clamp the distance so the dev can see the
-	# manifestation without starting inside the kill radius.
-	var clear_floor := _spawn_position_for_zone(_power_effect.active_zone)
-	var offset := clear_floor - player.global_position
-	offset.y = 0.0
-	if offset.length_squared() < 0.01:
-		offset = player.global_basis.z
-		offset.y = 0.0
-	if offset.length_squared() < 0.01:
-		offset = Vector3(0.0, 0.0, 1.0)
-	offset = offset.normalized() * minf(offset.length(), 3.5)
-	return Vector3(
-		player.global_position.x + offset.x,
-		clear_floor.y,
-		player.global_position.z + offset.z,
-	)
