@@ -347,6 +347,9 @@ var _seize_direction: Vector3 = Vector3.FORWARD
 var _sweep_index: int = 0
 var _sweep_timer: float = 0.0
 var _sweep_points: Array[Vector3] = []
+## Which points of the current lap have been stood on. Parallel to
+## `_sweep_points`, cleared when the whole house has been quartered.
+var _sweep_visited: Array[bool] = []
 var _noise_lead: Vector3
 var _has_noise_lead: bool = false
 ## After live sight is broken it first checks the exact place where the player
@@ -773,8 +776,7 @@ func _update_sweeping(delta: float) -> void:
 	_sweep_timer -= delta
 	var target := _sweep_points[_sweep_index % _sweep_points.size()]
 	if global_position.distance_to(target) <= sweep_arrive_distance or _sweep_timer <= 0.0:
-		_sweep_index += 1
-		_sweep_timer = sweep_point_timeout
+		_advance_sweep_point()
 		_set_state(HunterState.CASTING)
 		return
 	_steer_toward(delta, target, _non_chase_speed(walk_speed))
@@ -1282,8 +1284,9 @@ func _abandon_goal() -> void:
 			# the retreat was never about arriving anywhere.
 			_set_state(HunterState.CASTING)
 		HunterState.SWEEPING:
-			_sweep_index += 1
-			_sweep_timer = sweep_point_timeout
+			# Unreachable. It counts as visited either way, so one marker behind
+			# a bannister cannot stall the lap forever.
+			_advance_sweep_point()
 			_set_state(HunterState.CASTING)
 		HunterState.LOCKED:
 			# It has them in the light and cannot close. Giving up here is the one
@@ -1571,8 +1574,9 @@ func _reset_hunt_memory() -> void:
 	_sight_timer = 0.0
 	_target_visible_now = false
 	_seize_cooldown_timer = 0.0
-	_sweep_timer = sweep_point_timeout
-	_sweep_index = _nearest_sweep_index()
+	# A fresh lap, starting from wherever it came in.
+	_sweep_visited.clear()
+	_advance_sweep_point()
 
 
 func _nearest_sweep_index() -> int:
@@ -1584,6 +1588,46 @@ func _nearest_sweep_index() -> int:
 			best_distance = distance
 			best_index = index
 	return best_index
+
+
+## Picks the next patrol point: the nearest one it has not stood on this lap.
+##
+## It used to walk the route in index order, and on a 56-marker villa that was
+## the single reason the creature felt absent. In index order a lap is the sum
+## of 56 arbitrary hops across an 80 x 60 m house at 2.5 m/s with a 5.5 s stop at
+## each - roughly twelve minutes, longer than the night, so it never finished
+## one and always searched in the same direction. Nearest-unvisited walks the
+## same 56 markers for a fraction of the distance: it clears the wing it is
+## standing in room by room, then moves to the next, and a lap actually closes.
+## It is also what makes hiding in one room a losing plan, because the sweep
+## converges on wherever it currently is instead of marching past.
+func _advance_sweep_point() -> void:
+	_sweep_timer = sweep_point_timeout
+	if _sweep_points.is_empty():
+		return
+	if _sweep_visited.size() != _sweep_points.size():
+		_sweep_visited.resize(_sweep_points.size())
+		_sweep_visited.fill(false)
+
+	var best_index := -1
+	var best_distance := INF
+	for index: int in _sweep_points.size():
+		if _sweep_visited[index]:
+			continue
+		var distance := global_position.distance_squared_to(_sweep_points[index])
+		if distance < best_distance:
+			best_distance = distance
+			best_index = index
+
+	if best_index == -1:
+		# The whole house has been quartered. The next lap starts from wherever
+		# it is standing rather than from the top of the list, so two laps in a
+		# row never trace the same path.
+		_sweep_visited.fill(false)
+		best_index = _nearest_sweep_index()
+
+	_sweep_visited[best_index] = true
+	_sweep_index = best_index
 
 
 func _set_manifested(is_manifested: bool) -> void:

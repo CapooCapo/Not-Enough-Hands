@@ -11,25 +11,64 @@ extends Node
 signal bladder_changed(value: float, max_value: float)
 signal bladder_warning_started
 signal bladder_full
+## Control is gone and it is emptying itself wherever the player is standing.
+signal wetting_started
+signal wetting_ended
 
-## At the default clock speed (1.5 real seconds per game minute), this makes
-## an empty bladder full after 45 in-game minutes / 67.5 real seconds.
-const DEFAULT_FULL_DURATION_REAL_SECONDS: float = 45.0 * 1.5
+## At the default clock speed (1.5 real seconds per game minute), this makes an
+## empty bladder full after 90 in-game minutes / 135 real seconds. It was half
+## that, which meant a player was back at the toilet a minute after leaving it -
+## the need read as a bug rather than as pressure.
+const DEFAULT_FULL_DURATION_REAL_SECONDS: float = 90.0 * 1.5
+## What a controlled session at the toilet costs, and the number the loss of
+## control below is measured against. Kept here rather than read off
+## ToiletMinigame so the bladder does not depend on a minigame it never sees.
+const CONTROLLED_EMPTY_SECONDS: float = 13.5
 
 @export var bladder_max: float = 100.0
 @export var bladder_fill_rate: float = 100.0 / DEFAULT_FULL_DURATION_REAL_SECONDS
 @export var bladder_warning_threshold: float = 70.0
 @export var bladder_full_threshold: float = 100.0
+## Once it is full it goes on its own, and it takes this multiple of a
+## controlled session to finish - the whole point of the debuff being that
+## losing control costs more time than walking to the toilet would have. At 2.0
+## a full bladder wets itself over 27 seconds against the toilet's 13.5, and the
+## player keeps every other penalty for the whole of it.
+@export_range(1.0, 6.0, 0.1) var wetting_time_multiplier: float = 2.0
 
 var current_value: float = 0.0
+## True from the moment it fills to the moment it is empty again. Not the same
+## as "is full": it stays true all the way down, which is what makes wetting a
+## long punishment rather than an instant reset.
+var is_wetting: bool = false
 
 var _warning_active: bool = false
 var _full_active: bool = false
 
 
 func _physics_process(delta: float) -> void:
+	if is_wetting:
+		_process_wetting(delta)
+		return
 	if bladder_fill_rate > 0.0 and current_value < bladder_max:
 		add_bladder(bladder_fill_rate * delta)
+
+
+## Draining on its own. Nothing refills while this runs, so the player is not
+## fighting the fill rate at the same time. The *end* of it is decided in
+## `_update_thresholds()` rather than here, because a client never runs this
+## function at all - its value arrives from the server - and an accident that
+## could only be ended by the code that drains it stayed switched on forever on
+## every peer but the host.
+func _process_wetting(delta: float) -> void:
+	var seconds := CONTROLLED_EMPTY_SECONDS * maxf(wetting_time_multiplier, 0.1)
+	_set_value(current_value - (bladder_max / seconds) * delta)
+
+
+## Rate a controlled session drains at, for anything that wants to compare
+## against it (the toilet minigame owns its own copy of the same number).
+func get_controlled_drain_rate() -> float:
+	return bladder_max / CONTROLLED_EMPTY_SECONDS
 
 
 func add_bladder(amount: float) -> void:
@@ -44,6 +83,10 @@ func reduce_bladder(amount: float) -> void:
 	_set_value(current_value - amount)
 
 
+## Reaching the toilet in time is the way out of an accident in progress as well
+## as the way to avoid one. Emptying it is all this has to do: `_set_value()`
+## is where an accident is ended, so a player who made it is not left draining
+## on the floor of a bathroom.
 func reset_bladder() -> void:
 	_set_value(0.0)
 
@@ -82,4 +125,14 @@ func _update_thresholds() -> void:
 	var is_full := current_value >= bladder_full_threshold
 	if is_full and not _full_active:
 		bladder_full.emit()
+		if not is_wetting:
+			is_wetting = true
+			wetting_started.emit()
 	_full_active = is_full
+
+	# Ends wherever the value came from - the local drain, a snapshot from the
+	# server, or a toilet reached in time - so every peer agrees about when the
+	# accident is over and nobody is left permanently slowed.
+	if is_wetting and current_value <= 0.0:
+		is_wetting = false
+		wetting_ended.emit()

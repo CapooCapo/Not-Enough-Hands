@@ -15,6 +15,21 @@ signal attack_wave_started(targets: Array[Node])
 ## so a team cannot leave six entrances unwatched by sacrificing the seventh.
 @export_range(1.0, 32.0, 0.5) var weak_door_focus: float = 8.0
 
+@export_category("Short-handed tempo")
+## The other half of the short-handed bargain. A thin team is shown which door
+## is being hit (`DefenseDoor.short_handed_marker`) and pays for it here: the gap
+## between waves is multiplied by this once per missing player, compounding, so
+## the tempo steepens as the team thins instead of stepping once at "not four".
+## At the default a trio plays at 0.82 of the authored gap, a pair at 0.67 and a
+## lone survivor at 0.55.
+##
+## Note that the wave size itself is not scaled - three doors is still three
+## doors - so if a short-handed house turns out to be *harder* rather than
+## differently paced, this is the knob, and capping concurrent targets by the
+## headcount is the next step after it.
+@export_range(0.5, 1.0, 0.01) var short_handed_delay_scale: float = 0.82
+@export_range(1, 8, 1) var full_team_size: int = 4
+
 var _wave_timer: float = 0.0
 var _rng := RandomNumberGenerator.new()
 
@@ -110,7 +125,17 @@ func set_random_seed(value: int) -> void:
 
 
 func _schedule_next_wave() -> void:
-	_wave_timer = _rng.randf_range(wave_delay_min, wave_delay_max)
+	_wave_timer = _rng.randf_range(wave_delay_min, wave_delay_max) * _short_handed_scale()
+
+
+## One multiplier per empty slot. Reads the roster through DefenseDoor because
+## the doors are what is being balanced and this director already speaks that
+## class - a second copy of "who is still in the run" is how the two drift apart.
+func _short_handed_scale() -> float:
+	var missing := maxi(full_team_size - DefenseDoor.players_in_run(get_tree()), 0)
+	if missing <= 0:
+		return 1.0
+	return pow(short_handed_delay_scale, float(missing))
 
 
 ## Draws one door out of `items`, favouring the ones already close to breaking,

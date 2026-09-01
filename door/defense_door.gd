@@ -63,6 +63,16 @@ enum AttackPhase {
 @export var strong_damage_min: float = 6.5
 @export var strong_damage_max: float = 9.0
 
+@export_category("Short-handed help")
+## Seven entrances are authored for four pairs of hands. Below this many players
+## still in the run, the entrance *currently being hit* draws itself through the
+## walls. It is deliberately not a map aid: an idle door stays invisible, a
+## quiet door stays invisible, and the marker dies with the attack. All it ever
+## answers is "which one is screaming", which a full team answers by ear and a
+## pair of players cannot. DoorAttackDirector charges for it in tempo.
+@export var short_handed_marker: bool = true
+@export_range(1, 8, 1) var full_team_size: int = 4
+
 @export_category("Audio variation")
 @export var warning_pitch_min: float = 0.88
 @export var warning_pitch_max: float = 1.05
@@ -79,8 +89,17 @@ var attack_damage_remaining: float = 0.0
 var minigame_active: bool = false
 var repair_unlocked_after_breach: bool = false
 
+## Pulsed between these so a marker seen through four walls still reads as an
+## alarm rather than as scenery.
+const DISTRESS_CALM := Color(1.0, 0.36, 0.24, 0.45)
+const DISTRESS_HOT := Color(1.0, 0.74, 0.38, 0.95)
+
 var _rng := RandomNumberGenerator.new()
 var _hit_tween: Tween
+var _distress_marker: Node3D
+var _distress_material: StandardMaterial3D
+var _distress_check_timer: float = 0.0
+var _distress_pulse: float = 0.0
 
 @onready var door_visual: Node3D = $DoorVisual
 @onready var entrance_label_front: Label3D = $DoorVisual/EntranceLabelFront
@@ -125,6 +144,118 @@ func _physics_process(delta: float) -> void:
 				_enter_strong_attack()
 		AttackPhase.STRONG_ATTACK:
 			_process_damage_ticks(delta, strong_damage_min, strong_damage_max, true)
+
+
+## Everyone still in the night, downed included: a downed teammate is a pair of
+## hands that is coming back, not one that is gone. Static and tree-passed so
+## DoorAttackDirector can ask the same question without holding a door.
+static func players_in_run(tree: SceneTree) -> int:
+	var count := 0
+	for node: Node in tree.get_nodes_in_group(&"players"):
+		if "is_spectator" in node and bool(node.get("is_spectator")):
+			continue
+		var alive: bool = bool(node.get("is_alive")) if "is_alive" in node else true
+		var downed: bool = bool(node.get("is_downed")) if "is_downed" in node else false
+		if alive or downed:
+			count += 1
+	return count
+
+
+## Presentation, so unlike `_physics_process` this one runs on every peer. The
+## phase it reads is simulated locally on the server and arrives through
+## `apply_network_state()` on a client, and both are equally true by the time it
+## is drawn - which is why the marker needs no replication of its own.
+func _process(delta: float) -> void:
+	_distress_check_timer -= delta
+	if _distress_check_timer <= 0.0:
+		# The roster has no change signal, and neither does the phase on a
+		# client. Twice a second is far below anything a player can notice and
+		# far above walking the group every frame.
+		_distress_check_timer = 0.5
+		_refresh_distress_marker()
+	if _distress_material == null:
+		return
+	_distress_pulse += delta
+	_distress_material.albedo_color = DISTRESS_CALM.lerp(
+		DISTRESS_HOT, 0.5 + sin(_distress_pulse * 6.0) * 0.5
+	)
+
+
+func _refresh_distress_marker() -> void:
+	var under_attack := attack_phase in [
+		AttackPhase.STALKING,
+		AttackPhase.WEAK_ATTACK,
+		AttackPhase.STRONG_ATTACK,
+	]
+	# A door on its way out of the tree still gets processed for a frame or two.
+	# Parenting a fresh marker to it there leaks the whole subtree, because the
+	# parent has already been collected for deletion and will not take it with it.
+	var wanted := short_handed_marker \
+		and under_attack \
+		and is_inside_tree() \
+		and not is_queued_for_deletion() \
+		and players_in_run(get_tree()) < full_team_size
+	if wanted == is_instance_valid(_distress_marker):
+		return
+	if not wanted:
+		_clear_distress_marker()
+		return
+	_build_distress_marker()
+
+
+## Detached before it is queued, not just queued: queue_free() leaves the node
+## parented and drawn until the end of the frame, so an attack that ends still
+## shows its marker for a frame and anything re-reading the door in the same
+## frame still finds one.
+func _clear_distress_marker() -> void:
+	if is_instance_valid(_distress_marker):
+		if _distress_marker.get_parent() != null:
+			_distress_marker.get_parent().remove_child(_distress_marker)
+		_distress_marker.queue_free()
+	_distress_marker = null
+	_distress_material = null
+
+
+## The marker is built at runtime rather than authored, so it is this script's
+## to dispose of - a door taken out of the world with the map must not leave one
+## behind.
+func _exit_tree() -> void:
+	_clear_distress_marker()
+
+
+## An outline rather than a slab, for the reason DevTools' door x-ray learned the
+## hard way: a filled volume this size covers a third of the screen once you are
+## in the room with it and hides the door it is pointing at.
+func _build_distress_marker() -> void:
+	_distress_material = StandardMaterial3D.new()
+	_distress_material.albedo_color = DISTRESS_CALM
+	_distress_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_distress_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_distress_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	# Through the house, or it answers nothing: the whole question is which door
+	# is being hit while you are three rooms and two walls away from it.
+	_distress_material.no_depth_test = true
+	_distress_material.render_priority = 100
+
+	_distress_marker = Node3D.new()
+	_distress_marker.name = "ShortHandedDistress"
+	var width := 2.4
+	var height := 2.7
+	var bar := 0.1
+	for edge: Array in [
+		[Vector3(0.0, height, 0.0), Vector3(width + bar, bar, bar)],
+		[Vector3(0.0, 0.0, 0.0), Vector3(width + bar, bar, bar)],
+		[Vector3(-width * 0.5, height * 0.5, 0.0), Vector3(bar, height, bar)],
+		[Vector3(width * 0.5, height * 0.5, 0.0), Vector3(bar, height, bar)],
+	]:
+		var mesh := BoxMesh.new()
+		mesh.size = edge[1]
+		mesh.material = _distress_material
+		var edge_node := MeshInstance3D.new()
+		edge_node.mesh = mesh
+		edge_node.position = edge[0]
+		_distress_marker.add_child(edge_node)
+	add_child(_distress_marker)
 
 
 ## Starts a suspicious-door event. A false event waits for the same amount of

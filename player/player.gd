@@ -113,6 +113,41 @@ var _toilet_ghost_present: bool = false
 var _flashlight_base_energy: float = 0.0
 var _flashlight_base_range: float = 0.0
 
+@export_category("Bladder Pressure")
+## Where needing to go stops being a bar and starts costing something. Below
+## this the penalties are exactly zero.
+@export_range(0.0, 1.0, 0.05) var bladder_debuff_threshold: float = 0.75
+## Degrees of field of view lost at a completely full bladder. Tunnel vision,
+## not blindness - the room stays readable, there is just less of it.
+@export_range(0.0, 40.0, 1.0) var bladder_debuff_fov_loss: float = 14.0
+## Added to the overlay's own vignette at a full bladder, on top of whatever the
+## rest of the night is already doing to it.
+@export_range(0.0, 0.8, 0.05) var bladder_debuff_vignette: float = 0.35
+## How much faster a sprint burns stamina at a full bladder. At 0.6 a full
+## bladder costs 60% more per second, so the escape that was five seconds of
+## running is closer to three.
+@export_range(0.0, 3.0, 0.1) var bladder_debuff_stamina_scale: float = 0.6
+
+@export_subgroup("Losing control")
+## An accident is not the tail of the pressure curve, it is its own state, and
+## these are flat for the whole of it. Scaling them off the bladder level the
+## way the pressure debuff does made the punishment evaporate: the level falls
+## as it drains, so the penalty was gone under seven seconds into a
+## twenty-seven-second accident and the rest was free.
+@export_range(0.0, 60.0, 1.0) var wetting_fov_loss: float = 28.0
+@export_range(0.0, 1.0, 0.05) var wetting_vignette: float = 0.6
+## Walking pace while it happens. There is no sprint at all, but no hard lock
+## either - twenty-seven seconds rooted to the floor in a house with a huntsman
+## that never leaves is not a debuff, it is a death sentence.
+@export_range(0.1, 1.0, 0.05) var wetting_speed_multiplier: float = 0.35
+## Captured on first use rather than exported, so the debuff always releases
+## back to whatever the scene actually authored.
+var _camera_base_fov: float = 0.0
+var _overlay_base_vignette: float = -1.0
+## Set on a client between a toilet session ending and the server acknowledging
+## the drain, so a snapshot from before the report cannot refill the bar.
+var _bladder_report_pending: bool = false
+
 ## Temporary look-around constraint a minigame can impose (ToiletMinigame and
 ## DoorGhostMinigame) - false/full-range outside any minigame, so normal
 ## mouse-look is unaffected. yaw is clamped via an accumulator (rotate_y()
@@ -292,6 +327,50 @@ func _process(delta: float) -> void:
 		_update_toilet_ghost_stun(delta)
 	if is_local_player():
 		_update_hunter_gaze_interference(delta)
+		_update_bladder_pressure(delta)
+
+
+## Needing to go is a real cost above `bladder_debuff_threshold` and not just a
+## bar going orange: the view closes in and running burns stamina faster, so a
+## player who ignores it is measurably worse at escaping the thing chasing them.
+## Scaled from the threshold to full rather than switched on at it, so the
+## penalty arrives as pressure rather than as a cliff.
+##
+## Local-only, exactly like the hunter-gaze vignette above: this is one player's
+## own camera and their own stamina drain is applied where the movement is.
+func _update_bladder_pressure(_delta: float) -> void:
+	# Two states, not one curve. Approaching full scales with how full it is;
+	# an accident is flat and much worse, for the whole of its duration.
+	var fov_loss := bladder_debuff_fov_loss * get_bladder_pressure()
+	var vignette := bladder_debuff_vignette * get_bladder_pressure()
+	if is_wetting():
+		fov_loss = wetting_fov_loss
+		vignette = wetting_vignette
+
+	var camera := camera_pivot.get_node_or_null("Camera3D") as Camera3D
+	if camera:
+		if _camera_base_fov <= 0.0:
+			_camera_base_fov = camera.fov
+		camera.fov = _camera_base_fov - fov_loss
+	var overlay_material := horror_overlay_rect.material as ShaderMaterial
+	if overlay_material == null:
+		return
+	if _overlay_base_vignette < 0.0:
+		_overlay_base_vignette = float(overlay_material.get_shader_parameter("vignette_strength"))
+	overlay_material.set_shader_parameter(
+		"vignette_strength",
+		clampf(_overlay_base_vignette + vignette, 0.0, 1.0)
+	)
+
+
+## 0 below the threshold, 1 at a full bladder. Everything that punishes a full
+## bladder reads this one number so they cannot disagree about when it starts.
+func get_bladder_pressure() -> float:
+	if bladder == null or not is_alive:
+		return 0.0
+	var ratio := bladder.get_bladder_ratio()
+	var span := maxf(1.0 - bladder_debuff_threshold, 0.001)
+	return clampf((ratio - bladder_debuff_threshold) / span, 0.0, 1.0)
 
 
 ## This is intentionally a local camera check rather than part of the Hunter's
@@ -718,8 +797,19 @@ func _receive_network_state(
 		server_life_state_revision
 	)
 	current_stamina = clampf(server_stamina, 0.0, max_stamina)
+	# A finished session is not finished until the server has heard about it.
+	# The minigame drains the bladder on the owning peer, clears itself, and
+	# only then RPCs the result - and every snapshot that lands inside that gap
+	# still carries the server's pre-session value, which snapped the bar
+	# straight back to full a beat after the player had just emptied it. Hold
+	# the local value until a packet arrives that is no higher than it.
 	if bladder and not is_toilet_minigame_active():
-		bladder.set_bladder(server_bladder)
+		if _bladder_report_pending:
+			if server_bladder <= bladder.get_bladder() + 0.01:
+				_bladder_report_pending = false
+				bladder.set_bladder(server_bladder)
+		else:
+			bladder.set_bladder(server_bladder)
 	if server_crouching != is_crouching:
 		if server_crouching:
 			_crouch()
@@ -1196,14 +1286,21 @@ func _physics_process(delta: float) -> void:
 	var direction := (transform.basis * Vector3(input_dir.x, 0, input_dir.y)).normalized()
 	
 	var is_sprinting = false
-	if direction != Vector3.ZERO and _input_action_pressed(&"run") and current_stamina > 0.0 and not is_crouching:
+	# No running during an accident. This is the whole reason not to let one
+	# happen: the escape from the huntsman is a sprint, and there isn't one.
+	if direction != Vector3.ZERO and _input_action_pressed(&"run") \
+		and current_stamina > 0.0 and not is_crouching and not is_wetting():
 		is_sprinting = true
 
 	var current_speed = walk_speed
 	
 	if is_sprinting:
 		current_speed = walk_speed * sprint_speed_multiplier
-		current_stamina -= sprint_stamina_drain * delta
+		# Running on a full bladder is the expensive way to run. Same speed,
+		# shorter sprint - so ignoring the need shortens the escape rather than
+		# slowing it, which is the version a player can feel.
+		current_stamina -= sprint_stamina_drain * delta \
+			* (1.0 + bladder_debuff_stamina_scale * get_bladder_pressure())
 	else:
 		if is_crouching:
 			current_speed = crouch_speed
@@ -1213,6 +1310,8 @@ func _physics_process(delta: float) -> void:
 		else:
 			current_stamina += stamina_regen_moving * delta
 
+	if is_wetting():
+		current_speed *= wetting_speed_multiplier
 	if dev_fast_movement:
 		current_speed *= maxf(dev_speed_multiplier, 1.0)
 		current_stamina = max_stamina
@@ -1649,6 +1748,9 @@ func start_toilet_minigame(toilet: Node) -> bool:
 func _on_toilet_session_ended(success: bool, toilet: Node) -> void:
 	_active_toilet_minigame = null
 	if _is_network_client():
+		# See apply_network_state(): snapshots in flight still carry the level
+		# this session just drained, and must not be allowed to undo it.
+		_bladder_report_pending = true
 		_report_remote_encounter_finished.rpc_id(
 			NETWORK_SERVER_PEER_ID,
 			_scene_path_of(toilet),
@@ -1896,6 +1998,12 @@ func reduce_bladder(amount: float) -> void:
 
 func set_bladder(value: float) -> void:
 	bladder.set_bladder(value)
+
+
+## True while the bladder is emptying itself. Read by the movement code and by
+## the vision debuff, so both agree about when an accident is running.
+func is_wetting() -> bool:
+	return bladder != null and bladder.is_wetting
 
 
 ## Called by ToiletMinigame on success - the only bladder ever touched is

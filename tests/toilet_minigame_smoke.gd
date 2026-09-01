@@ -38,10 +38,26 @@ func _run() -> void:
 		push_error("Every toilet entry must rebuild flow over 1.5 seconds.")
 		quit(1)
 		return
-	if not is_equal_approx(full_fill_time, full_drain_time * 5.0):
+	# Ten, not the five it was: the fill was doubled to 90 in-game minutes
+	# because at 45 a player was back at the toilet barely a minute after
+	# leaving it, and a need that resets that fast reads as a bug rather than as
+	# pressure. The drain is unchanged, so the ratio moved with the fill.
+	if not is_equal_approx(full_fill_time, full_drain_time * 10.0):
 		push_error(
-			"A full bladder should take five times longer to fill than to drain "
+			"A full bladder should take ten times longer to fill than to drain "
 			+ "(fill=%.2fs, drain=%.2fs)." % [full_fill_time, full_drain_time]
+		)
+		quit(1)
+		return
+	# Losing control is the expensive way out, and has to stay strictly worse
+	# than walking to a toilet or the debuff is not a debuff.
+	var wetting_time: float = (
+		PlayerBladder.CONTROLLED_EMPTY_SECONDS * player.bladder.wetting_time_multiplier
+	)
+	if wetting_time <= full_drain_time:
+		push_error(
+			"Wetting yourself must cost more than a controlled session "
+			+ "(wetting=%.2fs, toilet=%.2fs)." % [wetting_time, full_drain_time]
 		)
 		quit(1)
 		return

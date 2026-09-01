@@ -36,11 +36,13 @@ const BRAZIER_SCENE: PackedScene = preload("res://items/totem_brazier.tscn")
 ## creates a replacement elsewhere on the map.
 @export_range(0, 8, 1) var totems_in_world: int = 4
 ## Logs kept in the world at once, as a flat count rather than one per player.
-## The fire needs one after every burn, and a single log dropped somewhere in an
-## 80 x 60 m villa is not a trip back, it is a search: three of them means there
-## is one within reach of wherever the last totem took you. Never drops below
-## the per-player count, so a full room still gets a log each.
-@export_range(0, 8, 1) var firewood_in_world: int = 3
+## The fire needs one after every burn, so a log has to be findable from
+## wherever the last totem left you rather than being a second search on top of
+## the first. Six is the floor because the villa is 80 x 60 m over three
+## storeys: at three, two of them landing in the same wing left half the house
+## with none. Never drops below the per-player count either, so a full room
+## still gets a log each.
+@export_range(0, 12, 1) var firewood_in_world: int = 6
 ## What one burn pays the night, in in-game minutes. At the clock's default rate
 ## this is the real-time runway a burn buys: 45 minutes is about 67 seconds of
 ## night. It wants to sit a little above a round trip to the brazier, or the
@@ -48,13 +50,21 @@ const BRAZIER_SCENE: PackedScene = preload("res://items/totem_brazier.tscn")
 ## a playtest, and it was raised from 30 when burning became the only thing
 ## keeping the night moving rather than an optional shortcut.
 @export_range(0, 240, 5) var minutes_per_totem: int = 45
-## How far a fresh item has to be from every player. Treated as a hard rule
-## wherever the map can honour it: 40 m clears most of the villa, whose farthest
-## room is about 57 m from the player spawn. Where a map cannot honour it at all
-## - House2 is 18 x 12 m, so nothing in it is ever 40 m from anyone - the rooms
-## as far away as that map gets are used instead. The rule degrades to "the
-## farthest there is", never back to "next to the player".
-@export_range(0.0, 200.0, 1.0) var min_spawn_distance: float = 40.0
+## How far a fresh item has to be from every player. This is an exclusion
+## radius and nothing more - it exists so an item never appears at somebody's
+## feet, not to make the trip long. It was 40 m, which in an 80 x 60 m villa
+## meant almost the whole building qualified and every totem was a search of the
+## entire map; the objective is a trip, not a hunt. Where a map cannot honour it
+## at all - House2 is 18 x 12 m - the rooms as far away as that map gets are
+## used instead, so the rule degrades to "the farthest there is", never back to
+## "next to the player".
+@export_range(0.0, 200.0, 1.0) var min_spawn_distance: float = 22.0
+## Of the rooms that clear the exclusion radius, only the nearest slice is drawn
+## from. This is what turns "somewhere in the villa" into "two or three rooms
+## that way": without it the pick was uniform across everything beyond the
+## radius, so the far corner of the map was as likely as the next corridor. Kept
+## as a fraction rather than a count so a small map still offers a choice.
+@export_range(0.1, 1.0, 0.05) var near_room_fraction: float = 0.4
 ## Marker group the drop points come from. Both maps publish their rooms into
 ## `house2_rooms`; the villa adds its own markers to it as well.
 @export var spawn_room_group: StringName = &"house2_rooms"
@@ -157,24 +167,36 @@ func totems_remaining() -> int:
 func restock() -> void:
 	if is_complete or not WorldNet.is_world_authority():
 		return
+	# The two populations want opposite distributions. A totem is a destination,
+	# so it is drawn from the rooms nearest the team - the trip should be a trip,
+	# not a sweep of the villa. Firewood is a convenience the fire needs after
+	# every burn, so it is spread over the whole house instead: six logs all
+	# drawn from the near quarter would sit in one wing and leave the other two
+	# storeys with none, which is the search the near rule exists to prevent.
 	_restock_group(TOTEM_SCENE, &"totems", totems_in_world)
 	_restock_group(
 		FIREWOOD_SCENE,
 		&"fire_fuel",
-		maxi(firewood_in_world, _players_in_run().size())
+		maxi(firewood_in_world, _players_in_run().size()),
+		false
 	)
 
 
 ## Carried items count towards the population: picking a totem up is not what
 ## puts the next one on the map, burning it is.
-func _restock_group(scene: PackedScene, group: StringName, target: int) -> void:
+func _restock_group(
+	scene: PackedScene,
+	group: StringName,
+	target: int,
+	cluster_near: bool = true
+) -> void:
 	var existing: Array[Node] = []
 	for node: Node in get_tree().get_nodes_in_group(group):
 		if not node.is_queued_for_deletion():
 			existing.append(node)
 	var used: Array[Node3D] = []
 	for i: int in maxi(target - existing.size(), 0):
-		var room := _pick_far_room(used)
+		var room := _pick_far_room(used, cluster_near)
 		if room == null:
 			return
 		used.append(room)
@@ -191,20 +213,32 @@ func _restock_group(scene: PackedScene, group: StringName, target: int) -> void:
 			surplus -= 1
 
 
-## The spawn rule. Pick at random among the rooms at least `min_spawn_distance`
-## from every player, preferring one `exclude` does not already name.
-func _pick_far_room(exclude: Array[Node3D] = []) -> Node3D:
+## The spawn rule, in two steps: throw out every room inside the exclusion
+## radius, then pick at random among the *nearest* `near_room_fraction` of what
+## is left, preferring one `exclude` does not already name. Both halves matter -
+## the first is what stops an item landing underfoot, the second is what stops
+## the trip being a sweep of the whole villa.
+func _pick_far_room(exclude: Array[Node3D] = [], cluster_near: bool = true) -> Node3D:
 	var players := _players_in_run()
-	var qualifying: Array[Node3D] = []
+	var qualifying: Array[Dictionary] = []
 	var rest: Array[Dictionary] = []
 	for room: Node3D in _spawn_rooms():
 		var distance := _distance_to_nearest(_room_floor_point(room), players)
 		if distance >= min_spawn_distance:
-			qualifying.append(room)
+			qualifying.append({"room": room, "distance": distance})
 		else:
 			rest.append({"room": room, "distance": distance})
 	if not qualifying.is_empty():
-		return _random_room(_prefer_unused(qualifying, exclude))
+		var pool: Array[Node3D] = []
+		if cluster_near:
+			qualifying.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+				return float(a["distance"]) < float(b["distance"])
+			)
+			var take := maxi(1, int(ceil(float(qualifying.size()) * near_room_fraction)))
+			qualifying = qualifying.slice(0, take)
+		for entry: Dictionary in qualifying:
+			pool.append(entry["room"] as Node3D)
+		return _random_room(_prefer_unused(pool, exclude))
 	if rest.is_empty():
 		return null
 	# Nothing on this map is far enough from everybody, so the rule degrades to
