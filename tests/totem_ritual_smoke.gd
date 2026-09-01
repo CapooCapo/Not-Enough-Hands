@@ -1,8 +1,9 @@
 extends SceneTree
 
 ## Covers the totem-burning objective end to end without a map: the 4:00 AM
-## ceiling on granted time, the two-handed carry rule, and the burn -> fire out
-## -> firewood -> relight loop the brazier enforces.
+## ceiling still carried by the clock's raw `skip_minutes()` jump, what a burn
+## actually pays now (runway, not a jump), the two-handed carry rule, and the
+## burn -> fire out -> firewood -> relight loop the brazier enforces.
 
 var _root: Node3D
 var _clock: NightClock
@@ -39,8 +40,10 @@ func _run() -> void:
 	quit()
 
 
-## Nine 30-minute burns is exactly 11:55 PM -> 4:00 AM, and the ninth is the
-## one that gets clipped: 3:55 AM + 30 must land on 4:00 AM, not 4:25 AM.
+## The clock's raw jump primitive, which burns no longer use - they pay through
+## add_fuel() - but which test setup and any direct jump still do, ceiling and
+## all. Nine 30-minute jumps is exactly 11:55 PM -> 4:00 AM, and the ninth is
+## the one that gets clipped: 3:55 AM + 30 must land on 4:00 AM, not 4:25 AM.
 func _check_clock_ceiling() -> bool:
 	var clock := (load("res://ui/night_clock.tscn") as PackedScene).instantiate() as NightClock
 	clock.pause_on_victory = false
@@ -135,8 +138,19 @@ func _check_burn_loop() -> bool:
 		return _fail("Burning a totem at a lit brazier should succeed.")
 	if _brazier.is_lit:
 		return _fail("The fire must go out with the totem it consumed.")
+	# A burn buys runway; it does not move the hands. The night advances only as
+	# real time is spent against what the burn paid for, which is the whole
+	# difference between this and the old skip_minutes() jump.
+	if _clock.get_formatted_time() != "11:55 PM":
+		return _fail("A burn moved the clock directly instead of paying runway, got %s." % _clock.get_formatted_time())
+	if _clock.fuel_minutes != _clock.max_fuel_minutes:
+		return _fail(
+			"A burn should have topped the runway up to %d, got %d."
+			% [_clock.max_fuel_minutes, _clock.fuel_minutes]
+		)
+	_clock.advance_real_seconds(30.0 * _clock.real_seconds_per_game_minute)
 	if _clock.get_formatted_time() != "12:25 AM":
-		return _fail("A burn should have moved the night on 30 minutes, got %s." % _clock.get_formatted_time())
+		return _fail("Runway bought by a burn did not run the night, got %s." % _clock.get_formatted_time())
 	await process_frame
 
 	var second := _spawn(&"res://items/totem.tscn")
@@ -159,8 +173,17 @@ func _check_burn_loop() -> bool:
 	_player.try_pick_up_item(second)
 	if not _brazier.burn_totem(_player, second):
 		return _fail("The relit fire should accept the next totem.")
+	# Thirty of the first burn's ninety minutes were spent above, so the second
+	# tops the bank back up rather than being wasted - runway accumulates, and a
+	# team that burns before it is empty keeps the difference.
+	if _clock.fuel_minutes != _clock.max_fuel_minutes:
+		return _fail(
+			"The second burn should have refilled the runway to %d, got %d."
+			% [_clock.max_fuel_minutes, _clock.fuel_minutes]
+		)
+	_clock.advance_real_seconds(30.0 * _clock.real_seconds_per_game_minute)
 	if _clock.get_formatted_time() != "12:55 AM":
-		return _fail("The second burn should reach 12:55 AM, got %s." % _clock.get_formatted_time())
+		return _fail("The second burn's runway should reach 12:55 AM, got %s." % _clock.get_formatted_time())
 	return true
 
 
@@ -302,13 +325,18 @@ func _fake_player(stage: Node3D, point: Vector3) -> CharacterBody3D:
 	return player
 
 
+## The ritual now ends with the night, not at the old 4:00 AM ceiling: it is what
+## reaches dawn, so a finish line short of dawn would strand the run. The ceiling
+## is lifted here only to drive the clock there in one jump.
 func _check_completion() -> bool:
 	var leftover := _spawn(&"res://items/totem.tscn")
+	_clock.skip_limit_hour = 6
+	_clock.skip_limit_minute = 0
 	_clock.skip_minutes(600)
-	if _clock.get_formatted_time() != "4:00 AM":
-		return _fail("Skipping past the ceiling should stop on 4:00 AM, got %s." % _clock.get_formatted_time())
-	if not _ritual.is_complete:
-		return _fail("The ritual should have completed when the night hit 4:00 AM.")
+	if _clock.get_formatted_time() != "6:00 AM":
+		return _fail("The night should have run out at 6:00 AM, got %s." % _clock.get_formatted_time())
+	if _ritual.is_complete != true:
+		return _fail("The ritual should have completed when the night reached dawn.")
 	await process_frame
 	if is_instance_valid(leftover):
 		return _fail("Totems left in the world should be cleared once the ritual is over.")

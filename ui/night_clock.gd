@@ -1,8 +1,38 @@
 class_name NightClock
 extends CanvasLayer
 
+## The night does not run to dawn on its own. It runs on **runway** - in-game
+## minutes bought by finishing objectives - and it stops dead when the runway is
+## spent. Standing still is therefore not a way to survive the night; it is a way
+## to make sure the night never ends.
+##
+## Two separate things can stop the clock, and they mean opposite things to the
+## player:
+##
+##   OUT OF RUNWAY  nothing left to spend. Go and finish an objective.
+##   FROZEN         something in the house is broken - a blackout, today - and
+##                  the night refuses to pass until it is fixed. Runway is *not*
+##                  spent while frozen, so an outage costs the team real time
+##                  and nothing they had earned.
+##
+## Runway accumulates rather than resetting (20 left plus a 30-minute task is
+## 50), because a reset would make waiting until empty the optimal play, which
+## is exactly the idling this mechanic exists to kill. It is capped at
+## `max_fuel_minutes` so a team that works ahead cannot bank the whole night in
+## the first few minutes and leave itself nothing to do.
+##
+## `skip_minutes()` below is the older, blunter primitive and still exists: it
+## jumps the night forward *now*, subject to the 4:00 AM ceiling. Runway is not
+## subject to that ceiling - it could not be, or the night would be
+## unfinishable - so the two must not be confused. Objectives pay through
+## `add_fuel()`; only direct jumps and test setup use `skip_minutes()`.
+
 signal minute_changed(minutes_of_day: int, formatted_time: String)
 signal victory_reached()
+## Runway or the freeze changed without a minute passing. Both have to reach a
+## client the moment they happen: the one bug this mechanic cannot survive is a
+## replica whose clock keeps running while the server's is stopped.
+signal runway_changed(fuel_minutes: int, is_frozen: bool)
 
 @export_category("Clock")
 @export_range(0, 23, 1) var start_hour: int = 23
@@ -17,6 +47,19 @@ signal victory_reached()
 ## The night advances one in-game minute every 1.5 seconds of real time.
 @export var real_seconds_per_game_minute: float = 1.5
 
+@export_category("Runway")
+## What the night opens with, so the first objective is done under a running
+## clock rather than a frozen one. One objective's worth (see
+## `TotemRitual.minutes_per_totem`), which at the default rate is about 67
+## seconds of real time to find the first job in.
+@export_range(0, 240, 5) var start_fuel_minutes: int = 45
+## Ceiling on banked runway, in in-game minutes. Deliberately exactly two
+## objectives' worth, and deliberately a multiple of one: a team can work a
+## single job ahead and no further, and - since the night opens with one in the
+## tank - the first completion fills the bank exactly rather than being clipped.
+## Any cap that is not a whole number of objectives robs somebody's burn.
+@export_range(0, 480, 5) var max_fuel_minutes: int = 90
+
 @export_category("Game state")
 @export var player_path: NodePath = NodePath("../Player")
 @export var pause_on_victory: bool = true
@@ -25,12 +68,26 @@ var running: bool = true
 var won: bool = false
 var current_minutes_of_day: int = 0
 var elapsed_game_minutes: int = 0
+## In-game minutes of night still paid for. At zero the clock stops.
+var fuel_minutes: int = 0
+## Something in the house is holding the night still. Derived from `_holds` on
+## the authority and taken from the server on a client, so there is exactly one
+## place it is decided.
+var is_frozen: bool = false
 var _real_time_accumulator: float = 0.0
 var _minutes_until_victory: int = 0
 var _player: Node
+## Freeze sources, by name. Refcounting by source rather than using one bool
+## matters as soon as there is more than one: a blackout and whatever comes
+## after it can overlap, and whichever ends first would otherwise start the
+## night running again while the other is still unresolved.
+var _holds: Dictionary = {}
+var _power_bound: bool = false
 
 @onready var clock_panel: PanelContainer = $ClockPanel
 @onready var time_label: Label = $ClockPanel/Margin/VBox/Time
+@onready var runway_bar: ProgressBar = $ClockPanel/Margin/VBox/Runway
+@onready var status_label: Label = $ClockPanel/Margin/VBox/Status
 @onready var victory_overlay: ColorRect = $VictoryOverlay
 
 
@@ -41,6 +98,7 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	_bind_power_if_needed()
 	if _player and "is_alive" in _player and not bool(_player.get("is_alive")):
 		running = false
 		clock_panel.visible = false
@@ -49,10 +107,41 @@ func _process(delta: float) -> void:
 	advance_real_seconds(delta)
 
 
+## The blackout freeze, wired from this side so the power manager stays ignorant
+## of the night - the same direction every other consumer of that group takes.
+## Bound lazily because the manager is a sibling that may not have entered the
+## tree when this node runs `_ready()`, and re-checked until it has.
+func _bind_power_if_needed() -> void:
+	if _power_bound:
+		return
+	var power := get_tree().get_first_node_in_group(&"power_manager")
+	if power == null:
+		return
+	_power_bound = true
+	if power.has_signal(&"blackout"):
+		power.connect(&"blackout", _on_blackout_started)
+	if power.has_signal(&"power_restored"):
+		power.connect(&"power_restored", _on_power_restored)
+	# It may already be dark by the time this binds.
+	if "is_blackout" in power and bool(power.get("is_blackout")):
+		_on_blackout_started()
+
+
+func _on_blackout_started() -> void:
+	hold(&"blackout")
+
+
+func _on_power_restored() -> void:
+	release(&"blackout")
+
+
 func reset_clock() -> void:
 	running = true
 	won = false
 	elapsed_game_minutes = 0
+	fuel_minutes = start_fuel_minutes
+	_holds.clear()
+	is_frozen = false
 	_real_time_accumulator = 0.0
 	current_minutes_of_day = _clock_minutes(start_hour, start_minute)
 	var target := _clock_minutes(victory_hour, victory_minute)
@@ -70,12 +159,16 @@ func reset_clock() -> void:
 func advance_real_seconds(seconds: float) -> void:
 	if not WorldNet.is_world_authority():
 		return
-	if not running or won or seconds <= 0.0:
+	if not running or won or is_frozen or fuel_minutes <= 0 or seconds <= 0.0:
+		# A stalled night must not bank the real seconds it spent stalled, or
+		# the runway bought to end it would be eaten the instant it arrives.
+		_real_time_accumulator = 0.0
 		return
 	_real_time_accumulator += seconds
 	var tick_duration := maxf(real_seconds_per_game_minute, 0.001)
-	while _real_time_accumulator >= tick_duration and not won:
+	while _real_time_accumulator >= tick_duration and not won and fuel_minutes > 0:
 		_real_time_accumulator -= tick_duration
+		fuel_minutes -= 1
 		_advance_one_game_minute()
 
 
@@ -85,6 +178,64 @@ func get_formatted_time() -> String:
 
 func get_minutes_remaining() -> int:
 	return maxi(_minutes_until_victory - elapsed_game_minutes, 0)
+
+
+## Runway the night could still take, after the bank ceiling and the amount of
+## night actually left. Banking more than there is night to spend it on is worth
+## nothing, so an objective finished at 5:50 AM is handed the ten minutes that
+## exist rather than its full price.
+func get_fuel_headroom() -> int:
+	return maxi(mini(max_fuel_minutes, get_minutes_remaining()) - fuel_minutes, 0)
+
+
+## What an objective pays the night. Unlike skip_minutes() this grants *runway*
+## rather than time: the minutes are played through in real time instead of
+## being skipped past, and they add to whatever is left rather than replacing
+## it. Returns the minutes actually taken, which is less than asked for near the
+## bank ceiling and near dawn.
+##
+## A client is granted nothing, exactly as with skip_minutes(): the completion
+## is reported to the server, which owns the one clock and sends the result back.
+func add_fuel(minutes: int) -> int:
+	if not WorldNet.is_world_authority():
+		return 0
+	if not running or won or minutes <= 0:
+		return 0
+	var granted := mini(minutes, get_fuel_headroom())
+	if granted <= 0:
+		return 0
+	fuel_minutes += granted
+	_update_time_label()
+	runway_changed.emit(fuel_minutes, is_frozen)
+	return granted
+
+
+## Stops the night until `source` releases it, without spending runway. Holds
+## are per-source so overlapping ones cannot cancel each other; taking one twice
+## is a no-op rather than a second reference, because the callers are signals
+## that may fire again for a state already held.
+func hold(source: StringName) -> void:
+	if not WorldNet.is_world_authority() or _holds.has(source):
+		return
+	_holds[source] = true
+	_apply_hold_state()
+
+
+func release(source: StringName) -> void:
+	if not WorldNet.is_world_authority() or not _holds.has(source):
+		return
+	_holds.erase(source)
+	_apply_hold_state()
+
+
+func _apply_hold_state() -> void:
+	var frozen := not _holds.is_empty()
+	if frozen == is_frozen:
+		return
+	is_frozen = frozen
+	_real_time_accumulator = 0.0
+	_update_time_label()
+	runway_changed.emit(fuel_minutes, is_frozen)
 
 
 ## In-game minutes that skip_minutes() can still hand out before the night hits
@@ -121,9 +272,20 @@ func skip_minutes(minutes: int) -> int:
 ## it could draw a frame - but minute_changed still fires once, because the
 ## ritual's completion check and the HUD both hang off it and a jump they never
 ## heard would leave them showing the old night.
-func apply_network_time(elapsed: int, minutes_of_day: int, server_won: bool) -> void:
+func apply_network_time(
+	elapsed: int,
+	minutes_of_day: int,
+	server_won: bool,
+	server_fuel: int = -1,
+	server_frozen: bool = false
+) -> void:
 	elapsed_game_minutes = elapsed
 	current_minutes_of_day = posmod(minutes_of_day, 24 * 60)
+	# Defaulted so an older two-argument caller cannot silently zero the runway;
+	# only a payload that actually carries one overwrites it.
+	if server_fuel >= 0:
+		fuel_minutes = server_fuel
+		is_frozen = server_frozen
 	_real_time_accumulator = 0.0
 	_update_time_label()
 	minute_changed.emit(current_minutes_of_day, get_formatted_time())
@@ -156,9 +318,35 @@ func _reach_victory() -> void:
 		get_tree().paused = true
 
 
+## The clock sells three states, because the player's response to each is
+## different: running (nothing to say), frozen (go and fix the house) and out of
+## runway (go and finish a job). A stopped clock with no explanation is the one
+## outcome this must never produce.
+const RUNNING_TIME_COLOR := Color(0.87, 0.93, 0.95)
+const FROZEN_TIME_COLOR := Color(0.98, 0.72, 0.36)
+const EMPTY_TIME_COLOR := Color(0.96, 0.44, 0.38)
+
+
 func _update_time_label() -> void:
 	if time_label:
 		time_label.text = get_formatted_time()
+	if runway_bar:
+		runway_bar.max_value = maxf(float(max_fuel_minutes), 1.0)
+		runway_bar.value = clampf(float(fuel_minutes), 0.0, runway_bar.max_value)
+	var stalled_reason := ""
+	var tint := RUNNING_TIME_COLOR
+	if is_frozen:
+		stalled_reason = "MẤT ĐIỆN - ĐÊM ĐỨNG YÊN"
+		tint = FROZEN_TIME_COLOR
+	elif fuel_minutes <= 0 and not won:
+		stalled_reason = "HẾT THỜI GIAN - LÀM NHIỆM VỤ"
+		tint = EMPTY_TIME_COLOR
+	if status_label:
+		status_label.text = stalled_reason
+		status_label.visible = not stalled_reason.is_empty()
+		status_label.modulate = tint
+	if time_label:
+		time_label.add_theme_color_override(&"font_color", tint)
 
 
 func _player_is_in_door_minigame() -> bool:

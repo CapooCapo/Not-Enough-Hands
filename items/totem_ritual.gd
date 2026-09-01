@@ -16,10 +16,14 @@ extends Node
 ## never allowed to appear at somebody's feet. Within one restock pass the rooms
 ## already used are avoided, so a handful of logs is a handful of places.
 ##
-## The 4:00 AM ceiling lives in NightClock (`skip_minutes()`), not here: a burn
-## at 3:50 asks for 30 minutes and is handed the 10 that are left. Once the
-## clock is at the ceiling there is nothing left to burn for, so every totem and
-## every log still lying around is cleared out of the world.
+## This is the night's first and, for now, only objective: the clock does not run
+## to dawn on its own any more, it runs on the runway burns pay for. How much a
+## burn is worth is still decided here; how it is spent is NightClock's business
+## (`add_fuel()`, never `skip_minutes()` - see the class docs there for why the
+## difference matters). Both ceilings live over there too: a burn near dawn, or
+## with the bank already full, is handed what is left rather than its full price.
+## When the night finally ends, every totem and log still lying around is cleared
+## out of the world.
 
 signal totem_burned(granted_minutes: int)
 signal ritual_completed()
@@ -37,7 +41,13 @@ const BRAZIER_SCENE: PackedScene = preload("res://items/totem_brazier.tscn")
 ## is one within reach of wherever the last totem took you. Never drops below
 ## the per-player count, so a full room still gets a log each.
 @export_range(0, 8, 1) var firewood_in_world: int = 3
-@export_range(0, 240, 5) var minutes_per_totem: int = 30
+## What one burn pays the night, in in-game minutes. At the clock's default rate
+## this is the real-time runway a burn buys: 45 minutes is about 67 seconds of
+## night. It wants to sit a little above a round trip to the brazier, or the
+## clock spends most of the night stopped - this is the first knob to tune after
+## a playtest, and it was raised from 30 when burning became the only thing
+## keeping the night moving rather than an optional shortcut.
+@export_range(0, 240, 5) var minutes_per_totem: int = 45
 ## How far a fresh item has to be from every player. Treated as a hard rule
 ## wherever the map can honour it: 40 m clears most of the villa, whose farthest
 ## room is about 57 m from the player spawn. Where a map cannot honour it at all
@@ -113,11 +123,16 @@ func _process(delta: float) -> void:
 
 ## Called by the brazier once a totem has actually gone into the fire. Returns
 ## the in-game minutes the burn was really worth, which is less than
-## `minutes_per_totem` on the last one before the ceiling and zero after it.
+## `minutes_per_totem` near the runway ceiling and near dawn.
+##
+## This is the night's first objective, and it pays the clock the way every
+## later one will: `add_fuel()`, not `skip_minutes()`. The difference is the
+## whole design - a burn buys minutes the team then *plays through* while the
+## clock runs, rather than deleting them with a jump.
 func on_totem_burned() -> int:
 	var granted := 0
-	if _clock and _clock.has_method(&"skip_minutes"):
-		granted = int(_clock.call(&"skip_minutes", minutes_per_totem))
+	if _clock and _clock.has_method(&"add_fuel"):
+		granted = int(_clock.call(&"add_fuel", minutes_per_totem))
 	totems_burned += 1
 	totem_burned.emit(granted)
 	_check_completion()
@@ -254,12 +269,14 @@ func _on_minute_changed(_minutes_of_day: int, _formatted: String) -> void:
 	_check_completion()
 
 
-## One condition, checked from both directions: the night reaching 4:00 on its
-## own ends the ritual exactly as burning the last totem does.
+## The ritual now ends only when the night does. It used to close at the 4:00 AM
+## skip ceiling, which made sense while burning was an optional shortcut - there
+## was nothing left to buy. As the night's objective it is what *reaches* dawn,
+## so a ceiling short of dawn would strand the run with no way to finish it.
 func _check_completion() -> void:
-	if is_complete or _clock == null or not _clock.has_method(&"get_minutes_until_skip_limit"):
+	if is_complete or _clock == null or not _clock.has_method(&"get_minutes_remaining"):
 		return
-	if int(_clock.call(&"get_minutes_until_skip_limit")) > 0:
+	if int(_clock.call(&"get_minutes_remaining")) > 0:
 		return
 	is_complete = true
 	# The sweep is a despawn like any other: the authority frees the items and

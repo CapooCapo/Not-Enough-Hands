@@ -152,6 +152,8 @@ func _bind_clock_if_needed() -> void:
 		clock.connect(&"minute_changed", _on_clock_minute_changed)
 	if clock.has_signal(&"victory_reached"):
 		clock.connect(&"victory_reached", _on_clock_victory)
+	if clock.has_signal(&"runway_changed"):
+		clock.connect(&"runway_changed", _on_clock_runway_changed)
 
 
 func _clock() -> Node:
@@ -509,6 +511,8 @@ func _collect_clock() -> Array:
 		int(clock.get("elapsed_game_minutes")),
 		int(clock.get("current_minutes_of_day")),
 		bool(clock.get("won")),
+		int(clock.get("fuel_minutes")),
+		bool(clock.get("is_frozen")),
 	]
 
 
@@ -518,7 +522,15 @@ func _on_clock_minute_changed(_minutes_of_day: int, _formatted: String) -> void:
 	var state := _collect_clock()
 	if state.is_empty():
 		return
-	_sync_clock.rpc(state[0], state[1], state[2])
+	_sync_clock.rpc(state[0], state[1], state[2], state[3], state[4])
+
+
+## Runway earned and the freeze both change between minutes, and a replica that
+## missed one shows a night that is still running while the server's has stopped
+## - which is the single thing this mechanic cannot survive. Pushed on the same
+## reliable channel as the minute itself.
+func _on_clock_runway_changed(_fuel_minutes: int, _is_frozen: bool) -> void:
+	_on_clock_minute_changed(0, "")
 
 
 func _on_clock_victory() -> void:
@@ -712,10 +724,16 @@ func _apply_power(power: Array) -> void:
 
 
 @rpc("authority", "call_remote", "reliable")
-func _sync_clock(elapsed: int, minutes_of_day: int, won: bool) -> void:
+func _sync_clock(
+	elapsed: int,
+	minutes_of_day: int,
+	won: bool,
+	fuel_minutes: int = -1,
+	is_frozen: bool = false
+) -> void:
 	var clock := _clock()
 	if clock and clock.has_method(&"apply_network_time"):
-		clock.call(&"apply_network_time", elapsed, minutes_of_day, won)
+		clock.call(&"apply_network_time", elapsed, minutes_of_day, won, fuel_minutes, is_frozen)
 
 
 @rpc("authority", "call_remote", "reliable")
@@ -865,5 +883,7 @@ func _apply_snapshot(snapshot: Dictionary) -> void:
 	_apply_power(snapshot.get("power", []))
 	_apply_brazier(snapshot.get("brazier", []))
 	var clock: Array = snapshot.get("clock", [])
-	if clock.size() >= 3:
+	if clock.size() >= 5:
+		_sync_clock(clock[0], clock[1], clock[2], clock[3], clock[4])
+	elif clock.size() >= 3:
 		_sync_clock(clock[0], clock[1], clock[2])
