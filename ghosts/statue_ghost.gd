@@ -318,7 +318,10 @@ func is_engaged() -> bool:
 ## alone - the director changes the schedule, never a live encounter. The roll
 ## is forced as well, or the director would spend an event slot on a coin flip.
 func request_hunt_soon(within_seconds: float) -> bool:
-	if not active or not intermittent_hunts_enabled or state != StatueState.HIDDEN:
+	if not WorldNet.is_world_authority() \
+		or not active \
+		or not intermittent_hunts_enabled \
+		or state != StatueState.HIDDEN:
 		return false
 	hidden_timer = minf(hidden_timer, maxf(within_seconds, 0.0))
 	forced_hunt_pending = true
@@ -353,7 +356,48 @@ func _attacks_blocked() -> bool:
 
 ## Forces the existing statue instance to manifest for development testing,
 ## bypassing its hidden timer and random hunt roll.
+func request_dev_force_spawn(target: CharacterBody3D = null) -> bool:
+	if WorldNet.is_world_authority():
+		return dev_force_spawn(target)
+	if not is_instance_valid(target) or not ("owner_peer_id" in target):
+		return false
+	var manager := get_node_or_null(^"/root/NetworkManager")
+	if manager == null \
+		or not bool(manager.get("session_active")) \
+		or not bool(manager.call("is_local_lobby_host")):
+		return false
+	var target_peer_id := int(target.get("owner_peer_id"))
+	if target_peer_id != multiplayer.get_unique_id():
+		return false
+	_request_dev_force_spawn.rpc_id(1, target_peer_id)
+	return true
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _request_dev_force_spawn(target_peer_id: int) -> void:
+	if not WorldNet.is_world_authority():
+		return
+	var manager := get_node_or_null(^"/root/NetworkManager")
+	var sender_id := multiplayer.get_remote_sender_id()
+	if manager == null \
+		or not bool(manager.get("session_active")) \
+		or sender_id != int(manager.get("lobby_host_peer_id")) \
+		or target_peer_id != sender_id:
+		return
+	for node: Node in get_tree().get_nodes_in_group(&"players"):
+		var player := node as CharacterBody3D
+		if player and "owner_peer_id" in player \
+			and int(player.get("owner_peer_id")) == target_peer_id:
+			dev_force_spawn(player)
+			return
+
+
 func dev_force_spawn(target: CharacterBody3D = null) -> bool:
+	# Dev Tools exists on every peer, but the authored Statue is server-owned.
+	# Mutating a client replica here creates a private, wrongly placed apparition
+	# that the next fast world packet immediately overwrites.
+	if not WorldNet.is_world_authority():
+		return false
 	active = true
 	if not is_instance_valid(target):
 		target = _find_closest_living_player()
@@ -362,15 +406,20 @@ func dev_force_spawn(target: CharacterBody3D = null) -> bool:
 
 	var ambush_position := _find_ambush_position(target)
 	if ambush_position == Vector3.INF:
-		var fallback := target.global_position \
-			+ target.global_basis.z * maxf(ambush_min_distance, 4.0)
-		var map_rid := nav_agent.get_navigation_map()
-		if map_rid.is_valid() and NavigationServer3D.map_get_iteration_id(map_rid) > 0:
-			fallback = NavigationServer3D.map_get_closest_point(map_rid, fallback)
-		ambush_position = fallback + Vector3.UP * 0.02
+		# Tiny development fixtures may not contain 15 m of connected navmesh.
+		# Keep the force button useful there, but validate the unsnapped point
+		# against the same final player-distance gate as a production ambush.
+		var behind := target.global_basis.z
+		behind.y = 0.0
+		if behind.is_zero_approx():
+			behind = Vector3.BACK
+		ambush_position = target.global_position \
+			+ behind.normalized() * maxf(ambush_min_distance, 4.0)
+		ambush_position.y = _player_foot_y(target) + 0.02
+		if not _is_ambush_position_safe(target, ambush_position):
+			return false
 
-	_begin_hunt(target, ambush_position)
-	return true
+	return _begin_hunt(target, ambush_position)
 
 
 # --- Hunt lifecycle ----------------------------------------------------------
@@ -410,10 +459,19 @@ func _update_hidden_hunt(delta: float) -> void:
 		hidden_timer = no_hunt_retry_delay
 		return
 
-	_begin_hunt(target, ambush_position)
+	if not _begin_hunt(target, ambush_position):
+		hidden_timer = no_hunt_retry_delay
 
 
-func _begin_hunt(target: CharacterBody3D, ambush_position: Vector3) -> void:
+func _begin_hunt(target: CharacterBody3D, ambush_position: Vector3) -> bool:
+	# This is the final gate shared by natural hunts and Dev Tools. Candidate
+	# selection already applies the rule, but keeping it here prevents any future
+	# caller or navmesh snap from manifesting inside the 15 m safety radius.
+	if not WorldNet.is_world_authority() \
+		or not is_instance_valid(target) \
+		or ambush_position == Vector3.INF \
+		or not _is_ambush_position_safe(target, ambush_position):
+		return false
 	current_target = target
 	global_position = ambush_position
 	last_position = ambush_position
@@ -431,13 +489,13 @@ func _begin_hunt(target: CharacterBody3D, ambush_position: Vector3) -> void:
 	if not flat_target.is_zero_approx():
 		rotation.y = atan2(-flat_target.x, -flat_target.z)
 	_apply_idle_pose(_pick_new_pose_index())
-	# The spawn transform and a shared sound RPC use different replication
-	# channels. On a client the sound could therefore arrive first and play at
-	# the statue's previous (often distant) position. The authority plays its
-	# own cue here; replicas play theirs from the manifested-state transition
-	# below, after WorldReplicator has already applied the new transform.
-	teleport_audio.play()
+	# WorldReplicator sends this reliable event with the Statue's authoritative
+	# position and applies that anchor before client playback. Do not derive a
+	# one-shot from the unreliable fast-state transition: under packet loss that
+	# made an otherwise valid ambush silently appear.
+	WorldNet.play_shared(teleport_audio)
 	hunt_started.emit(target, ambush_position)
+	return true
 
 
 func _disappear() -> void:
@@ -480,17 +538,10 @@ func _enter_hidden(delay: float, play_sound: bool = true) -> void:
 
 
 func _set_manifested(manifested: bool) -> void:
-	var was_manifested := visual_root.visible
 	visual_root.visible = manifested
 	dust.emitting = manifested
 	collision_layer = normal_collision_layer if manifested else 0
 	collision_mask = normal_collision_mask if manifested else 0
-	# A replicated manifestation is repeated in ghost state until received, so
-	# this cue cannot be lost like a one-shot RPC. WorldReplicator sets the
-	# statue's position before calling this method, keeping the 3D sound at the
-	# actual ambush point. The authority already plays the cue in _begin_hunt().
-	if manifested and not was_manifested and WorldNet.is_network_client():
-		teleport_audio.play()
 
 
 func _random_delay(minimum: float, maximum: float) -> float:
@@ -857,6 +908,16 @@ func _is_position_clear_of_players(position: Vector3) -> bool:
 		if flat_offset.length() < ambush_min_distance:
 			return false
 	return true
+
+
+func _is_ambush_position_safe(target: CharacterBody3D, position: Vector3) -> bool:
+	var target_offset := Vector2(
+		target.global_position.x - position.x,
+		target.global_position.z - position.z
+	)
+	if target_offset.length() < ambush_min_distance:
+		return false
+	return _is_position_clear_of_players(position)
 
 
 func _is_position_observed_by_any_player(position: Vector3) -> bool:

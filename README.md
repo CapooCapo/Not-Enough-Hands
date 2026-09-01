@@ -123,7 +123,7 @@ Four rules make it a job rather than a button:
   **firewood** (`items/firewood.tscn`, one slot) back to it and held **E** for
   1.5 seconds to relight it. Because a totem takes both hands, that is always a
   separate trip.
-- **The map holds one totem and one log per player still in the run**, and
+- **The map always holds at least five totems at once**, plus its shared log supply, and
   nothing is scattered up front. Picking an item up does not replace it -
   burning it does, and the replacement appears somewhere else entirely.
 - **4:00 AM is a ceiling, not a target.** A burn is granted only the minutes

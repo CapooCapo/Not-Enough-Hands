@@ -771,6 +771,16 @@ func _finish_player_tick(delta: float) -> void:
 
 
 func _send_network_state(peer_id: int) -> void:
+	# Bladder pressure is private, owner-local state. The authority keeps the
+	# canonical value for every player, but only the player who owns this body
+	# needs it on a client. Sending it to every replica made an accidentally
+	# bound HUD/DevTools panel display another player's progress and gave remote
+	# snapshots a path to overwrite local toilet reconciliation.
+	var owner_bladder := (
+		bladder.get_bladder()
+		if bladder and peer_id == owner_peer_id
+		else 0.0
+	)
 	_receive_network_state.rpc_id(
 		peer_id,
 		global_position,
@@ -784,7 +794,7 @@ func _send_network_state(peer_id: int) -> void:
 		is_spectator,
 		downed_time_remaining,
 		revive_progress,
-		bladder.get_bladder() if bladder else 0.0,
+		owner_bladder,
 		_last_processed_input_sequence,
 		_life_state_revision,
 		_last_applied_toilet_report
@@ -830,8 +840,12 @@ func _receive_network_state(
 	# only then RPCs the result - and every snapshot that lands inside that gap
 	# still carries the server's pre-session value, which snapped the bar
 	# straight back to full a beat after the player had just emptied it. Hold
-	# the local value until a packet arrives that is no higher than it.
-	if bladder and not is_toilet_minigame_active():
+	# the local value until a snapshot echoes this player's report sequence.
+	# Remote player replicas do not consume bladder state. Their UI is hidden,
+	# their simulation lives on the server, and applying the value here only
+	# creates opportunities for one player's private progress to leak into a
+	# locally bound meter. The owning replica alone reconciles its own snapshot.
+	if bladder and is_local_player() and not is_toilet_minigame_active():
 		if _bladder_report_pending:
 			if server_toilet_ack >= _toilet_report_sequence:
 				_bladder_report_pending = false

@@ -34,7 +34,7 @@ func _run() -> void:
 
 	print(
 		"Totem ritual smoke test passed: 4:00 AM ceiling, two-handed totem, "
-		+ "burn/relight loop, wall-blocked highlight, four random totems, and "
+		+ "burn/relight loop, wall-blocked highlight, five random totems, and "
 		+ "end-of-ritual cleanup."
 	)
 	quit()
@@ -87,7 +87,7 @@ func _build_world() -> bool:
 	# every item in by name, so this director cannot create its own population;
 	# keeping the normal target also prevents its deferred burn restock from
 	# treating the next test's manually created totem as surplus.
-	_ritual.totems_in_world = 4
+	_ritual.totems_in_world = TotemRitual.MIN_TOTEMS_IN_WORLD
 	_ritual.firewood_in_world = 0
 	_root.add_child(_ritual)
 	await _ritual.begin()
@@ -240,12 +240,15 @@ func _check_spawn_rules() -> bool:
 	var first := _fake_player(stage, Vector3(2, 0, 0))
 
 	var director := TotemRitual.new()
+	# Old scenes/tools may still supply the previous population. The runtime
+	# floor must upgrade it to five rather than silently preserving scarcity.
+	director.totems_in_world = 4
 	director.min_spawn_distance = 70.0
 	stage.add_child(director)
 	await director.begin()
 
-	if get_nodes_in_group(&"totems").size() != 4:
-		return _fail("The map should hold exactly four totems with one player.")
+	if get_nodes_in_group(&"totems").size() != TotemRitual.MIN_TOTEMS_IN_WORLD:
+		return _fail("The map should hold at least five totems with one player.")
 	# Logs are a flat population, not one per player: the fire needs one after
 	# every burn, so the map always carries a handful of them.
 	if get_nodes_in_group(&"fire_fuel").size() != director.firewood_in_world:
@@ -260,15 +263,15 @@ func _check_spawn_rules() -> bool:
 
 	var second := _fake_player(stage, Vector3(0, 0, 4))
 	director.restock()
-	if get_nodes_in_group(&"totems").size() != 4:
-		return _fail("Adding a player changed the fixed four-totem population.")
+	if get_nodes_in_group(&"totems").size() != TotemRitual.MIN_TOTEMS_IN_WORLD:
+		return _fail("Adding a player changed the fixed five-totem population.")
 
 	second.queue_free()
 	await process_frame
 	director.restock()
 	await process_frame
-	if get_nodes_in_group(&"totems").size() != 4:
-		return _fail("Losing a player changed the fixed four-totem population.")
+	if get_nodes_in_group(&"totems").size() != TotemRitual.MIN_TOTEMS_IN_WORLD:
+		return _fail("Losing a player changed the fixed five-totem population.")
 
 	# Nothing on this stage is 500 m from anybody, so the rule has to fall back
 	# to the farthest room there is rather than give up or drop it underfoot.
@@ -277,14 +280,14 @@ func _check_spawn_rules() -> bool:
 		item.free()
 	director.restock()
 	var totems := get_nodes_in_group(&"totems")
-	if totems.size() != 4:
+	if totems.size() != TotemRitual.MIN_TOTEMS_IN_WORLD:
 		return _fail("An impossible distance rule must still restock, not stall.")
 	for node: Node in totems:
 		if (node as Node3D).global_position.distance_to(far_room.global_position) > 3.0:
 			return _fail("With no room 500 m away the farthest room should have been used.")
 
 	# Burning one queues it out of the world and asks the authority to replace it.
-	# The count returns to four without waiting for the periodic restock timer.
+	# The count returns to five without waiting for the periodic restock timer.
 	var old_ids: Array[int] = []
 	for node: Node in totems:
 		old_ids.append(node.get_instance_id())
@@ -293,8 +296,8 @@ func _check_spawn_rules() -> bool:
 	await process_frame
 	await process_frame
 	var replacements := get_nodes_in_group(&"totems")
-	if replacements.size() != 4:
-		return _fail("Burning one totem did not immediately restore the population to four.")
+	if replacements.size() != TotemRitual.MIN_TOTEMS_IN_WORLD:
+		return _fail("Burning one totem did not immediately restore the population to five.")
 	var found_new := false
 	for node: Node in replacements:
 		if not old_ids.has(node.get_instance_id()):

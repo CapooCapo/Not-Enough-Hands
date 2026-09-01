@@ -59,6 +59,11 @@ func _run() -> void:
 	if statue.call('_find_most_isolated_moving_player') != lone_player:
 		_fail('Hunt selection did not prefer the moving player with the fewest nearby players.')
 		return
+	var unsafe_position := lone_player.global_position + Vector3(1.0, 0.02, 0.0)
+	if bool(statue.call('_begin_hunt', lone_player, unsafe_position)) \
+		or statue.get_node('VisualRoot').visible:
+		_fail('The final server-side gate allowed Statue to manifest inside the safety radius.')
+		return
 
 	# A rejected hunt roll must create a quiet retry window instead of making
 	# the statue attack continuously.
@@ -91,6 +96,14 @@ func _run() -> void:
 	if ambush_distance < 3.95 or ambush_distance > 5.05:
 		_fail('Ambush distance %.2f was outside the configured moderate range.' % ambush_distance)
 		return
+	for player: CharacterBody3D in [lone_player, grouped_player_a, grouped_player_b]:
+		var player_distance := Vector2(
+			ambush_position.x - player.global_position.x,
+			ambush_position.z - player.global_position.z
+		).length()
+		if player_distance < 3.95:
+			_fail('Ambush landed %.2f m from another player, inside the safety radius.' % player_distance)
+			return
 	statue.get_node('TeleportAudio').stop()
 	statue.get_node('AttackAudio').stop()
 	statue.get_node('SpottedJumpscareAudio').stop()

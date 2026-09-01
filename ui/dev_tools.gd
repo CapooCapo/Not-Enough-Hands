@@ -31,6 +31,7 @@ var _zone_buttons: Dictionary = {}
 var _forced_power_drain: bool = false
 var _power_drain_before_force: bool = false
 var ghost_box_enabled := false
+var _bound_bladder: PlayerBladder
 
 @onready var panel: PanelContainer = $Panel
 @onready var invincible_toggle: CheckButton = $Panel/Margin/Scroll/Content/Invincible
@@ -149,6 +150,11 @@ func _bind_bladder_slider() -> void:
 	var bladder_node := player.get("bladder") as PlayerBladder
 	if not bladder_node:
 		return
+	if _bound_bladder != bladder_node:
+		if is_instance_valid(_bound_bladder) \
+			and _bound_bladder.bladder_changed.is_connected(_on_bladder_changed):
+			_bound_bladder.bladder_changed.disconnect(_on_bladder_changed)
+		_bound_bladder = bladder_node
 	if not bladder_node.bladder_changed.is_connected(_on_bladder_changed):
 		bladder_node.bladder_changed.connect(_on_bladder_changed)
 	_on_bladder_changed(bladder_node.get_bladder(), bladder_node.bladder_max)
@@ -513,9 +519,12 @@ func _refresh_power_readout() -> void:
 func spawn_statue() -> bool:
 	var statue := get_node_or_null(statue_path)
 	var player := _player() as CharacterBody3D
+	var spawn_method := &"request_dev_force_spawn" \
+		if statue != null and statue.has_method(&"request_dev_force_spawn") \
+		else &"dev_force_spawn"
 	var spawned := statue != null \
-		and statue.has_method("dev_force_spawn") \
-		and bool(statue.call("dev_force_spawn", player))
+		and statue.has_method(spawn_method) \
+		and bool(statue.call(spawn_method, player))
 	status_label.text = "Statue đã xuất hiện." if spawned else "Không thể gọi Statue."
 	return spawned
 
@@ -675,4 +684,20 @@ func _electrical_zones() -> Array[ElectricalZone]:
 
 
 func _player() -> Node:
-	return get_node_or_null(player_path)
+	var configured := get_node_or_null(player_path)
+	if configured \
+		and (not configured.has_method("is_local_player") \
+			or bool(configured.call("is_local_player"))):
+		return configured
+
+	# In multiplayer the root player is the host (`Player`), while a client's
+	# own body is named from its peer id (`Player_2`, `Player_3`, ...). A fixed
+	# ../Player path therefore selects the host replica on every client. Resolve
+	# the owning body explicitly so every DevTools control, especially bladder,
+	# remains local to the machine using the panel.
+	if is_inside_tree():
+		for candidate: Node in get_tree().get_nodes_in_group(&"players"):
+			if candidate.has_method("is_local_player") \
+				and bool(candidate.call("is_local_player")):
+				return candidate
+	return configured

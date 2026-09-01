@@ -9,7 +9,8 @@ extends Node
 ## maps publish, so the same node works in House2 and in the villa with no
 ## map-specific coordinates anywhere.
 ##
-## Nothing is scattered once at boot. The world always holds four totems and a
+## Nothing is scattered once at boot. The world always holds at least five
+## totems and a
 ## flat handful of logs; each burned totem is replaced at a new random drop, and
 ## every drop point is chosen at random from the
 ## rooms that are far from *everybody* - the objective is a trip, so an item is
@@ -31,10 +32,12 @@ signal ritual_completed()
 const TOTEM_SCENE: PackedScene = preload("res://items/totem.tscn")
 const FIREWOOD_SCENE: PackedScene = preload("res://items/firewood.tscn")
 const BRAZIER_SCENE: PackedScene = preload("res://items/totem_brazier.tscn")
+const MIN_TOTEMS_IN_WORLD := 5
 
 ## Fixed shared population. Picking one up still counts it; burning it is what
-## creates a replacement elsewhere on the map.
-@export_range(0, 8, 1) var totems_in_world: int = 4
+## creates a replacement elsewhere on the map. Five is a hard gameplay floor,
+## including if an older scene or runtime tool still supplies a lower value.
+@export_range(5, 12, 1) var totems_in_world: int = MIN_TOTEMS_IN_WORLD
 ## Logs kept in the world at once, as a flat count rather than one per player.
 ## The fire needs one after every burn, so a log has to be findable from
 ## wherever the last totem left you rather than being a second search on top of
@@ -158,7 +161,7 @@ func totems_remaining() -> int:
 	return get_tree().get_nodes_in_group(&"totems").size()
 
 
-## Brings the shared totem population back to four and replenishes the flat log
+## Brings the shared totem population back to at least five and replenishes the flat log
 ## supply. Public so tests and map setup can force a pass without waiting.
 ##
 ## Only the authority scatters. The items are replicated entities, so a client
@@ -173,7 +176,11 @@ func restock() -> void:
 	# every burn, so it is spread over the whole house instead: six logs all
 	# drawn from the near quarter would sit in one wing and leave the other two
 	# storeys with none, which is the search the near rule exists to prevent.
-	_restock_group(TOTEM_SCENE, &"totems", totems_in_world)
+	_restock_group(
+		TOTEM_SCENE,
+		&"totems",
+		maxi(totems_in_world, MIN_TOTEMS_IN_WORLD)
+	)
 	_restock_group(
 		FIREWOOD_SCENE,
 		&"fire_fuel",

@@ -40,21 +40,24 @@ var _elapsed := 0.0
 var _done := false
 var _ghost: Node3D
 var _visual: Node3D
+var _test_player: CharacterBody3D
 var _decoy_ghost: Node3D
 var _decoy_visual: Node3D
 var _door: DefenseDoor
 var _clock: NightClock
 var _client_pid := -1
 var _full_durability := 0.0
+var _spawn_sent := false
 var _sound_sent := false
 ## Latched on the client the first time the ghost's teleport player changes, so
 ## a later sound of the statue's own cannot overwrite the evidence.
 var _heard_pitch := -1.0
 var _initial_pitch := 1.0
-## The Statue spawn cue must be derived from its manifested transition after
-## the replicated transform lands. Otherwise the sound RPC can race the fast
-## transform channel and play from the ghost's old, inaudible position.
+## The Statue spawn cue must arrive as a reliable event carrying its anchor.
+## Otherwise an unreliable manifestation transition can be missed, or an
+## unanchored sound can play from the ghost's old, inaudible position.
 var _heard_statue_spawn_cue := false
+var _client_force_rejected := false
 
 
 func _initialize() -> void:
@@ -96,6 +99,7 @@ func _run() -> void:
 	manager.set("session_active", true)
 
 	if _is_client:
+		_client_force_rejected = not bool(_ghost.call("dev_force_spawn", _test_player))
 		return
 	get_multiplayer().peer_connected.connect(func(peer_id: int) -> void:
 		manager.call("_mark_replication_ready", peer_id)
@@ -122,6 +126,15 @@ func _build_world() -> void:
 	_ghost = (load("res://ghosts/statue_ghost.tscn") as PackedScene).instantiate() as Node3D
 	_ghost.name = "StatueGhost"
 	world.add_child(_ghost)
+	# The server uses this real players-group member as the target for
+	# dev_force_spawn(), so the pair covers the same final distance gate and
+	# reliable spawn cue as a production hunt instead of manually toggling the
+	# Statue's visual.
+	_test_player = CharacterBody3D.new()
+	_test_player.name = "TestPlayer"
+	_test_player.add_to_group(&"players")
+	world.add_child(_test_player)
+	_ghost.set_physics_process(false)
 	_decoy_ghost = (load("res://ghosts/hunter_ghost.tscn") as PackedScene).instantiate() as Node3D
 	_decoy_ghost.name = "HunterGhost"
 	world.add_child(_decoy_ghost)
@@ -137,7 +150,8 @@ func _build_world() -> void:
 
 
 func _process(delta: float) -> bool:
-	if _done or not is_instance_valid(_ghost) or not is_instance_valid(_decoy_ghost) \
+	if _done or not is_instance_valid(_ghost) or not is_instance_valid(_test_player) \
+		or not is_instance_valid(_decoy_ghost) \
 		or not is_instance_valid(_door):
 		return false
 	if _visual == null:
@@ -156,10 +170,9 @@ func _process(delta: float) -> bool:
 
 	var pitch := _teleport_audio().pitch_scale
 	if not _heard_statue_spawn_cue \
-		and _visual.visible \
 		and _teleport_audio().playing \
 		and is_equal_approx(pitch, _initial_pitch) \
-		and not _ghost.global_position.is_equal_approx(Vector3.ZERO):
+		and _spawn_distance() >= float(_ghost.get("ambush_min_distance")):
 		_heard_statue_spawn_cue = true
 	if _heard_pitch < 0.0 and not is_equal_approx(pitch, _initial_pitch):
 		_heard_pitch = pitch
@@ -174,17 +187,26 @@ func _teleport_audio() -> AudioStreamPlayer3D:
 	return _ghost.get("teleport_audio") as AudioStreamPlayer3D
 
 
+func _spawn_distance() -> float:
+	return Vector2(
+		_ghost.global_position.x - _test_player.global_position.x,
+		_ghost.global_position.z - _test_player.global_position.z
+	).length()
+
+
 ## The server is the only one that touches anything. Everything here is a change
 ## a client has no way of arriving at on its own.
 func _drive_world() -> void:
-	_ghost.global_position = Vector3(_elapsed, 1.0, 0.0)
-	if _visual and not _visual.visible:
-		_ghost.call("_set_manifested", true)
+	var manager := root.get_node(^"/root/NetworkManager")
+	if not _spawn_sent \
+		and _elapsed > 1.0 \
+		and not (manager.get("replication_ready_peers") as Dictionary).is_empty():
+		_spawn_sent = bool(_ghost.call("dev_force_spawn", _test_player))
 	if is_equal_approx(_door.current_durability, _full_durability):
 		_door.take_damage(DAMAGE)
 	# A ghost's one-shots are fired by the brain, and a client runs no brain, so
 	# unless they travel as their own event they are heard on the host alone.
-	if not _sound_sent and _elapsed > 1.0:
+	if _spawn_sent and not _sound_sent and _elapsed > 2.0:
 		_sound_sent = true
 		var audio := _teleport_audio()
 		audio.pitch_scale = SOUND_PITCH
@@ -195,6 +217,10 @@ func _write_client_verdict() -> void:
 	var failures: Array[String] = []
 	if _ghost.global_position.is_equal_approx(Vector3.ZERO):
 		failures.append("no ghost transform arrived on the fast channel")
+	if not _client_force_rejected:
+		failures.append("a client was allowed to mutate the server-owned Statue directly")
+	if _spawn_distance() < float(_ghost.get("ambush_min_distance")):
+		failures.append("the server manifested Statue inside a player's minimum safety radius")
 	if _visual == null or not _visual.visible:
 		failures.append(
 			"the ghost body never manifested; a client would see a light with no model"
@@ -234,7 +260,8 @@ func _read_client_verdict() -> void:
 	print(
 		"World replication pair smoke test passed: over a real socket a client took "
 		+ "the ghost's NodePath-keyed position and body without manifesting the decoy, "
-		+ "the Statue spawn cue at its replicated position, its one-shot audio, "
+		+ "could not mutate the server-owned Statue, received its reliable spawn cue "
+		+ "outside the player safety radius, its one-shot audio, "
 		+ "the door's durability, and the night."
 	)
 	quit()
