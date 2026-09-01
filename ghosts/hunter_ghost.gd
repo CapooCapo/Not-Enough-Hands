@@ -26,11 +26,13 @@ extends CharacterBody3D
 ## direction, and its footfalls are loud enough to place it two rooms away. Then
 ## it sees you. There is no cone and no spotting meter: it is covered in eyes, so
 ## anything with a clear line to it inside `sight_range` is seen instantly, from
-## behind as readily as from in front. It roars - two and a half seconds of it,
-## standing still, heard in every room in the house - and only then does it come,
-## a shade faster than a sprinting player and no more. Those two and a half
-## seconds are worth about eighteen metres at a sprint, and eighteen metres is
-## the whole reason the charge is survivable. Breaking line of sight does not
+## behind as readily as from in front. It roars - a second and a half of it,
+## heard in every room in the house, planted for the first half and already
+## walking through the second - and then it charges at 13.5 m/s. A sprinting
+## player does 17.25 and still outruns it; a walking one does 7.5 and does not.
+## That is the whole shape of the chase: sprint buys distance, it does not buy
+## safety, because five seconds is all the stamina there is. Breaking line of
+## sight does not
 ## shake it; staying out of sight for a full `lose_sight_time` does - and when it
 ## does give up, it walks the other way before returning to patrol.
 ##
@@ -43,15 +45,18 @@ extends CharacterBody3D
 ##             it is deliberately stupid, and the reason breaking line of sight
 ##             is an escape rather than a delay.
 ##   ROARING   it has seen somebody. It plants, turns to face them and screams
-##             the house down for two and a half seconds. That pause is the
-##             whole warning, and the head start that comes with it is the whole
-##             reason the charge can be outrun to a corner.
-##   LOCKED    the charge. Only a little faster than a sprint, so a corridor is
-##             a slow loss rather than an instant one - corners, doorways and
-##             stairs are the real counterplay, because it still accelerates
-##             like something that weighs three hundred kilos and cannot turn.
-##   SEIZING   the grab. Half a second of windup, and that half second is the
-##             only window there is.
+##             the house down. It holds still for the first half of that and
+##             comes on at a walk through the second, so the warning is a
+##             warning and not a free room's worth of head start.
+##   LOCKED    the charge. Slower than a sprint and much faster than a walk, so
+##             a corridor is survivable only for as long as the stamina lasts -
+##             corners, doorways and stairs are still the real counterplay,
+##             because it accelerates like something that weighs three hundred
+##             kilos and cannot turn.
+##   SEIZING   the grab, and it is a lunge rather than a pause: it throws its
+##             whole body down the line it committed to and can barely steer
+##             once it has. Backing away is inside that line. Leaving the line
+##             sideways is the dodge, and half a second is all it lasts.
 ##
 ## Two rules make it the worst thing in the building:
 ##
@@ -104,13 +109,16 @@ signal killed_player(player: Node3D)
 @export var walk_speed: float = 2.5
 ## Same as the patrol pace. It does not hurry until it has seen somebody.
 @export var track_speed: float = 2.5
-## The charge is still faster than a sprinting player, but slow enough that the
-## warning below gives them a real chance to reach a corner:
-## you keep the head start you already had and give it up a little at a time,
-## which leaves room to actually reach the corner you were running for. The
-## escape is still breaking line of sight and staying broken for
+## Deliberately between the two speeds a player has. A sprint is 17.25 m/s
+## (`walk_speed` 7.5 x `sprint_speed_multiplier` 2.3) and still outruns this; a
+## walk is 7.5 and loses six metres a second to it. Since the whole sprint is
+## five seconds of stamina, running is a way of buying time to reach a corner
+## and never a way of being safe, which is the tension the old 9.0 did not have:
+## at 9.0 a player who simply held shift gained ground forever and could not be
+## caught by this creature under any circumstances.
+## The escape is still breaking line of sight and staying broken for
 ## `lose_sight_time`.
-@export var charge_speed: float = 9.0
+@export var charge_speed: float = 13.5
 ## Left at 1.0 so the patrol pace above is exactly the speed it walks at.
 @export var non_chase_speed_multiplier: float = 1.0
 ## Enough that the charge speed above is a real number and not an aspiration, and
@@ -155,11 +163,16 @@ signal killed_player(player: Node3D)
 ## clear line of sight is seen, immediately, from any angle. Walls are the only
 ## thing that works.
 @export var sight_range: float = 15.0
-## The roar. It stops dead, it is heard everywhere in the house, and only then
-## does it start moving - which is the entire warning the player gets, so it is
-## also the entire head start. Keep it long enough to identify the direction of
-## the sound and reach nearby cover before the charge begins.
-@export var roar_duration: float = 3.0
+## The roar, and the entire warning the player gets: long enough to place the
+## sound and pick a direction, and no longer. Three seconds of standing still
+## handed a sprinting player fifty metres, which is most of the villa - the
+## charge was over before it started. Only the first `roar_plant_fraction` of
+## this is spent planted; it walks through the rest.
+@export var roar_duration: float = 1.5
+## How much of the roar it spends rooted to the spot before it starts walking in.
+## The scream carries either way; this is only about whether the body is moving
+## while it happens.
+@export_range(0.0, 1.0, 0.05) var roar_plant_fraction: float = 0.5
 ## How long it keeps charging after losing sight. Breaking line of sight does
 ## not shake it: you have to stay out of sight for this whole stretch.
 @export var lose_sight_time: float = 5.5
@@ -242,6 +255,16 @@ signal killed_player(player: Node3D)
 ## The only dodge window in the whole creature.
 @export var seize_windup: float = 0.5
 @export var seize_kill_radius: float = 2.8
+## The windup is a lunge, not a pause. Braking and reaching meant a player who
+## held the back key walked 3.75 m clear inside the window and the grab could
+## not land on a moving target at all, in any direction, ever. It now throws its
+## whole body down the line, fast enough to run down a walking player and just
+## slow enough that a full sprint straight back survives by centimetres.
+@export var seize_lunge_speed: float = 16.0
+## How much it may correct the lunge once it has committed, in radians a second.
+## This is the dodge: it cannot follow a player who leaves the line sideways,
+## and it does not need to follow one who backs straight down it.
+@export var seize_lunge_turn_speed: float = 1.6
 @export var seize_recovery: float = 1.7
 @export var seize_cooldown: float = 3.2
 ## Vertical separation that rules out a grab, so it cannot take somebody through
@@ -318,6 +341,9 @@ var _entry_timer: float = 0.0
 var _pending_entry_door: Node3D
 var _state_timer: float = 0.0
 var _seize_cooldown_timer: float = 0.0
+## The line the current lunge is committed to, fixed at commit and allowed to
+## correct only at `seize_lunge_turn_speed`.
+var _seize_direction: Vector3 = Vector3.FORWARD
 var _sweep_index: int = 0
 var _sweep_timer: float = 0.0
 var _sweep_points: Array[Vector3] = []
@@ -757,21 +783,27 @@ func _update_sweeping(delta: float) -> void:
 ## It has you. Everything else stops mattering: it charges, and it does not
 ## stop charging until it has been unable to see you for several seconds.
 ## The roar. It plants, turns to face what it has just seen, and screams the
-## house down for `roar_duration` before it moves a step. Everything the player
-## gets is in this second: which direction the sound came from, and the fact
-## that it is coming at all.
+## house down. Everything the player gets is in this second and a half: which
+## direction the sound came from, and the fact that it is coming at all. It is
+## already walking in for the tail of it, so the warning costs it a step rather
+## than a room.
 func _update_roaring(delta: float) -> void:
 	if not is_instance_valid(current_target) or not _is_targetable(current_target):
 		_drop_target()
 		return
 
-	_brake(delta)
-	var to_target := current_target.global_position - global_position
-	to_target.y = 0.0
-	if to_target.length_squared() > 0.0004:
-		rotation.y = rotate_toward(
-			rotation.y, atan2(-to_target.x, -to_target.z), turn_speed * delta * 1.6
-		)
+	# Planted for the first stretch, walking in for the rest. Steering handles its
+	# own facing, so the turn-on-the-spot below only applies while it is rooted.
+	if _state_timer <= roar_duration * (1.0 - roar_plant_fraction):
+		_steer_toward(delta, current_target.global_position, walk_speed + _speed_bonus())
+	else:
+		_brake(delta)
+		var to_target := current_target.global_position - global_position
+		to_target.y = 0.0
+		if to_target.length_squared() > 0.0004:
+			rotation.y = rotate_toward(
+				rotation.y, atan2(-to_target.x, -to_target.z), turn_speed * delta * 1.6
+			)
 
 	_state_timer -= delta
 	if _state_timer <= 0.0:
@@ -810,24 +842,35 @@ func _update_locked(delta: float) -> void:
 func _begin_seize() -> void:
 	WorldNet.play_shared(seize_audio)
 	_set_state(HunterState.SEIZING)
+	_seize_direction = _flat_direction_to(current_target)
 	seize_started.emit(current_target)
 
 
-## Half a second, arms out, lantern up into your face. Break out of reach in that
-## time and it commits to nothing but empty air.
+## The line the lunge is committed to. Falls back to the way it is already
+## facing, so a target that vanishes on the commit frame still produces a lunge
+## into empty air rather than a body that stops dead.
+func _flat_direction_to(target: Node3D) -> Vector3:
+	var facing := -global_basis.z
+	facing.y = 0.0
+	if not is_instance_valid(target):
+		return facing.normalized() if facing.length_squared() > 0.0001 else Vector3.FORWARD
+	var offset := target.global_position - global_position
+	offset.y = 0.0
+	if offset.length_squared() < 0.0001:
+		return facing.normalized() if facing.length_squared() > 0.0001 else Vector3.FORWARD
+	return offset.normalized()
+
+
+## Half a second of it throwing itself at you, arms out, lantern up into your
+## face. Leave the line it committed to and it lands on nothing but empty air.
 func _update_seizing(delta: float) -> void:
-	_brake(delta)
 	if _attacks_blocked():
+		_brake(delta)
 		_seize_cooldown_timer = seize_cooldown
 		_set_state(HunterState.RECOVERING)
 		return
 
-	if is_instance_valid(current_target):
-		var to_target := current_target.global_position - global_position
-		to_target.y = 0.0
-		if to_target.length_squared() > 0.0001:
-			var target_yaw := atan2(-to_target.x, -to_target.z)
-			rotation.y = lerp_angle(rotation.y, target_yaw, minf(turn_speed * 2.0 * delta, 1.0))
+	_lunge(delta)
 
 	_state_timer -= delta
 	if _state_timer > 0.0:
@@ -1135,6 +1178,37 @@ func _has_navigation() -> bool:
 func _brake(delta: float) -> void:
 	velocity.x = move_toward(velocity.x, 0.0, acceleration * delta * 2.0)
 	velocity.z = move_toward(velocity.z, 0.0, acceleration * delta * 2.0)
+
+
+## The grab, once committed. Unlike every other movement in this file it ignores
+## `acceleration` outright - three hundred kilos of it leaves the floor, so the
+## speed is there on the first frame and the only thing that changes is the
+## heading, and that only at `seize_lunge_turn_speed`. The speed is also capped
+## at the ground actually left between them, so a landed grab finishes on top of
+## the prey instead of carrying it half a corridor past.
+func _lunge(delta: float) -> void:
+	if is_instance_valid(current_target):
+		var desired := _flat_direction_to(current_target)
+		var turned := rotate_toward(
+			atan2(_seize_direction.x, _seize_direction.z),
+			atan2(desired.x, desired.z),
+			seize_lunge_turn_speed * delta
+		)
+		_seize_direction = Vector3(sin(turned), 0.0, cos(turned))
+
+	var speed := seize_lunge_speed
+	if is_instance_valid(current_target):
+		var remaining := current_target.global_position - global_position
+		remaining.y = 0.0
+		speed = minf(speed, maxf(remaining.dot(_seize_direction), 0.0) / maxf(delta, 0.0001))
+
+	velocity.x = _seize_direction.x * speed
+	velocity.z = _seize_direction.z * speed
+	rotation.y = lerp_angle(
+		rotation.y,
+		atan2(-_seize_direction.x, -_seize_direction.z),
+		minf(turn_speed * 2.0 * delta, 1.0)
+	)
 
 
 ## Catches a body that is walking and going nowhere: wedged in a doorframe,

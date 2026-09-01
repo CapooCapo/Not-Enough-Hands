@@ -421,13 +421,18 @@ still makes no sound at all, so crouching is the one movement it cannot hear.
 Hearing never locks on; it only ever hands it somewhere new to go and look.
 
 **Being seen: the roar, and then the run.** The instant it has somebody it
-plants, turns to face them and roars for `roar_duration` (3.0 s) at a volume the
-whole house hears — including the players it has *not* seen. Those seconds are
-the entire warning, and the entire head start. Then it charges at `charge_speed`
-(7.2 m/s). How much of a margin that is over a sprint is a property of the map
-rather than of this creature: each map tunes the player's own `walk_speed` and
-`sprint_speed_multiplier`, and the villa deliberately runs both far lower than
-House2. Either way a corridor is a slow loss rather than an instant one. It also has `acceleration` of a loaded truck and cannot move
+plants, turns to face them and roars for `roar_duration` (1.5 s) at a volume the
+whole house hears — including the players it has *not* seen. It only holds still
+for the first `roar_plant_fraction` (half) of that and walks in through the rest,
+so the warning stays a warning and stops being a free room: three planted seconds
+used to hand a sprinting player fifty metres, which is most of the villa. Then it
+charges at `charge_speed` (13.5 m/s), which sits deliberately between the two
+speeds a player has. A sprint (`walk_speed` 7.5 × `sprint_speed_multiplier` 2.3 =
+17.25 m/s) outruns it; a walk does not, and loses six metres a second. Since the
+whole sprint is about five seconds of stamina, running buys the time to reach a
+corner and never buys safety — which is exactly what the old 7.2–9.0 m/s did not
+do, because a player holding shift gained ground forever and could not be caught
+at all. It also has `acceleration` of a loaded truck and cannot move
 at full speed in a direction it is not already facing (`off_axis_speed_floor`),
 so corners, doorways and stairs are where the chase is actually won. What you
 cannot do is duck behind one sofa: losing line of sight does not shake it, it
@@ -452,8 +457,16 @@ exit it wanted — it only trips `sealed_inside`, which makes it faster
 (`trapped_speed_bonus`) and sharper-nosed (`trapped_nose_bonus`) for the rest of
 the night. It lays no traps either; that behaviour is gone.
 
-**The grab.** At `seize_range` it plants and reaches: `seize_windup` is half a
-second, and that half second is the only window there is. The reach is
+**The grab.** At `seize_range` it commits, and the commitment is a lunge rather
+than a reach: for `seize_windup` (half a second, the only window there is) it
+throws its whole body down the line it locked in at `seize_lunge_speed`
+(16 m/s), correcting its heading by no more than `seize_lunge_turn_speed`
+(1.6 rad/s) on the way. Backing away is *inside* that line and loses — a full
+sprint straight backwards survives by centimetres and nothing slower does.
+Leaving the line sideways is the dodge, because it cannot curve after you. This
+is what makes the grab a grab at all: while the windup braked and reached, a
+player holding the back key walked 3.75 m clear inside the window, so it could
+not land on a moving target in any direction, ever. The reach is
 deliberately longer than a person's (2.35 m) because it is two and a half metres
 of hunched shoulders with a hook on one arm — it takes people over the stairwell
 bannister and through the gap in a doorway it cannot itself fit through. A

@@ -16,6 +16,7 @@ const HunterState_DORMANT := 0
 const HunterState_ENTERING := 1
 const HunterState_TRACKING := 2
 const HunterState_LOCKED := 5
+const HunterState_SEIZING := 6
 const HunterState_ROARING := 8
 const HunterState_DISENGAGING := 9
 
@@ -378,16 +379,24 @@ func _test_sight_lock_and_seize() -> bool:
 	if int(hunter.get('state')) != HunterState_ROARING:
 		return _fail('Huntsman started moving without roaring first.', hunter)
 	if Vector2(hunter.velocity.x, hunter.velocity.z).length() > 0.5:
-		return _fail('Huntsman moved during its roar; the warning has to be a full stop.', hunter)
+		return _fail('Huntsman moved during the planted half of its roar.', hunter)
 
 	# Held for the full roar: the warning is the head start, so a roar that ends
-	# early is the difference between escapable and not.
+	# early is the difference between escapable and not. It walks in through the
+	# tail of it, which is what keeps the head start a warning rather than a
+	# free room - three planted seconds handed a sprinter fifty metres.
 	var roar_duration := float(hunter.get('roar_duration'))
 	await create_timer(maxf(roar_duration - 0.5, 0.05)).timeout
 	if int(hunter.get('state')) != HunterState_ROARING:
 		return _fail('Huntsman cut its roar short and started moving early.', hunter)
+	if Vector2(hunter.velocity.x, hunter.velocity.z).length() < 0.5:
+		return _fail('Huntsman stood still through the whole roar instead of walking in.', hunter)
 	await create_timer(0.7).timeout
-	if int(hunter.get('state')) != HunterState_LOCKED:
+	# Either half of the chase counts. It walks in through the tail of the roar
+	# now, so from a starting range this short it can already be committed to the
+	# grab by the time the charge is sampled.
+	var chasing := int(hunter.get('state'))
+	if chasing != HunterState_LOCKED and chasing != HunterState_SEIZING:
 		return _fail('Huntsman never came out of its roar into the charge.', hunter)
 
 	await create_timer(3.0).timeout
