@@ -28,6 +28,10 @@ var phase: Phase = Phase.IDLE
 var phase_elapsed: float = 0.0
 var killer_variant: StringName = &"statue"
 var restarting: bool = false
+## Set by show_downed_scare(): the scare runs to the blackout and then clears
+## itself instead of raising the Game Over card, because being downed with a
+## teammate still standing is not the end of anybody's run.
+var scare_only: bool = false
 
 @onready var backdrop: ColorRect = $Backdrop
 @onready var impact_flash: ColorRect = $ImpactFlash
@@ -58,6 +62,28 @@ func _ready() -> void:
 func _in_network_session() -> bool:
 	var manager := get_node_or_null("/root/NetworkManager")
 	return manager != null and bool(manager.get("session_active"))
+
+
+## Being caught with a teammate left standing: the same face, the same sting,
+## and no Game Over behind it.
+##
+## This exists because the downed scare used to be the Huntsman's 3D lunge no
+## matter what had actually caught you - the statue, the crawler, the darkness,
+## all of them ended with the Midnight Grin in your face. Every one of those
+## already has a portrait and a sting here; the downed path simply never came
+## through this screen. Returns false for the Huntsman, whose scare is 3D and
+## belongs to JumpscareController, so the caller keeps that route.
+func show_downed_scare(ghost: Node3D) -> bool:
+	if _identify_killer(ghost) == &"hunter":
+		return false
+	scare_only = true
+	show_jumpscare(ghost)
+	# show_jumpscare() refuses while something is already on screen, and a
+	# refusal must not leave the flag armed for the next real death.
+	if phase == Phase.IDLE:
+		scare_only = false
+		return false
+	return true
 
 
 func show_jumpscare(ghost: Node3D) -> void:
@@ -108,7 +134,11 @@ func show_jumpscare(ghost: Node3D) -> void:
 	# player is downed, their bleed-out can then never finish and the room never
 	# reaches its lobby. Network clients do not simulate the world, so the full-
 	# screen overlay is enough presentation without pausing either side.
-	if active_scene and active_scene.is_ancestor_of(self) and not _in_network_session():
+	# Never for a downed scare: that player is still bleeding out and somebody is
+	# on their way to them, so freezing the world would stop the very clock the
+	# scare is played over.
+	if active_scene and active_scene.is_ancestor_of(self) \
+		and not _in_network_session() and not scare_only:
 		get_tree().paused = true
 
 
@@ -192,6 +222,19 @@ func _update_jumpscare() -> void:
 
 
 func _update_blackout() -> void:
+	if phase_elapsed < blackout_duration:
+		return
+	if scare_only:
+		# A downed player is still in the run. Hand the screen back rather than
+		# covering their bleed-out and any revive with a Game Over card.
+		scare_only = false
+		phase = Phase.IDLE
+		phase_elapsed = 0.0
+		visible = false
+		visage.visible = false
+		game_over.visible = false
+		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+		return
 	if phase_elapsed >= blackout_duration:
 		phase = Phase.GAME_OVER
 		phase_elapsed = 0.0

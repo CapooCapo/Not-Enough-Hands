@@ -29,12 +29,14 @@ const CONTROLLED_EMPTY_SECONDS: float = 13.5
 @export var bladder_fill_rate: float = 100.0 / DEFAULT_FULL_DURATION_REAL_SECONDS
 @export var bladder_warning_threshold: float = 70.0
 @export var bladder_full_threshold: float = 100.0
-## Once it is full it goes on its own, and it takes this multiple of a
-## controlled session to finish - the whole point of the debuff being that
-## losing control costs more time than walking to the toilet would have. At 2.0
-## a full bladder wets itself over 27 seconds against the toilet's 13.5, and the
-## player keeps every other penalty for the whole of it.
-@export_range(1.0, 6.0, 0.1) var wetting_time_multiplier: float = 2.0
+## Once it is full it goes on its own, and this is how long that takes, flat, in
+## seconds. Deliberately an absolute number rather than a multiple of
+## `CONTROLLED_EMPTY_SECONDS`: what matters is how long the player spends slowed
+## and half blind, and that should not silently move every time the toilet
+## minigame is retuned. It must stay above `CONTROLLED_EMPTY_SECONDS` or losing
+## control would be the *fast* way to empty a bladder and the debuff would be a
+## reward - `tests/bladder_pressure_smoke.gd` pins that.
+@export_range(1.0, 120.0, 0.5) var wetting_duration_seconds: float = 20.0
 
 var current_value: float = 0.0
 ## True from the moment it fills to the moment it is empty again. Not the same
@@ -61,7 +63,7 @@ func _physics_process(delta: float) -> void:
 ## could only be ended by the code that drains it stayed switched on forever on
 ## every peer but the host.
 func _process_wetting(delta: float) -> void:
-	var seconds := CONTROLLED_EMPTY_SECONDS * maxf(wetting_time_multiplier, 0.1)
+	var seconds := maxf(wetting_duration_seconds, 0.1)
 	_set_value(current_value - (bladder_max / seconds) * delta)
 
 

@@ -90,18 +90,34 @@ func _expect_downed_after_kill(label: String) -> bool:
 	if downed.is_alive:
 		_fail("A downed player must not still count as alive.")
 		return false
-	if downed.get_node("DeathUI").visible:
-		_fail("The death screen must not run while a rescue is still possible.")
-		return false
+	# The scare has to be the one belonging to whatever caught them. Only the
+	# Huntsman's is JumpscareController's 3D lunge; every other ghost - and a
+	# null killer, which identifies as the statue - is drawn by the death
+	# screen in its scare-only mode. Playing the Midnight Grin for all of them
+	# was the bug this replaced, so "no death screen at all" is no longer the
+	# contract. What must still never happen is a Game Over behind it.
+	var death_ui := downed.get_node("DeathUI")
 	var scare := downed.get_node("Jumpscare") as JumpscareController
-	if not scare.is_playing():
+	if not scare.is_playing() and not bool(death_ui.get("scare_only")):
 		_fail("The %s catch played no jumpscare on the way down." % label)
+		return false
+	if death_ui.get_node("GameOver").visible:
+		_fail("A downed player's jumpscare must not raise a Game Over behind it.")
 		return false
 	# Cleared here rather than left to run out, so the next catch is asked to
 	# start its own scare instead of inheriting this one still playing.
 	scare.cancel()
-	if downed.get_node("DeathUI").visible:
-		_fail("A downed player's jumpscare must not raise a Game Over behind it.")
+	if bool(death_ui.get("scare_only")):
+		# Driven straight through impact -> jumpscare -> blackout: a scare-only
+		# run has to hand the screen back on its own, or a downed player spends
+		# their bleed-out looking at a black rectangle.
+		for i: int in 4:
+			death_ui._process(1.0)
+		if death_ui.visible or bool(death_ui.get("scare_only")):
+			_fail("A downed scare did not clear itself off the screen.")
+			return false
+	if death_ui.get_node("GameOver").visible:
+		_fail("A downed player's scare left a Game Over behind it.")
 		return false
 	if not is_equal_approx(downed.downed_time_remaining, expected_remaining):
 		_fail(

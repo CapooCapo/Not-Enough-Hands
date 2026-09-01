@@ -52,7 +52,7 @@ func _run() -> void:
 	# Losing control is the expensive way out, and has to stay strictly worse
 	# than walking to a toilet or the debuff is not a debuff.
 	var wetting_time: float = (
-		PlayerBladder.CONTROLLED_EMPTY_SECONDS * player.bladder.wetting_time_multiplier
+		player.bladder.wetting_duration_seconds
 	)
 	if wetting_time <= full_drain_time:
 		push_error(

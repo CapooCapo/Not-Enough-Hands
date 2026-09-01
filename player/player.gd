@@ -128,6 +128,10 @@ var _flashlight_base_range: float = 0.0
 ## running is closer to three.
 @export_range(0.0, 3.0, 0.1) var bladder_debuff_stamina_scale: float = 0.6
 
+## Mirrors `vignette_strength`'s default in ui/horror_overlay.gdshader, used when
+## the scene never assigned one. Keep the two in step.
+const OVERLAY_DEFAULT_VIGNETTE := 0.20
+
 @export_subgroup("Losing control")
 ## An accident is not the tail of the pressure curve, it is its own state, and
 ## these are flat for the whole of it. Scaling them off the bladder level the
@@ -356,7 +360,13 @@ func _update_bladder_pressure(_delta: float) -> void:
 	if overlay_material == null:
 		return
 	if _overlay_base_vignette < 0.0:
-		_overlay_base_vignette = float(overlay_material.get_shader_parameter("vignette_strength"))
+		# A uniform the scene never overrode reads back as null rather than as
+		# the shader's own default, and float(null) is a hard error - so the
+		# default is mirrored here instead of assumed to be readable.
+		var authored: Variant = overlay_material.get_shader_parameter("vignette_strength")
+		_overlay_base_vignette = (
+			float(authored) if authored != null else OVERLAY_DEFAULT_VIGNETTE
+		)
 	overlay_material.set_shader_parameter(
 		"vignette_strength",
 		clampf(_overlay_base_vignette + vignette, 0.0, 1.0)
@@ -1386,7 +1396,7 @@ func kill_by_ghost(ghost: Node3D) -> void:
 	# game-over behind it is what a rescuer takes away.
 	if _has_available_rescuer():
 		_enter_downed()
-		_present_downed_jumpscare()
+		_present_downed_jumpscare(ghost)
 	else:
 		_present_death(ghost)
 		_publish_life_state()
@@ -1413,8 +1423,15 @@ func _present_death(ghost: Node3D) -> void:
 		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 
 
-## Every player a ghost catches gets the same face in the same place - the one
-## still standing is the only one who also gets a Game Over behind it.
+## Being caught with a teammate still standing: the same scare a death gets, and
+## no Game Over behind it - the one still standing is the only difference.
+##
+## It has to be the scare belonging to *whatever caught you*. This used to play
+## JumpscareController unconditionally, which renders one asset, the Midnight
+## Grin - so a statue, a crawler or the darkness taking somebody down in a
+## four-player run all ended with the Huntsman's face in their camera. Only the
+## Huntsman goes through the 3D controller; every other ghost already has a
+## portrait and a sting on the death screen, which now has a scare-only mode.
 ##
 ## Routed to the victim's own machine for the reason _present_death() is: this
 ## is first-person, and the kill is resolved on the server. The controller is
@@ -1424,20 +1441,24 @@ func _present_death(ghost: Node3D) -> void:
 ## the length of the sequence. There is nothing to hold still anyway: a downed
 ## player cannot move. And no `_pending_hunter_killer` is set, which is what
 ## keeps _on_hunter_jumpscare_finished() from raising the Game Over card.
-func _present_downed_jumpscare() -> void:
+func _present_downed_jumpscare(ghost: Node3D) -> void:
 	if _encounter_belongs_elsewhere():
-		_show_downed_jumpscare.rpc_id(owner_peer_id)
+		_show_downed_jumpscare.rpc_id(owner_peer_id, _scene_path_of(ghost))
 		return
-	if not is_local_player() or not jumpscare:
+	if not is_local_player():
 		return
-	jumpscare.play_jumpscare(null)
+	if death_ui.has_method("show_downed_scare") \
+		and bool(death_ui.call("show_downed_scare", ghost)):
+		return
+	if jumpscare:
+		jumpscare.play_jumpscare(null)
 
 
 @rpc("authority", "call_remote", "reliable")
-func _show_downed_jumpscare() -> void:
+func _show_downed_jumpscare(ghost_path: NodePath) -> void:
 	if not _network_is_reachable() or not is_local_player():
 		return
-	_present_downed_jumpscare()
+	_present_downed_jumpscare(_scene_node(ghost_path) as Node3D)
 
 
 @rpc("authority", "call_remote", "reliable")

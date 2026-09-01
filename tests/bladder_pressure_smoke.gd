@@ -33,7 +33,7 @@ func _run() -> void:
 
 	print(
 		"Bladder pressure smoke test passed: 90-minute fill, debuff band, "
-		+ "self-emptying at double the toilet's cost, a toilet cancelling it, "
+		+ "self-emptying over a flat 20s, a toilet cancelling it, "
 		+ "and a server-driven value ending one."
 	)
 	quit()
@@ -86,7 +86,7 @@ func _test_the_debuff_band_is_the_top_quarter() -> bool:
 
 
 ## Ignore it long enough and it goes on its own, wherever the player happens to
-## be standing - and it takes `wetting_time_multiplier` times as long as walking
+## be standing - and it takes `wetting_duration_seconds`, far longer than walking
 ## to a toilet would have, which is the entire reason not to ignore it.
 func _test_a_full_bladder_empties_itself_slowly(bladder: PlayerBladder) -> bool:
 	var started := [0]
@@ -98,12 +98,14 @@ func _test_a_full_bladder_empties_itself_slowly(bladder: PlayerBladder) -> bool:
 	if not bladder.is_wetting or started[0] != 1:
 		return _fail("A full bladder did not start emptying itself.")
 
-	var expected_seconds := (
-		PlayerBladder.CONTROLLED_EMPTY_SECONDS * bladder.wetting_time_multiplier
-	)
+	var expected_seconds := bladder.wetting_duration_seconds
 	var toilet_seconds := PlayerBladder.CONTROLLED_EMPTY_SECONDS
 	if expected_seconds <= toilet_seconds:
-		return _fail("Losing control has to cost more than a controlled session.")
+		return _fail(
+			"Losing control (%.1fs) has to cost more than a controlled session (%.1fs), "
+			% [expected_seconds, toilet_seconds]
+			+ "or the debuff is a shortcut."
+		)
 
 	var elapsed := 0.0
 	var guard := 0
