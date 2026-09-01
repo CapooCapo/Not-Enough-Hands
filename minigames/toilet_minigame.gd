@@ -70,11 +70,31 @@ var liquid_origin: Marker3D
 # Configurable Parameters
 @export_category("Aim Control")
 @export var keyboard_control_acceleration: float = 2.4
-@export var mouse_velocity_impulse: float = 0.01
+@export var mouse_velocity_impulse: float = 0.006
+## Upper bound on the mouse travel one frame may feed into the nozzle, in
+## raw pixels, applied *before* mouse_velocity_impulse. Without it the
+## velocity clamp below is the only limiter, and at player.gd's 0.002 rad/px
+## any turn past roughly ten degrees saturates it - a glance and a full
+## shoulder check then cost exactly the same, which is what made looking for
+## the Toilet Ghost feel uncontrollable rather than expensive. At 60 px a
+## deliberate rear check lands in the yellow band (slow flow), not the red
+## one (noise, and a lurch closer).
+@export var max_mouse_impulse_per_frame: float = 60.0
 @export var nozzle_max_offset: float = 0.5
 @export var oscillation_speed: float = 1.2
-@export var oscillation_amplitude: float = 0.14
-@export var oscillation_amplitude_end: float = 0.24
+## The drift is deliberately kept *inside* the green band the HUD draws
+## (safe_zone_width below is 0.16 wide, i.e. +-0.08). The equilibrium the
+## hand is pulled toward therefore sits near centre most of the cycle and
+## the player is counter-steering it, not wrestling it: at the old 0.14/0.24
+## the target spent 70% of the early cycle and ~90% of the late one outside
+## the green band, so staying centred meant fighting the pull continuously.
+## The end value stays deliberately wider than warning_zone_width_end, because
+## a session left completely alone must still drift into the red - that is the
+## anti-AFK rule tests/toilet_minigame_smoke.gd asserts, and the two values
+## only make sense moved together. Widen these before widening
+## safe_zone_width: the narrow green band is what makes the minigame tense.
+@export var oscillation_amplitude: float = 0.09
+@export var oscillation_amplitude_end: float = 0.20
 @export var drift_pull: float = 6.0
 @export var velocity_damping: float = 3.0
 @export var max_nozzle_velocity: float = 0.9
@@ -101,12 +121,20 @@ var liquid_origin: Marker3D
 @export var bladder_drain_rate: float = 100.0 / 13.5
 @export_range(0.0, 1.0) var warning_drain_multiplier: float = 0.35
 @export var pee_ramp_duration: float = 1.5
-@export var pee_ramp_power: float = 4.0
+## Shape of that 1.5 s build-up. Kept low (quadratic) so the first second
+## already returns visible progress on the bladder bar - at the old power of
+## 4 the hardest part of a session paid out barely a fifth of full flow.
+@export var pee_ramp_power: float = 2.0
 @export var center_lock_delay: float = 0.3
 @export var combo_ramp_duration: float = 2.5
 @export var max_combo_bonus: float = 0.3
 
 @export_category("Difficulty")
+## Extra velocity damping applied only while the nozzle is inside the green
+## band, on top of velocity_damping. Reaching centre is rewarded with
+## stability instead of a knife edge, so a clean correction settles rather
+## than overshooting straight back out.
+@export var center_grip_damping: float = 2.0
 @export var safe_zone_width: float = 0.16
 @export var safe_zone_width_end: float = 0.1
 @export var warning_zone_width: float = 0.34
@@ -117,6 +145,13 @@ var liquid_origin: Marker3D
 @export var tremor_force: float = 0.28
 
 @export_category("Danger Consequence")
+## How long the nozzle has to stay in the red before it is actually loud.
+## Deliberately NOT raised to buy a longer "free look": one unattended drift
+## excursion into the red lasts under a second, so anything past 1.0 here
+## means ignoring the minigame entirely never becomes loud - measured, 1.1
+## already breaks that. The cost of looking is paid down by
+## max_mouse_impulse_per_frame instead, which keeps a rear check in the yellow
+## band where this timer never starts.
 @export var danger_noise_delay: float = 0.9
 @export var danger_noise_repeat_interval: float = 1.1
 @export_range(0.0, 1.0) var danger_noise_loudness: float = 0.85
@@ -391,11 +426,22 @@ func _handle_input(delta: float) -> void:
 	var acceleration := (drift_target - player_offset) * drift_pull
 	acceleration += input_dir * keyboard_control_acceleration
 	nozzle_velocity += acceleration * delta
-	nozzle_velocity += pending_mouse_motion * mouse_velocity_impulse
+	# Clamped before scaling, not after: the velocity clamp further down is
+	# reached by any turn past about ten degrees, so on its own it flattens
+	# every look into the same maximum jolt.
+	nozzle_velocity += clampf(
+		pending_mouse_motion,
+		-max_mouse_impulse_per_frame,
+		max_mouse_impulse_per_frame
+	) * mouse_velocity_impulse
 	pending_mouse_motion = 0.0
 
 	_update_tremor(delta, progress)
 	nozzle_velocity *= exp(-velocity_damping * delta)
+	# Same band _evaluate_balance scores against, so the grip ends exactly
+	# where the green does.
+	if absf(player_offset) <= lerpf(safe_zone_width, safe_zone_width_end, progress) * 0.5:
+		nozzle_velocity *= exp(-center_grip_damping * delta)
 	nozzle_velocity = clampf(nozzle_velocity, -max_nozzle_velocity, max_nozzle_velocity)
 	player_offset += nozzle_velocity * delta
 	if absf(player_offset) > nozzle_max_offset:

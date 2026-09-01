@@ -14,6 +14,11 @@ func _run() -> void:
 	var player := player_scene.instantiate() as CharacterBody3D
 	root.add_child(player)
 	player.set_physics_process(false)
+	if not is_equal_approx(player.max_stamina, 125.0) \
+		or not is_equal_approx(player.stamina_regen_idle, 23.0) \
+		or not is_equal_approx(player.stamina_regen_moving, 5.75):
+		_fail("Player stamina capacity/regen tuning is not +25%/+15%.")
+		return
 	var stamina_bar := player.get_node_or_null(
 		"StatusUI/StaminaPanel/Margin/VBox/StaminaBar"
 	) as ProgressBar

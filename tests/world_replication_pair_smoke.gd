@@ -51,6 +51,10 @@ var _sound_sent := false
 ## a later sound of the statue's own cannot overwrite the evidence.
 var _heard_pitch := -1.0
 var _initial_pitch := 1.0
+## The Statue spawn cue must be derived from its manifested transition after
+## the replicated transform lands. Otherwise the sound RPC can race the fast
+## transform channel and play from the ghost's old, inaudible position.
+var _heard_statue_spawn_cue := false
 
 
 func _initialize() -> void:
@@ -151,6 +155,12 @@ func _process(delta: float) -> bool:
 		return false
 
 	var pitch := _teleport_audio().pitch_scale
+	if not _heard_statue_spawn_cue \
+		and _visual.visible \
+		and _teleport_audio().playing \
+		and is_equal_approx(pitch, _initial_pitch) \
+		and not _ghost.global_position.is_equal_approx(Vector3.ZERO):
+		_heard_statue_spawn_cue = true
 	if _heard_pitch < 0.0 and not is_equal_approx(pitch, _initial_pitch):
 		_heard_pitch = pitch
 	if _elapsed > CLIENT_SECONDS:
@@ -197,6 +207,10 @@ func _write_client_verdict() -> void:
 		failures.append("no door durability arrived on the slow channel")
 	if _clock.elapsed_game_minutes <= 0:
 		failures.append("the night never arrived on the clock channel")
+	if not _heard_statue_spawn_cue:
+		failures.append(
+			"the statue manifested without playing its spawn cue at the replicated position"
+		)
 	if not is_equal_approx(_heard_pitch, SOUND_PITCH):
 		failures.append(
 			"the ghost's one-shot never arrived; every scream, horn and teleport "
@@ -219,7 +233,8 @@ func _read_client_verdict() -> void:
 		return _fail("the second process reported: " + verdict)
 	print(
 		"World replication pair smoke test passed: over a real socket a client took "
-		+ "the ghost's NodePath-keyed position and body without manifesting the decoy, its one-shot audio, "
+		+ "the ghost's NodePath-keyed position and body without manifesting the decoy, "
+		+ "the Statue spawn cue at its replicated position, its one-shot audio, "
 		+ "the door's durability, and the night."
 	)
 	quit()

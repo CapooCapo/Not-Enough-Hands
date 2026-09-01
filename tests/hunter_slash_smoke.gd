@@ -59,7 +59,7 @@ func _run() -> void:
 		return
 
 	print("Hunter slash smoke test passed: attack clip with the body rate left "
-		+ "alone, commit timing, backpedal is caught, sprint still escapes.")
+		+ "alone, contact latch, commit timing, backpedal is caught, sprint still escapes.")
 	quit()
 
 
@@ -129,8 +129,17 @@ func _test_commitment_to_contact_is_the_windup() -> bool:
 
 	hunter.call("dev_force_spawn", null)
 	hunter.set("roar_duration", 0.05)
-	if not await _wait_for(func() -> bool: return landed[0] > 0, 8.0):
-		return _fail("The Huntsman never landed its grab on a stationary player.")
+	if not await _wait_for(
+		func() -> bool: return bool(hunter.get("_seize_contacted_target")),
+		8.0
+	):
+		return _fail("The Huntsman reached a stationary player without recording contact.")
+	# Once the bodies have genuinely touched, a late LOS/distance sample must not
+	# turn that landed grab into a miss. Move the target clear before resolution
+	# to prove the collision latch, rather than the old radius fallback, owns it.
+	player.global_position += Vector3(0.0, 0.0, -10.0)
+	if not await _wait_for(func() -> bool: return landed[0] > 0, 1.0):
+		return _fail("A recorded Huntsman contact was discarded before grab resolution.")
 
 	var elapsed := float(landed[0] - committed[0]) * _tick
 	var windup: float = hunter.get("seize_windup")

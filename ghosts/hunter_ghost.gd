@@ -31,7 +31,7 @@ extends CharacterBody3D
 ## walking through the second - and then it charges at 13.5 m/s. A sprinting
 ## player does 17.25 and still outruns it; a walking one does 7.5 and does not.
 ## That is the whole shape of the chase: sprint buys distance, it does not buy
-## safety, because five seconds is all the stamina there is. Breaking line of
+## safety, because six and a quarter seconds is all the stamina there is. Breaking line of
 ## sight does not
 ## shake it; staying out of sight for a full `lose_sight_time` does - and when it
 ## does give up, it walks the other way before returning to patrol.
@@ -112,7 +112,7 @@ signal killed_player(player: Node3D)
 ## Deliberately between the two speeds a player has. A sprint is 17.25 m/s
 ## (`walk_speed` 7.5 x `sprint_speed_multiplier` 2.3) and still outruns this; a
 ## walk is 7.5 and loses six metres a second to it. Since the whole sprint is
-## five seconds of stamina, running is a way of buying time to reach a corner
+## 6.25 seconds of stamina, running is a way of buying time to reach a corner
 ## and never a way of being safe, which is the tension the old 9.0 did not have:
 ## at 9.0 a player who simply held shift gained ground forever and could not be
 ## caught by this creature under any circumstances.
@@ -175,7 +175,7 @@ signal killed_player(player: Node3D)
 @export_range(0.0, 1.0, 0.05) var roar_plant_fraction: float = 0.5
 ## How long it keeps charging after losing sight. Breaking line of sight does
 ## not shake it: you have to stay out of sight for this whole stretch.
-@export var lose_sight_time: float = 5.5
+@export var lose_sight_time: float = 6.5
 ## Deliberate fair play, and the one place this creature is allowed to be stupid.
 ## When it finally loses somebody it has been chasing, it turns around
 ## and walks this far in the opposite direction, ignoring the trail entirely
@@ -341,6 +341,10 @@ var _entry_timer: float = 0.0
 var _pending_entry_door: Node3D
 var _state_timer: float = 0.0
 var _seize_cooldown_timer: float = 0.0
+## A real body collision during the committed lunge is authoritative evidence
+## of a landed grab. Kept until the windup resolves so touching the player can
+## no longer turn into a miss because the final LOS ray clips a doorframe.
+var _seize_contacted_target: bool = false
 ## The line the current lunge is committed to, fixed at commit and allowed to
 ## correct only at `seize_lunge_turn_speed`.
 var _seize_direction: Vector3 = Vector3.FORWARD
@@ -503,6 +507,8 @@ func _physics_process(delta: float) -> void:
 	if is_on_floor():
 		_try_step_up(horizontal_motion)
 	move_and_slide()
+	if state == HunterState.SEIZING:
+		_record_seize_contact()
 
 	_update_goal_progress(delta)
 	if update_threat:
@@ -610,9 +616,8 @@ func _enforce_chase_override() -> void:
 		_set_state(HunterState.LOCKED)
 
 
-## Sight memory advances even during the grab windup and recovery, so the five
-## seconds mean five real uninterrupted seconds rather than five seconds spent
-## specifically inside LOCKED.
+## Sight memory advances even during the grab windup and recovery, so the 6.5
+## seconds are uninterrupted rather than counting only time spent in LOCKED.
 func _update_chase_sight_memory(delta: float, check_line_of_sight: bool = true) -> void:
 	if not is_instance_valid(current_target):
 		_target_visible_now = false
@@ -843,6 +848,7 @@ func _update_locked(delta: float) -> void:
 
 func _begin_seize() -> void:
 	WorldNet.play_shared(seize_audio)
+	_seize_contacted_target = false
 	_set_state(HunterState.SEIZING)
 	_seize_direction = _flat_direction_to(current_target)
 	seize_started.emit(current_target)
@@ -881,13 +887,28 @@ func _update_seizing(delta: float) -> void:
 	_seize_cooldown_timer = seize_cooldown
 	if is_instance_valid(current_target) \
 		and not _attacks_blocked() \
-		and global_position.distance_to(current_target.global_position) <= seize_kill_radius \
-		and _has_line_of_sight(current_target):
+		and (_seize_contacted_target or (
+			global_position.distance_to(current_target.global_position) <= seize_kill_radius \
+			and _has_line_of_sight(current_target)
+		)):
 		_kill(current_target)
 		return
 
 	seize_missed.emit()
 	_set_state(HunterState.RECOVERING)
+
+
+## Called after move_and_slide(), while its collision list still describes the
+## lunge frame that just happened. This is deliberately exact body contact,
+## not another larger proximity radius: a sideways dodge remains valid.
+func _record_seize_contact() -> void:
+	if _seize_contacted_target or not is_instance_valid(current_target):
+		return
+	for index: int in get_slide_collision_count():
+		var collision := get_slide_collision(index)
+		if collision and collision.get_collider() == current_target:
+			_seize_contacted_target = true
+			return
 
 
 func _update_recovering(delta: float) -> void:
@@ -1574,6 +1595,7 @@ func _reset_hunt_memory() -> void:
 	_sight_timer = 0.0
 	_target_visible_now = false
 	_seize_cooldown_timer = 0.0
+	_seize_contacted_target = false
 	# A fresh lap, starting from wherever it came in.
 	_sweep_visited.clear()
 	_advance_sweep_point()

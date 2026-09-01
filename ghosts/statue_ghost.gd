@@ -431,7 +431,12 @@ func _begin_hunt(target: CharacterBody3D, ambush_position: Vector3) -> void:
 	if not flat_target.is_zero_approx():
 		rotation.y = atan2(-flat_target.x, -flat_target.z)
 	_apply_idle_pose(_pick_new_pose_index())
-	WorldNet.play_shared(teleport_audio)
+	# The spawn transform and a shared sound RPC use different replication
+	# channels. On a client the sound could therefore arrive first and play at
+	# the statue's previous (often distant) position. The authority plays its
+	# own cue here; replicas play theirs from the manifested-state transition
+	# below, after WorldReplicator has already applied the new transform.
+	teleport_audio.play()
 	hunt_started.emit(target, ambush_position)
 
 
@@ -475,10 +480,17 @@ func _enter_hidden(delay: float, play_sound: bool = true) -> void:
 
 
 func _set_manifested(manifested: bool) -> void:
+	var was_manifested := visual_root.visible
 	visual_root.visible = manifested
 	dust.emitting = manifested
 	collision_layer = normal_collision_layer if manifested else 0
 	collision_mask = normal_collision_mask if manifested else 0
+	# A replicated manifestation is repeated in ghost state until received, so
+	# this cue cannot be lost like a one-shot RPC. WorldReplicator sets the
+	# statue's position before calling this method, keeping the 3D sound at the
+	# actual ambush point. The authority already plays the cue in _begin_hunt().
+	if manifested and not was_manifested and WorldNet.is_network_client():
+		teleport_audio.play()
 
 
 func _random_delay(minimum: float, maximum: float) -> float:

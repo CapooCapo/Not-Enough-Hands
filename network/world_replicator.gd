@@ -266,10 +266,30 @@ func report_holder(item: Node, peer_id: int) -> void:
 func report_sound(player: Node, offset: float, pitch: float, volume_db: float) -> void:
 	if not NetworkManager.session_active or not NetworkManager.is_world_authority():
 		return
+	_bind_scene_if_changed()
 	var path := _path_from_scene(player)
 	if path.is_empty():
 		return
-	_play_sound.rpc(path, offset, pitch, volume_db)
+	# Ghost transforms travel on the fast channel while one-shot sounds travel
+	# reliably. Either channel may arrive first, so send the authoritative ghost
+	# position with the cue and apply it before playback. Otherwise a scream,
+	# horn or chitter can play at that ghost's previous position and sound as if
+	# it never happened at all.
+	var anchor_path := ""
+	var anchor_position := Vector3.ZERO
+	var ancestor := player
+	while ancestor != null and ancestor != _scene_root:
+		if ancestor is Node3D and ancestor.is_in_group(&"hostile_ghosts"):
+			anchor_path = _path_from_scene(ancestor)
+			anchor_position = (ancestor as Node3D).global_position
+			break
+		ancestor = ancestor.get_parent()
+	for peer_id: int in NetworkManager.replication_ready_peers:
+		if peer_id == NetworkManager.SERVER_PEER_ID:
+			continue
+		_play_sound.rpc_id(
+			peer_id, path, offset, pitch, volume_db, anchor_path, anchor_position
+		)
 
 
 ## The counterpart for the few of those that are long enough to need cutting
@@ -737,8 +757,19 @@ func _sync_clock(
 
 
 @rpc("authority", "call_remote", "reliable")
-func _play_sound(path: String, offset: float, pitch: float, volume_db: float) -> void:
+func _play_sound(
+	path: String,
+	offset: float,
+	pitch: float,
+	volume_db: float,
+	anchor_path: String = "",
+	anchor_position: Vector3 = Vector3.ZERO
+) -> void:
 	_bind_scene_if_changed()
+	if not anchor_path.is_empty():
+		var anchor := _node_from_scene_path(anchor_path) as Node3D
+		if anchor:
+			anchor.global_position = anchor_position
 	var audio := _node_from_scene_path(path)
 	if audio == null or not audio.has_method(&"play"):
 		return

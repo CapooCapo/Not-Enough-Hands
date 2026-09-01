@@ -231,18 +231,25 @@ func _run() -> void:
 		quit(1)
 		return
 	# Flow starts automatically, but its first 0.1 seconds are near-zero. The
-	# ramp must reach maximum only after the configured 0.75 seconds.
+	# ramp must reach maximum only after the configured pee_ramp_duration -
+	# read from the export rather than hardcoded, because that value is a
+	# balance dial (it has already moved from 0.75 to 1.5) while the shape
+	# asserted here - slow start, full pressure at the end of the ramp - is
+	# the actual contract.
 	player.bladder.current_value = 50.0
 	minigame._flow_ramp_elapsed = 0.0
 	var bladder_before_short_flow: float = player.get_bladder()
 	minigame._evaluate_balance(0.1)
 	if bladder_before_short_flow - player.get_bladder() >= 0.01:
-		push_error("A fresh 0.1-second automatic flow drained too quickly; the 0.75-second ramp was bypassed.")
+		push_error("A fresh 0.1-second automatic flow drained too quickly; the pressure ramp was bypassed.")
 		quit(1)
 		return
-	minigame._evaluate_balance(0.65)
+	minigame._evaluate_balance(minigame.pee_ramp_duration - 0.1)
 	if minigame._flow_ramp_elapsed < minigame.pee_ramp_duration:
-		push_error("Automatic flow did not reach full pressure after 0.75 seconds.")
+		push_error(
+			"Automatic flow did not reach full pressure after %.2f seconds."
+			% minigame.pee_ramp_duration
+		)
 		quit(1)
 		return
 	minigame.asset_anchor.position.x = 0.0
@@ -439,7 +446,12 @@ func _run() -> void:
 		push_error("Toilet Ghost stun did not enable the concussion overlay.")
 		quit(1)
 		return
-	if not is_zero_approx(float(player_b_overlay.get_shader_parameter("stun_strength"))):
+	# An un-stunned player's material has never had the uniform written, so
+	# get_shader_parameter() answers null here rather than 0.0 - float(null)
+	# is a hard script error, which is exactly the leak-free state this check
+	# is asserting.
+	var player_b_stun: Variant = player_b_overlay.get_shader_parameter("stun_strength")
+	if player_b_stun != null and not is_zero_approx(float(player_b_stun)):
 		push_error("One player's stun leaked into another player's overlay material.")
 		quit(1)
 		return

@@ -74,10 +74,10 @@ signal toilet_ghost_stun_changed(active: bool)
 @export var footstep_slice_duration: float = 0.38
 
 var is_crouching: bool = false
-@export var max_stamina: float = 100.0
+@export var max_stamina: float = 125.0
 @export var sprint_stamina_drain: float = 20.0
-@export var stamina_regen_idle: float = 20.0
-@export var stamina_regen_moving: float = 5.0
+@export var stamina_regen_idle: float = 23.0
+@export var stamina_regen_moving: float = 5.75
 
 var current_stamina: float = max_stamina
 var head_bob_time: float = 0.0
@@ -124,8 +124,8 @@ var _flashlight_base_range: float = 0.0
 ## rest of the night is already doing to it.
 @export_range(0.0, 0.8, 0.05) var bladder_debuff_vignette: float = 0.35
 ## How much faster a sprint burns stamina at a full bladder. At 0.6 a full
-## bladder costs 60% more per second, so the escape that was five seconds of
-## running is closer to three.
+## bladder costs 60% more per second, so the 6.25-second full reserve falls to
+## just under four seconds.
 @export_range(0.0, 3.0, 0.1) var bladder_debuff_stamina_scale: float = 0.6
 
 ## Mirrors `vignette_strength`'s default in ui/horror_overlay.gdshader, used when
@@ -151,6 +151,18 @@ var _overlay_base_vignette: float = -1.0
 ## Set on a client between a toilet session ending and the server acknowledging
 ## the drain, so a snapshot from before the report cannot refill the bar.
 var _bladder_report_pending: bool = false
+## Incremented on the client each time a toilet report is sent, and echoed
+## back by the server as server_toilet_ack in every snapshot (see
+## _last_applied_toilet_report below). Reconciliation used to compare the
+## reported bladder *value* against the server's broadcast value with a
+## fixed +-0.01 tolerance - but the server keeps filling passively the whole
+## round trip, and even just the 50ms gap to the next 20Hz broadcast (let
+## alone real ping) routinely drifts past 0.01. Once it did, the server's
+## value never dips back below the client's frozen one again until a full
+## fill/wetting cycle, so the client's bar simply stopped updating - the
+## "sometimes still full after peeing" bug. Comparing sequence numbers
+## instead of values is exact regardless of latency or fill rate.
+var _toilet_report_sequence: int = 0
 
 ## Temporary look-around constraint a minigame can impose (ToiletMinigame and
 ## DoorGhostMinigame) - false/full-range outside any minigame, so normal
@@ -196,6 +208,10 @@ var _active_toilet_minigame: Node = null
 
 ## Same arrangement for BreakerMinigame, which lives per-breaker.
 var _active_breaker_minigame: Node = null
+## Server-side only: the highest _toilet_report_sequence this player's own
+## client has had applied, echoed back to it so it can tell a stale snapshot
+## from one that actually reflects its last report.
+var _last_applied_toilet_report: int = 0
 var _pending_hunter_killer: Node3D = null
 
 var _minigame_ghost_safety_locks: int = 0
@@ -770,7 +786,8 @@ func _send_network_state(peer_id: int) -> void:
 		revive_progress,
 		bladder.get_bladder() if bladder else 0.0,
 		_last_processed_input_sequence,
-		_life_state_revision
+		_life_state_revision,
+		_last_applied_toilet_report
 	)
 
 
@@ -789,7 +806,8 @@ func _receive_network_state(
 	server_revive_progress: float,
 	server_bladder: float,
 	ack_input_sequence: int,
-	server_life_state_revision: int
+	server_life_state_revision: int,
+	server_toilet_ack: int
 ) -> void:
 	if not _network_is_reachable() or multiplayer.is_server():
 		return
@@ -815,7 +833,7 @@ func _receive_network_state(
 	# the local value until a packet arrives that is no higher than it.
 	if bladder and not is_toilet_minigame_active():
 		if _bladder_report_pending:
-			if server_bladder <= bladder.get_bladder() + 0.01:
+			if server_toilet_ack >= _toilet_report_sequence:
 				_bladder_report_pending = false
 				bladder.set_bladder(server_bladder)
 		else:
@@ -1772,12 +1790,14 @@ func _on_toilet_session_ended(success: bool, toilet: Node) -> void:
 		# See apply_network_state(): snapshots in flight still carry the level
 		# this session just drained, and must not be allowed to undo it.
 		_bladder_report_pending = true
+		_toilet_report_sequence += 1
 		_report_remote_encounter_finished.rpc_id(
 			NETWORK_SERVER_PEER_ID,
 			_scene_path_of(toilet),
 			&"start_toilet_minigame",
 			success,
-			get_bladder()
+			get_bladder(),
+			_toilet_report_sequence
 		)
 
 
@@ -1819,7 +1839,8 @@ func _on_breaker_session_ended(success: bool, breaker: Node) -> void:
 			_scene_path_of(breaker),
 			&"start_breaker_minigame",
 			success,
-			get_bladder()
+			get_bladder(),
+			0
 		)
 
 
@@ -1956,7 +1977,8 @@ func _report_remote_encounter_finished(
 	target_path: NodePath,
 	starter: StringName,
 	success: bool,
-	reported_bladder: float
+	reported_bladder: float,
+	report_id: int
 ) -> void:
 	if not _rpc_reached_authority() or not _rpc_sender_owns_player():
 		return
@@ -1968,6 +1990,10 @@ func _report_remote_encounter_finished(
 	if starter == &"start_toilet_minigame":
 		if is_finite(reported_bladder):
 			set_bladder(reported_bladder)
+		# Acknowledged even if reported_bladder was somehow invalid - the
+		# session did end, and the client must not be stuck waiting forever
+		# for an ack that already happened.
+		_last_applied_toilet_report = maxi(_last_applied_toilet_report, report_id)
 		if target.has_method("end_session"):
 			target.call("end_session")
 	elif target.has_method("complete_remote_session"):
