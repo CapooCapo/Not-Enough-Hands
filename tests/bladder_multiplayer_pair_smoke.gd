@@ -3,18 +3,32 @@ extends SceneTree
 ## Two real ENet processes pin bladder ownership and toilet-result
 ## reconciliation. The server gives the host and client deliberately different
 ## values; the client must receive only its own, then keep its completed toilet
-## result after the reliable acknowledgement arrives.
+## result after the reliable acknowledgement arrives - and must not hold it
+## forever when an acknowledgement is never coming at all.
 
 const PORT := 47323
 const RESULT_PATH := "res://.godot/bladder_multiplayer_pair_result.txt"
-const TIMEOUT := 10.0
+const TIMEOUT := 15.0
 const HOST_BLADDER := 31.0
 const CLIENT_BLADDER := 82.0
 const REMOTE_SENTINEL := 7.0
+## Distinct value the client latches behind a report the server will never
+## acknowledge, so the snapshots that resume afterwards are visible.
+const ORPHAN_VALUE := 55.0
+## Player.TOILET_REPORT_ACK_TIMEOUT (3s) plus room for the frame it is noticed.
+const ORPHAN_DEADLINE := 5.0
 
 var _is_client := false
 var _elapsed := 0.0
 var _report_sent := false
+## While > 0, the client is imitating ToiletMinigame's post-drain wind-down:
+## out of PLAYING, bladder already at zero, session_ended not emitted yet.
+var _winddown_until := 0.0
+## Set once the acknowledged-report phase has passed, so the orphaned-report
+## phase below is entered exactly once.
+var _ack_checked := false
+## Elapsed time at which the orphaned report was latched, 0 before that.
+var _orphan_started := 0.0
 var _done := false
 var _client_pid := -1
 var _client_peer_id := 0
@@ -139,7 +153,7 @@ func _process(delta: float) -> bool:
 				return _fail("the client's toilet report changed the host bladder")
 			if not is_zero_approx(_client_player.get_bladder()):
 				return _fail("the server did not apply the client's completed toilet result")
-			print("Bladder multiplayer pair smoke test passed: owner-only snapshots and toilet acknowledgement stayed isolated per player.")
+			print("Bladder multiplayer pair smoke test passed: owner-only snapshots stayed isolated per player, a session held its drain across the whole wind-down, and an unacknowledged report let go of the bar instead of freezing it.")
 			quit()
 			return false
 		if _elapsed >= TIMEOUT:
@@ -164,14 +178,74 @@ func _process(delta: float) -> bool:
 			)
 		_report_sent = true
 		_client_player.set_bladder(0.0)
-		_client_player.call("_on_toilet_session_ended", true, _toilet)
+		# ToiletMinigame leaves PLAYING the moment the bladder empties, then
+		# spends a second of result text plus a camera tween before emitting
+		# session_ended. Snapshots keep landing through all of it carrying the
+		# server's pre-session value, and nothing has been reported yet - so the
+		# owner-side guard has to hold on the session *reference*, not on
+		# is_running(). Stand in for that window with a minigame node that is no
+		# longer running, and let real snapshots arrive across it.
+		var winding_down := Node.new()
+		winding_down.name = "ToiletMinigame"
+		_toilet.add_child(winding_down)
+		_client_player.set("_active_toilet_minigame", winding_down)
+		_winddown_until = _elapsed + 0.5
+		return false
 
-	if _report_sent \
+	if _winddown_until > 0.0:
+		if not is_zero_approx(_client_player.get_bladder()):
+			return _write_client_result(
+				"a snapshot refilled the bladder to %.2f during the minigame wind-down"
+				% _client_player.get_bladder()
+			)
+		if _elapsed < _winddown_until:
+			return false
+		_winddown_until = 0.0
+		_client_player.call("_on_toilet_session_ended", true, _toilet)
+		return false
+
+	if _report_sent and not _ack_checked \
 		and not bool(_client_player.get("_bladder_report_pending")):
 		if not is_zero_approx(_client_player.get_bladder()):
 			return _write_client_result("completed toilet value was overwritten by a snapshot")
 		if not is_equal_approx(_host_player.get_bladder(), REMOTE_SENTINEL):
 			return _write_client_result("another player's bladder overwrote the remote sentinel")
+		_ack_checked = true
+		# The authority drops a report whose encounter it has already released,
+		# without advancing the ack - so for a sequence it will never echo,
+		# nothing on the wire can ever clear the latch. Stand in for that with a
+		# report the server was simply never told about.
+		_client_player.set_bladder(ORPHAN_VALUE)
+		_client_player.set("_toilet_report_sequence", 999)
+		_client_player.set("_bladder_report_pending", true)
+		_orphan_started = _elapsed
+		return false
+
+	if _orphan_started > 0.0:
+		var waited := _elapsed - _orphan_started
+		if waited < 1.0:
+			# Still well inside the window: the latch must be doing its job.
+			if not is_equal_approx(_client_player.get_bladder(), ORPHAN_VALUE):
+				return _write_client_result(
+					"the latch released after %.2fs, long before the report could have timed out"
+					% waited
+				)
+			return false
+		# Judged only at the deadline: the latch is released inside Player's own
+		# _process, so the frame it drops on is a frame before any snapshot has
+		# been polled. Past ORPHAN_DEADLINE there have been seconds of them.
+		if waited < ORPHAN_DEADLINE:
+			return false
+		if bool(_client_player.get("_bladder_report_pending")):
+			return _write_client_result(
+				"an unacknowledged toilet report latched the bladder for %.1fs and counting"
+				% waited
+			)
+		if not is_zero_approx(_client_player.get_bladder()):
+			return _write_client_result(
+				"snapshots did not resume after the latch timed out (bladder %.2f)"
+				% _client_player.get_bladder()
+			)
 		return _write_client_result("PASS")
 
 	if _elapsed >= TIMEOUT - 1.0:

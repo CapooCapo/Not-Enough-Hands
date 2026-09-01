@@ -151,6 +151,16 @@ var _overlay_base_vignette: float = -1.0
 ## Set on a client between a toilet session ending and the server acknowledging
 ## the drain, so a snapshot from before the report cannot refill the bar.
 var _bladder_report_pending: bool = false
+## How long that latch will wait for the acknowledgement before deciding it is
+## never coming. It only ever has to cover one report -> apply -> next snapshot
+## round trip: a reliable packet up, and at most `NETWORK_STATE_INTERVAL` back.
+## Three seconds is an order of magnitude past that even on a connection this
+## game is already unplayable on, so it can only fire when the ack genuinely
+## will not arrive.
+const TOILET_REPORT_ACK_TIMEOUT := 3.0
+## Seconds `_bladder_report_pending` has been waiting, counted only while it is
+## set - see `_update_toilet_report_timeout()`.
+var _bladder_report_wait: float = 0.0
 ## Incremented on the client each time a toilet report is sent, and echoed
 ## back by the server as server_toilet_ack in every snapshot (see
 ## _last_applied_toilet_report below). Reconciliation used to compare the
@@ -348,6 +358,7 @@ func _process(delta: float) -> void:
 	if is_local_player():
 		_update_hunter_gaze_interference(delta)
 		_update_bladder_pressure(delta)
+		_update_toilet_report_timeout(delta)
 
 
 ## Needing to go is a real cost above `bladder_debuff_threshold` and not just a
@@ -397,6 +408,29 @@ func get_bladder_pressure() -> float:
 	var ratio := bladder.get_bladder_ratio()
 	var span := maxf(1.0 - bladder_debuff_threshold, 0.001)
 	return clampf((ratio - bladder_debuff_threshold) / span, 0.0, 1.0)
+
+
+## The one release the toilet-report latch would otherwise not have.
+##
+## While `_bladder_report_pending` is set the client refuses every bladder
+## snapshot, and only an acknowledgement clears it - which the authority is
+## free to never send. `_report_remote_encounter_finished()` drops a report
+## whose encounter the server has already let go (the toilet resolved to null
+## on a peer mid-map-swap, the body left the tree with the run) without ever
+## advancing the ack, and it is right to: that ownership check is what stops a
+## client asserting an arbitrary bladder without the server having granted it a
+## session. So the latch is released from this end instead. Left unbounded it
+## froze the bar for the rest of the run, deaf to the authority - the same
+## class of bug as the refill it exists to prevent, just pointing the other
+## way. Taking the server's word one snapshot late beats never taking it again.
+func _update_toilet_report_timeout(delta: float) -> void:
+	if not _bladder_report_pending:
+		_bladder_report_wait = 0.0
+		return
+	_bladder_report_wait += delta
+	if _bladder_report_wait >= TOILET_REPORT_ACK_TIMEOUT:
+		_bladder_report_pending = false
+		_bladder_report_wait = 0.0
 
 
 ## This is intentionally a local camera check rather than part of the Hunter's
@@ -1815,10 +1849,21 @@ func _on_toilet_session_ended(success: bool, toilet: Node) -> void:
 		)
 
 
+## True for the whole session, deliberately *not* `is_running()`.
+##
+## `succeed()`/`cancel()` leave ToiletMinigame's PLAYING state the instant the
+## bladder hits zero, and only then spend a second of result text plus a
+## camera-release tween before emitting `session_ended`. `is_running()` was
+## already false for all of it, so on a client every snapshot landing in that
+## window overwrote the bladder that had just been emptied with the server's
+## pre-session value - and the report that followed carried *that* value back
+## to the authority as the session's result. The bar refilled at the exact
+## moment the player finished, on every peer, and the drain was lost: the
+## "never finishes peeing" bug. Keyed on the reference instead, which
+## `_on_toilet_session_ended()` clears in the same breath as it sets
+## `_bladder_report_pending`, so the two guards meet with no frame in between.
 func is_toilet_minigame_active() -> bool:
-	return is_instance_valid(_active_toilet_minigame) \
-		and _active_toilet_minigame.has_method("is_running") \
-		and bool(_active_toilet_minigame.call("is_running"))
+	return is_instance_valid(_active_toilet_minigame)
 
 
 ## Called by MainBreaker's own script when its Interactable fires - the same
