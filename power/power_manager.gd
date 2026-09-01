@@ -12,10 +12,10 @@ signal regional_blackout_ended
 
 @export_category("Power Configuration")
 @export_range(1.0, 100000.0, 1.0)
-var max_power: float = 1000.0
+var max_power: float = 1500.0
 
 @export_range(0.0, 100000.0, 1.0)
-var current_power: float = 1000.0
+var current_power: float = 1500.0
 
 
 @export_category("Debug")

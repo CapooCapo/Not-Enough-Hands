@@ -15,6 +15,7 @@ extends SceneTree
 
 ## Mirrors the crawler script's enum declaration order.
 const CrawlerState_PATROL := 3
+const CrawlerState_LEAVING := 10
 
 
 func _initialize() -> void:
@@ -30,6 +31,8 @@ func _run() -> void:
 	# another's geometry.
 	_build_panel_room()
 	if not await _test_rounds_an_obstruction(crawler_scene):
+		return
+	if not await _test_leaving_rounds_an_obstruction(crawler_scene):
 		return
 	if not await _test_sidesteps_toward_the_open_side(crawler_scene):
 		return
@@ -48,9 +51,9 @@ func _run() -> void:
 		return
 
 	print(
-		'Crawler locomotion smoke test passed: rounds an obstruction, sidesteps '
-		+ 'toward the open side, no sidestep in open floor, search points stay '
-		+ 'on the near side of a wall, a moving player cannot hide a wedge, '
+		'Crawler locomotion smoke test passed: hunt and leave round an obstruction, '
+		+ 'sidesteps toward the open side, no sidestep in open floor, search points '
+		+ 'stay on the near side of a wall, a moving player cannot hide a wedge, '
 		+ 'patrol leaves the floor with a navmesh present.'
 	)
 	quit()
@@ -169,6 +172,46 @@ func _test_rounds_an_obstruction(scene: PackedScene) -> bool:
 			crawler
 		)
 	await _despawn(crawler)
+	return true
+
+
+## LEAVING used the same steering as a hunt but was missing from the no-progress
+## detector. A wall directly between the crawler and its exit therefore made it
+## turn and shove forever until leave_timeout, without ever taking the sidestep
+## that already rescued PATROL/HUNTING/SEARCHING from the same geometry.
+func _test_leaving_rounds_an_obstruction(scene: PackedScene) -> bool:
+	var player := CharacterBody3D.new()
+	player.add_to_group('players')
+	root.add_child(player)
+	player.global_position = Vector3(-4.0, 0.9, 0.0)
+
+	var crawler := _spawn_crawler(scene, Vector3(0.45, 0.4, 0.0))
+	crawler.set('leave_distance', 6.0)
+	crawler.set('leave_timeout', 6.0)
+	await physics_frame
+	await physics_frame
+	crawler.call('_begin_leaving')
+
+	if int(crawler.get('state')) != CrawlerState_LEAVING:
+		return _fail('Crawler did not enter LEAVING for the obstruction check.', crawler)
+
+	var elapsed := 0.0
+	var best_x: float = crawler.global_position.x
+	while elapsed < 5.0:
+		await physics_frame
+		elapsed += root.get_process_delta_time()
+		best_x = maxf(best_x, crawler.global_position.x)
+		if best_x > 1.6:
+			break
+
+	if best_x <= 1.6:
+		return _fail(
+			'Crawler entered LEAVING but stayed trapped against the panel: best x %.2f.'
+			% best_x,
+			crawler
+		)
+	await _despawn(crawler)
+	await _despawn(player)
 	return true
 
 

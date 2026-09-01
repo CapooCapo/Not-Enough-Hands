@@ -1411,7 +1411,15 @@ func _begin_leaving() -> void:
 	leave_timer = leave_timeout
 	leave_target = _farthest_point_from_players()
 	leave_origin = global_position
+	# Leaving is a fresh route, not the tail end of the hunt's steering. Keeping
+	# an in-progress wedge sidestep (or the smoothed direction into the player)
+	# makes the first part of the retreat curl around the room instead of reading
+	# as a clean turn away.
+	wedge_anchor = global_position
 	no_progress_time = 0.0
+	wedge_escape_timer = 0.0
+	wedge_escape_direction = Vector3.ZERO
+	steer_direction = Vector3.ZERO
 	_set_state(CrawlerState.LEAVING)
 	leaving_area.emit(leave_target)
 
@@ -1933,9 +1941,11 @@ func _brake(delta: float) -> void:
 ## Displacement from an anchor answers both, and needs no goal at all.
 func _update_stuck_state(delta: float) -> void:
 
-	var should_be_moving := steering_active 		and (state == CrawlerState.HUNTING
+	var should_be_moving := steering_active \
+		and (state == CrawlerState.HUNTING
 			or state == CrawlerState.SEARCHING
-			or state == CrawlerState.PATROL)
+			or state == CrawlerState.PATROL
+			or state == CrawlerState.LEAVING)
 	if not should_be_moving:
 		# Holding still on purpose - arrived, listening, braked - is not being
 		# stuck, and letting it accumulate here is what used to drop a crawler
