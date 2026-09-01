@@ -312,6 +312,13 @@ signal containment_recovered(escaped_position: Vector3, recovered_position: Vect
 ## rate: after a leap it has to creep and listen again before trying another.
 @export var pounce_cooldown: float = 7.0
 @export_range(0.0, 1.0) var pounce_min_confidence: float = 0.25
+## Being technically inside the edge of the camera for one frame is not enough
+## warning. After this much unobstructed view the player knows the Crawler is in
+## the area, and that knowledge lasts until it retreats and hides again.
+@export var minimum_visible_before_awareness: float = 0.35
+## Audio near its maximum attenuation edge can be technically playing but too
+## faint to read as a warning. Only this inner portion grants awareness.
+@export_range(0.1, 1.0) var audio_awareness_distance_multiplier: float = 0.65
 ## How near its noise fix a player has to be before it is willing to leap at
 ## them. It is blind: it lunges at a sound, not at a body, so a player who is
 ## simply nearby while something else made the noise is not a target.
@@ -357,6 +364,16 @@ var normal_collision_mask: int
 var pounce_timer: float = 0.0
 var pounce_cooldown_timer: float = 0.0
 var pounce_air_time: float = 0.0
+## The noise-making target selected after the encounter was announced. Kept
+## apart from noise_source because a newer sound during the windup must not
+## redirect an already committed attack onto a bystander.
+var pounce_target: CharacterBody3D
+var player_visibility_times: Dictionary = {}
+var aware_player_ids: Dictionary = {}
+## Team-wide permission for this manifestation. One player receiving a fair
+## warning announces the Crawler to the whole room; from then on any player who
+## gives it a valid noise fix can be attacked.
+var attack_announced: bool = false
 var dev_attack_suspended: bool = false
 ## The game director's own hold, kept apart from the flag above because that one
 ## is not a dev flag at all: player.gd refcounts it as the minigame safety lock.
@@ -523,6 +540,7 @@ func _physics_process(delta: float) -> void:
 	_refresh_cling_exclusions()
 	_listen(delta)
 	_update_surface(delta)
+	_update_player_awareness(delta)
 	_track_loiter(delta)
 
 	match state:
@@ -1098,6 +1116,8 @@ func _set_state(new_state: CrawlerState) -> void:
 	if state == new_state:
 		return
 	state = new_state
+	if new_state != CrawlerState.POUNCE_WINDUP and new_state != CrawlerState.POUNCING:
+		pounce_target = null
 	match new_state:
 		CrawlerState.SEARCHING:
 			search_timer = search_duration
@@ -1118,6 +1138,10 @@ func _enter_hidden(delay: float) -> void:
 	has_noise_fix = false
 	noise_confidence = 0.0
 	noise_source = null
+	pounce_target = null
+	player_visibility_times.clear()
+	aware_player_ids.clear()
+	attack_announced = false
 	pounce_cooldown_timer = 0.0
 	global_position = lair_position
 	surface_normal = Vector3.UP
@@ -1176,6 +1200,7 @@ func _begin_omen() -> void:
 	_set_manifested(true)
 	WorldNet.play_shared(chitter_audio)
 	_set_state(CrawlerState.OMEN)
+	_mark_player_aware(crossing['player'] as CharacterBody3D)
 	omen_started.emit(crossing['player'], crossing['from'], crossing['to'])
 
 
@@ -1639,7 +1664,7 @@ func _update_pounce_windup(delta: float) -> void:
 	if pounce_timer > 0.0:
 		return
 
-	var target := noise_source
+	var target := pounce_target
 	if not is_instance_valid(target):
 		_set_state(CrawlerState.RECOVERING)
 		return
@@ -1699,9 +1724,9 @@ func _update_recovering(delta: float) -> void:
 
 
 func _begin_pounce(target: CharacterBody3D) -> void:
-	if _attacks_blocked():
+	if _attacks_blocked() or not attack_announced:
 		return
-	noise_source = target
+	pounce_target = target
 	pounce_timer = pounce_windup
 	_brake(1.0)
 	_set_state(CrawlerState.POUNCE_WINDUP)
@@ -1719,7 +1744,8 @@ func _begin_pounce(target: CharacterBody3D) -> void:
 func _pounce_candidate() -> CharacterBody3D:
 	if _attacks_blocked() \
 		or pounce_cooldown_timer > 0.0 \
-		or noise_confidence < pounce_min_confidence:
+		or noise_confidence < pounce_min_confidence \
+		or not attack_announced:
 		return null
 	for player: CharacterBody3D in _living_players():
 		if not _is_inside_containment(player.global_position):
@@ -1745,7 +1771,7 @@ func _pounce_candidate() -> CharacterBody3D:
 ## recovering from a miss: that window has to stay survivable even if the player
 ## is still lying underneath it.
 func _maul_contact() -> bool:
-	if _attacks_blocked():
+	if _attacks_blocked() or not attack_announced:
 		return false
 	for player: CharacterBody3D in _living_players():
 		if global_position.distance_to(player.global_position) > touch_detection_range:
@@ -1761,15 +1787,20 @@ func _maul_contact() -> bool:
 func _pounce_contact() -> CharacterBody3D:
 	if _attacks_blocked():
 		return null
-	for player: CharacterBody3D in _living_players():
-		if global_position.distance_to(player.global_position) > pounce_kill_radius:
-			continue
-		# Occlusion still matters at contact range: without it a pounce that
-		# lands on the floor above kills the player standing underneath it.
-		if _is_occluded(player.global_position, player):
-			continue
-		return player
-	return null
+	# A leap is committed to the noisy player who triggered it. Do not turn an
+	# announced dodge test into collateral damage on somebody else.
+	var player := pounce_target
+	if not is_instance_valid(player):
+		return null
+	if "is_alive" in player and not bool(player.get("is_alive")):
+		return null
+	if global_position.distance_to(player.global_position) > pounce_kill_radius:
+		return null
+	# Occlusion still matters at contact range: without it a pounce that lands
+	# on the floor above kills the intended player standing underneath it.
+	if _is_occluded(player.global_position, player):
+		return null
+	return player
 
 
 func _kill(player: CharacterBody3D) -> void:
@@ -2087,19 +2118,89 @@ func _relocate_after_wedging() -> void:
 
 func _is_visible_to_any_player() -> bool:
 	for player: CharacterBody3D in _living_players():
-		var camera := player.get_node_or_null('CameraPivot/Camera3D') as Camera3D
-		if not camera:
+		if _player_can_see_crawler(player):
+			return true
+	return false
+
+
+## Fairness gate for both attacks. The Crawler can still locate anybody by
+## sound, but may not commit until at least one player has learned that it is
+## present during this manifestation. That announcement is team-wide: once one
+## person saw or heard it, anybody who keeps making noise is taking an informed
+## risk even if that particular player never looked at the Crawler.
+func _update_player_awareness(delta: float) -> void:
+	var living_ids: Dictionary = {}
+	for player: CharacterBody3D in _living_players():
+		var player_id := player.get_instance_id()
+		living_ids[player_id] = true
+		if aware_player_ids.has(player_id):
 			continue
-		if not camera.is_position_in_frustum(global_position):
+
+		if _player_can_see_crawler(player):
+			var visible_time := float(player_visibility_times.get(player_id, 0.0)) + delta
+			player_visibility_times[player_id] = visible_time
+			if visible_time >= maxf(minimum_visible_before_awareness, 0.0):
+				_mark_player_aware(player)
+				continue
+		else:
+			player_visibility_times[player_id] = 0.0
+
+		if _player_can_hear_crawler(player):
+			_mark_player_aware(player)
+
+	for player_id: Variant in player_visibility_times.keys():
+		if not living_ids.has(player_id):
+			player_visibility_times.erase(player_id)
+	for player_id: Variant in aware_player_ids.keys():
+		if not living_ids.has(player_id):
+			aware_player_ids.erase(player_id)
+
+
+func _mark_player_aware(player: CharacterBody3D) -> void:
+	if not is_instance_valid(player):
+		return
+	aware_player_ids[player.get_instance_id()] = true
+	attack_announced = true
+
+
+func _player_is_aware(player: CharacterBody3D) -> bool:
+	return is_instance_valid(player) and aware_player_ids.has(player.get_instance_id())
+
+
+func _player_can_see_crawler(player: CharacterBody3D) -> bool:
+	if not is_instance_valid(player) or not manifested:
+		return false
+	var camera := player.get_node_or_null('CameraPivot/Camera3D') as Camera3D
+	if not camera or not camera.is_position_in_frustum(global_position):
+		return false
+	var query := PhysicsRayQueryParameters3D.create(
+		camera.global_position,
+		global_position,
+		surface_mask,
+		[player.get_rid(), get_rid()]
+	)
+	query.hit_from_inside = true
+	return get_world_3d().direct_space_state.intersect_ray(query).is_empty()
+
+
+func _player_can_hear_crawler(player: CharacterBody3D) -> bool:
+	if not is_instance_valid(player) or not manifested:
+		return false
+	var distance := global_position.distance_to(player.global_position)
+	var occluded := _is_occluded(player.global_position, player)
+	for audio: AudioStreamPlayer3D in [
+		crawl_audio,
+		chitter_audio,
+		breath_audio,
+		scream_audio,
+		bone_audio,
+	]:
+		if not audio.playing:
 			continue
-		var query := PhysicsRayQueryParameters3D.create(
-			camera.global_position,
-			global_position,
-			surface_mask,
-			[player.get_rid(), get_rid()]
-		)
-		query.hit_from_inside = true
-		if get_world_3d().direct_space_state.intersect_ray(query).is_empty():
+		var audible_distance := audio.max_distance * audio_awareness_distance_multiplier
+		if occluded:
+			audible_distance *= wall_muffle
+		if distance <= audible_distance:
 			return true
 	return false
 

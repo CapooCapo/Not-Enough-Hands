@@ -34,6 +34,8 @@ func _run() -> void:
 		return
 	if not await _test_silence_breaks_the_trail(crawler_scene):
 		return
+	if not await _test_awareness_gates_attacks(crawler_scene):
+		return
 	if not await _test_pounce_kill(crawler_scene):
 		return
 	if not await _test_maul_at_contact(crawler_scene):
@@ -53,7 +55,8 @@ func _run() -> void:
 
 	print(
 		'Crawler ghost smoke test passed: noise hunt, ceiling cling, wall climb, '
-		+ 'silence, pounce, contact kill, leap line, loiter timeout, kill disengage, '
+		+ 'silence, persistent player awareness, pounce, contact kill, leap line, '
+		+ 'loiter timeout, kill disengage, '
 		+ 'containment, hunt cycle, harmless while hidden.'
 	)
 	quit()
@@ -220,6 +223,84 @@ func _spawn_player(at: Vector3) -> CharacterBody3D:
 	return player
 
 
+## Hearing players still lets the blind Crawler search and close distance, but
+## it may not attack before the encounter has been announced. Awareness is
+## team-wide: once one teammate sees or hears it, a different unaware teammate
+## can be pounced on if that teammate keeps making noise.
+func _test_awareness_gates_attacks(scene: PackedScene) -> bool:
+	var aware_player := _spawn_player(Vector3(0.0, 0.9, 0.0))
+	aware_player.set_physics_process(false)
+	var crawler := _spawn_crawler(scene, Vector3(0.0, 0.4, 3.0))
+	crawler.set_physics_process(false)
+	await physics_frame
+	await process_frame
+
+	# Default view is -Z, so the Crawler at +Z is directly behind the player.
+	crawler.call('_update_player_awareness', 1.0)
+	crawler.call('report_noise', aware_player.global_position, 1.0, aware_player)
+	if crawler.call('_pounce_candidate') != null:
+		return _fail('Crawler could pounce before anybody had detected it.', crawler)
+
+	crawler.set('touch_detection_range', 4.0)
+	if bool(crawler.call('_maul_contact')) or not bool(aware_player.get('is_alive')):
+		return _fail('Crawler mauled somebody before the encounter was announced.', crawler)
+
+	# Its own nearby chitter is also a fair warning even from behind. Clear that
+	# evidence afterwards so the next half independently proves visual awareness.
+	var chitter := crawler.get_node('ChitterAudio') as AudioStreamPlayer3D
+	chitter.stream = load('res://assets/audio/crawler_chitter.ogg') as AudioStream
+	chitter.play()
+	crawler.call('_update_player_awareness', 0.05)
+	if not bool(crawler.call('_player_is_aware', aware_player)) \
+		or not bool(crawler.get('attack_announced')):
+		return _fail('A nearby audible Crawler did not warn the player of its presence.', crawler)
+	chitter.stop()
+	chitter.stream = null
+	(crawler.get('aware_player_ids') as Dictionary).clear()
+	(crawler.get('player_visibility_times') as Dictionary).clear()
+	crawler.set('attack_announced', false)
+
+	# Player A registers it visually. Players B and C join the same room but do
+	# not see it; B then makes the noise. The team warning must permit B as the
+	# target without incorrectly selecting quiet player C.
+	aware_player.rotation.y = PI
+	await process_frame
+	var warning_time := float(crawler.get('minimum_visible_before_awareness')) + 0.05
+	crawler.call('_update_player_awareness', warning_time)
+	if not bool(crawler.call('_player_is_aware', aware_player)) \
+		or not bool(crawler.get('attack_announced')):
+		return _fail('Seeing the Crawler did not make the player aware of it.', crawler)
+
+	aware_player.rotation.y = 0.0
+	var noisy_unaware_player := _spawn_player(Vector3(6.0, 0.9, 0.0))
+	var quiet_unaware_player := _spawn_player(Vector3(12.0, 0.9, 0.0))
+	noisy_unaware_player.set_physics_process(false)
+	quiet_unaware_player.set_physics_process(false)
+	crawler.global_position = Vector3(6.0, 0.4, 3.0)
+	await process_frame
+	if bool(crawler.call('_player_is_aware', noisy_unaware_player)) \
+		or bool(crawler.call('_player_is_aware', quiet_unaware_player)):
+		return _fail('An individual teammate became aware without seeing or hearing the Crawler.', crawler)
+	crawler.call('report_noise', noisy_unaware_player.global_position, 1.0, noisy_unaware_player)
+	var target := crawler.call('_pounce_candidate') as CharacterBody3D
+	if target != noisy_unaware_player:
+		return _fail('Team awareness did not permit a leap at the noisy unaware teammate.', crawler)
+	crawler.call('_begin_pounce', target)
+	crawler.call('_update_pounce_windup', float(crawler.get('pounce_windup')) + 0.05)
+	if int(crawler.get('state')) != CrawlerState_POUNCING:
+		return _fail('Crawler did not commit to the noisy teammate after a team warning.', crawler)
+	crawler.call('_enter_hidden', 10.0)
+	if bool(crawler.get('attack_announced')) \
+		or bool(crawler.call('_player_is_aware', aware_player)):
+		return _fail('Crawler awareness survived after it retreated and hid.', crawler)
+
+	await _despawn(crawler)
+	await _despawn(aware_player)
+	await _despawn(noisy_unaware_player)
+	await _despawn(quiet_unaware_player)
+	return true
+
+
 func _test_pounce_kill(scene: PackedScene) -> bool:
 	var player := _spawn_player(Vector3(-4.0, 0.9, 4.0))
 	var crawler := _spawn_crawler(scene, Vector3(-4.0, 0.4, 0.8))
@@ -227,6 +308,7 @@ func _test_pounce_kill(scene: PackedScene) -> bool:
 	crawler.set('pounce_recovery', 0.1)
 	await physics_frame
 	await physics_frame
+	crawler.call('_mark_player_aware', player)
 
 	crawler.call('report_noise', player.global_position, 1.0, player)
 	await create_timer(2.0).timeout
@@ -248,6 +330,7 @@ func _test_maul_at_contact(scene: PackedScene) -> bool:
 	var crawler := _spawn_crawler(scene, Vector3(3.0, 0.4, -5.2))
 	await physics_frame
 	await physics_frame
+	crawler.call('_mark_player_aware', player)
 
 	crawler.call('report_noise', player.global_position, 1.0, player)
 	await create_timer(1.2).timeout
@@ -270,6 +353,7 @@ func _test_a_distant_noise_is_walked_down(scene: PackedScene) -> bool:
 	var player := _spawn_player(crawler.global_position + Vector3(0.0, 0.5, pounce_range + 2.0))
 	await physics_frame
 	await physics_frame
+	crawler.call('_mark_player_aware', player)
 
 	crawler.call('report_noise', player.global_position, 1.0, player)
 	await physics_frame
@@ -351,6 +435,7 @@ func _test_a_kill_does_not_leave_it_standing_on_the_body(scene: PackedScene) -> 
 	crawler.set('leave_distance', 6.0)
 	await physics_frame
 	await physics_frame
+	crawler.call('_mark_player_aware', player)
 
 	crawler.call('report_noise', player.global_position, 1.0, player)
 	await create_timer(1.2).timeout
