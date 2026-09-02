@@ -43,12 +43,15 @@ var _visual: Node3D
 var _test_player: CharacterBody3D
 var _decoy_ghost: Node3D
 var _decoy_visual: Node3D
+var _darkness_ghost: DarknessGhost
+var _darkness_light: OmniLight3D
 var _door: DefenseDoor
 var _clock: NightClock
 var _client_pid := -1
 var _full_durability := 0.0
 var _spawn_sent := false
 var _sound_sent := false
+var _darkness_retreat_sent := false
 ## Latched on the client the first time the ghost's teleport player changes, so
 ## a later sound of the statue's own cannot overwrite the evidence.
 var _heard_pitch := -1.0
@@ -138,6 +141,25 @@ func _build_world() -> void:
 	_decoy_ghost = (load("res://ghosts/hunter_ghost.tscn") as PackedScene).instantiate() as Node3D
 	_decoy_ghost.name = "HunterGhost"
 	world.add_child(_decoy_ghost)
+	_darkness_ghost = (
+		(load("res://ghosts/darkness_ghost.tscn") as PackedScene).instantiate()
+		as DarknessGhost
+	)
+	_darkness_ghost.name = "DarknessGhost"
+	_darkness_ghost.auto_manifest = false
+	world.add_child(_darkness_ghost)
+	_darkness_ghost.set_physics_process(false)
+	_darkness_ghost._has_been_seen = false
+	_darkness_ghost._set_manifested(true)
+	_darkness_ghost.encounter_phase = DarknessGhost.EncounterPhase.CHASING
+	_darkness_light = OmniLight3D.new()
+	_darkness_light.name = "DarknessTestRoomLight"
+	_darkness_light.omni_range = 8.0
+	_darkness_light.light_energy = 1.0
+	_darkness_light.visible = false
+	_darkness_light.add_to_group(&"local_light_sources")
+	world.add_child(_darkness_light)
+	_darkness_light.global_position = _darkness_ghost.global_position + Vector3.UP
 
 	_door = (load("res://door/defense_door.tscn") as PackedScene).instantiate() as DefenseDoor
 	_door.name = "Entrance01"
@@ -152,6 +174,7 @@ func _build_world() -> void:
 func _process(delta: float) -> bool:
 	if _done or not is_instance_valid(_ghost) or not is_instance_valid(_test_player) \
 		or not is_instance_valid(_decoy_ghost) \
+		or not is_instance_valid(_darkness_ghost) \
 		or not is_instance_valid(_door):
 		return false
 	if _visual == null:
@@ -211,6 +234,16 @@ func _drive_world() -> void:
 		var audio := _teleport_audio()
 		audio.pitch_scale = SOUND_PITCH
 		WorldNet.play_shared(audio)
+	# The server alone exposes a previously seen Darkness ghost to a real
+	# environmental Light3D. The client has no local exposure, so only replicated
+	# encounter state can make this manifestation retreat there.
+	if not _darkness_retreat_sent and _elapsed > 3.0:
+		_darkness_retreat_sent = true
+		_darkness_ghost._has_been_seen = true
+		_darkness_light.visible = true
+		_darkness_ghost._update_light_exposure(
+			_darkness_ghost.light_death_seconds + 0.01
+		)
 
 
 func _write_client_verdict() -> void:
@@ -228,6 +261,10 @@ func _write_client_verdict() -> void:
 	if _decoy_visual == null or _decoy_visual.visible:
 		failures.append(
 			"Statue state manifested Hunter; authored ghost identity still follows list order"
+		)
+	if _darkness_ghost.is_dead() or _darkness_ghost.is_manifested():
+		failures.append(
+			"Darkness environmental-light retreat did not replicate from server to client"
 		)
 	if is_equal_approx(_door.current_durability, _full_durability):
 		failures.append("no door durability arrived on the slow channel")
@@ -262,7 +299,7 @@ func _read_client_verdict() -> void:
 		+ "the ghost's NodePath-keyed position and body without manifesting the decoy, "
 		+ "could not mutate the server-owned Statue, received its reliable spawn cue "
 		+ "outside the player safety radius, its one-shot audio, "
-		+ "the door's durability, and the night."
+		+ "Darkness environmental-light retreat, the door's durability, and the night."
 	)
 	quit()
 

@@ -42,19 +42,12 @@ enum EncounterPhase {
 @export_range(0.0, 1.0, 0.05) var hunt_light_lock_chance := 0.4
 @export_range(0.5, 20.0, 0.05) var normal_speed := 4.0
 @export_range(0.5, 20.0, 0.05) var darkness_speed := 5.25
-## Powered world lights kill the ghost after one uninterrupted exposure. One
-## second is short enough that a light switch flipped in its face is a weapon
-## rather than a war of attrition; the escape window it still leaves is the
-## unlit half of a doorway, not a lit room crossed slowly.
-@export_range(0.1, 10.0, 0.1) var light_death_seconds := 1.0
-## Grace held until a living player has actually laid eyes on the ghost: while
-## unseen it cannot be killed by world light, and its hunt clock ticks at
-## unseen_hunt_time_scale. Both ways an encounter used to end without anybody
-## meeting it are invisible from the player's side - the ghost can walk through
-## a lit corridor and die there, or search the wrong wing until hunt_duration
-## runs out, and either way the team saw a flicker and nothing else. The grace
-## latches off on the first sighting: it buys the encounter a meeting, it does
-## not make the fight easier once the meeting has happened.
+## After a player has seen the ghost during this hunt, powered world lights end
+## the encounter after one uninterrupted exposure. Before that first sighting
+## it remains immune so it can cross lit rooms on the way to its target.
+@export_range(0.1, 10.0, 0.1) var light_death_seconds := 0.5
+## Until a living player has actually laid eyes on the ghost in this encounter,
+## it is immune to light and its hunt clock ticks at unseen_hunt_time_scale.
 @export_range(0.05, 1.0, 0.05) var unseen_hunt_time_scale := 0.5
 @export_range(1.0, 60.0, 0.5) var sighting_distance := 30.0
 @export_range(5.0, 90.0, 1.0) var sighting_half_angle := 55.0
@@ -132,8 +125,8 @@ var _stuck_reference_position := Vector3.ZERO
 var _unstick_direction := Vector3.ZERO
 var _unstick_seconds_left := 0.0
 var _environment_light_exposure := 0.0
-## Latched by the first player to see it and never reset by a retreat: "nobody
-## has met this ghost yet" is a fact about the night, not about one hunt.
+## Latched by the first player to see it during the current encounter. A new
+## manifestation clears it so the ghost cannot die unseen while approaching.
 var _has_been_seen := false
 var _flashlight_focus_time := 0.0
 var _flashlight_player_count := 0
@@ -181,8 +174,7 @@ func _process(delta: float) -> void:
 				_finish_warning()
 			return
 		# Restoring the grid no longer makes the ghost disappear instantly. It
-		# must remain inside light for light_death_seconds, which at one second
-		# still means a light it only clips the edge of does not finish it.
+		# must remain continuously inside light for light_death_seconds.
 		if encounter_phase == EncounterPhase.CHASING:
 			_hunt_time_left -= delta * _hunt_clock_rate()
 			if _hunt_time_left <= 0.0:
@@ -252,6 +244,7 @@ func _begin_manifest_for_target(player: Node3D) -> bool:
 	_target_player = player
 	_encounter_zones.assign(zones)
 	global_position = spawn_position
+	_has_been_seen = false
 	encounter_phase = EncounterPhase.WARNING
 	_warning_time_left = warning_duration
 	_set_manifested(true)
@@ -312,8 +305,8 @@ func is_dead() -> bool:
 	return _is_dead
 
 
-## True once any living player has seen this ghost tonight. Until then it is
-## immune to world light and hunts on the slowed clock.
+## True once any living player has seen this ghost during the current encounter.
+## Until then it is immune to light and its hunt clock runs slowly.
 func has_been_seen() -> bool:
 	return _has_been_seen
 
@@ -796,17 +789,14 @@ func _is_seen_by_any_player() -> bool:
 
 
 func _update_light_exposure(delta: float) -> void:
-	# An unseen ghost banks no exposure at all, rather than merely surviving it:
-	# otherwise the first sighting would land on a ghost that had already spent
-	# its light_death_seconds standing in a lit hallway, and being seen would
-	# itself be the killing blow. The clock starts when somebody is there to
-	# watch it burn.
+	# Immunity lasts only until the first sighting of this encounter. This lets
+	# the ghost cross powered rooms while approaching without ending off-screen.
 	if _has_been_seen and _is_position_environmentally_lit(global_position):
 		_environment_light_exposure += delta
 	else:
 		_environment_light_exposure = 0.0
 	if _environment_light_exposure >= light_death_seconds:
-		_die_in_light()
+		_retreat_from_light()
 		return
 
 	# Held beams accumulate against a threshold that the current beam count sets,
@@ -818,26 +808,15 @@ func _update_light_exposure(delta: float) -> void:
 	else:
 		_flashlight_focus_time = 0.0
 	if _flashlight_focus_time >= _flashlight_death_seconds(_flashlight_player_count):
-		_die_in_light()
+		_retreat_from_light()
 
 
-func _die_in_light() -> void:
-	if _is_dead:
+func _retreat_from_light() -> void:
+	if not _is_manifested:
 		return
-	_is_dead = true
-	auto_manifest = false
-	_clear_player_threat()
-	_stop_warning_visuals(true)
-	_set_manifested(false)
-	encounter_phase = EncounterPhase.DORMANT
-	_target_player = null
-	_encounter_zones.clear()
-	_stuck_timer = 0.0
-	_unstick_seconds_left = 0.0
-	_hunt_time_left = 0.0
-	if _power_effect:
-		_power_effect.clear_zone_outage()
-	_reset_light_exposure()
+	# Light defeats this manifestation, not the ghost permanently. retreat()
+	# restores the outage and schedules the normal manifest_interval cooldown.
+	retreat()
 	died_in_light.emit()
 
 

@@ -58,7 +58,14 @@ func _run() -> void:
 	_assert(darkness_ghost != null, "villa_main is missing DarknessGhost")
 	_assert(not darkness_ghost.is_manifested(), "DarknessGhost must begin hidden")
 	var target_player := villa.get_node("Player") as CharacterBody3D
+	# Simulate a prior hunt's sighting latch; every new manifestation must clear
+	# it so the next approach is protected from off-screen room lights again.
+	darkness_ghost._has_been_seen = true
 	_assert(dev_tools.spawn_darkness_ghost(), "DevTools could not manifest DarknessGhost")
+	_assert(
+		not darkness_ghost.has_been_seen(),
+		"A new DarknessGhost encounter inherited the previous hunt's sighting latch"
+	)
 	await process_frame
 	_assert(darkness_ghost.is_manifested(), "DarknessGhost did not enter its hunt state")
 	_assert(darkness_ghost.get_node("AnimatedModel").visible, "DarknessGhost model did not become visible")
@@ -196,6 +203,46 @@ func _run() -> void:
 			not darkened_zone.is_device_restore_locked(locked_device),
 			"The end of a hunt did not lift the fixture jam it caused"
 		)
+
+	# Integration regression: use a generated Villa fixture, not a synthetic
+	# test light. It may cross the light while unseen, but after a player sees it,
+	# half a second continuously under the fixture must end only this hunt.
+	_assert(
+		is_equal_approx(darkness_ghost.light_death_seconds, 0.5),
+		"Villa DarknessGhost environmental-light death time must be 0.5 seconds"
+	)
+	_assert(
+		darkness_ghost._is_position_environmentally_lit(light_probe),
+		"Powered Villa room light was not recognised as environmental light"
+	)
+	darkness_ghost.global_position = light_probe
+	darkness_ghost._has_been_seen = false
+	darkness_ghost._is_dead = false
+	darkness_ghost.auto_manifest = true
+	darkness_ghost._set_manifested(true)
+	darkness_ghost.encounter_phase = DarknessGhost.EncounterPhase.CHASING
+	darkness_ghost._update_light_exposure(1.5)
+	_assert(
+		darkness_ghost.is_manifested()
+			and not darkness_ghost.is_dead()
+			and is_equal_approx(darkness_ghost._environment_light_exposure, 0.0),
+		"Unseen DarknessGhost did not remain immune while crossing a powered Villa room"
+	)
+	darkness_ghost._has_been_seen = true
+	darkness_ghost._update_light_exposure(0.49)
+	_assert(
+		darkness_ghost.is_manifested() and not darkness_ghost.is_dead(),
+		"Villa room light ended the Darkness hunt before 0.5 seconds"
+	)
+	darkness_ghost._update_light_exposure(0.02)
+	_assert(
+		not darkness_ghost.is_dead()
+			and not darkness_ghost.is_manifested()
+			and darkness_ghost.auto_manifest
+			and is_equal_approx(darkness_ghost._next_manifest_in, darkness_ghost.manifest_interval),
+		"Villa room light did not end only the current hunt and schedule its cooldown"
+	)
+
 	dev_tools.set_all_zones_powered(false)
 	await process_frame
 	_assert(manager.is_blackout, "DevTools all-zones-off must cause full blackout")

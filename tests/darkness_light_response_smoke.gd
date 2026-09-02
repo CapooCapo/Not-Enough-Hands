@@ -57,16 +57,19 @@ func _run() -> void:
 		return
 
 	# The beams imply a sighting, but nothing in this fixture owns a real
-	# Camera3D to make one, so state it: an unseen ghost is immune to every
-	# light in the game, flashlights included.
+	# Camera3D to make one, so state it for flashlight combat.
 	ghost._has_been_seen = true
+	ghost.auto_manifest = true
 	ghost._update_light_exposure(4.9)
 	if not ghost.is_manifested() or ghost._flashlight_player_count != 3:
 		_fail("Three flashlights killed the ghost early or were not counted distinctly.")
 		return
 	ghost._update_light_exposure(0.2)
-	if not ghost.is_dead() or ghost.is_manifested():
-		_fail("Three continuous flashlights did not kill the ghost at five seconds.")
+	if ghost.is_dead() or ghost.is_manifested() or not ghost.auto_manifest:
+		_fail("Three continuous flashlights did not end only the current hunt at five seconds.")
+		return
+	if not is_equal_approx(ghost._next_manifest_in, ghost.manifest_interval):
+		_fail("Flashlight defeat did not schedule the normal manifestation cooldown.")
 		return
 
 	# Back on its feet, so the rest of the fixture still has a ghost to test.
@@ -149,16 +152,26 @@ func _run() -> void:
 	room_light.global_position = GHOST_POSITION + Vector3.UP
 	await process_frame
 
-	# Grace, half one: a ghost nobody has met cannot be killed by world light,
-	# and banks no progress toward it either - so the sighting that lifts the
-	# grace can never be the frame it dies on.
+	# Before the first sighting of this encounter, world light must not end the
+	# hunt while the ghost crosses a powered room on the way to its target.
+	if not is_equal_approx(ghost.light_death_seconds, 0.5):
+		_fail("Environmental light death must take exactly 0.5 seconds.")
+		return
 	ghost._update_light_exposure(ghost.light_death_seconds * 3.0)
 	if ghost.is_dead():
-		_fail("World light killed a Darkness Ghost before any player had seen it.")
+		_fail("World light permanently killed an unseen Darkness Ghost.")
+		return
+	if not ghost.is_manifested():
+		_fail("An unseen Darkness Ghost retreated while crossing environmental light.")
 		return
 	if not is_equal_approx(ghost._environment_light_exposure, 0.0):
-		_fail("An unseen Darkness Ghost banked light exposure toward a death it cannot take.")
+		_fail("An unseen Darkness Ghost banked environmental-light exposure.")
 		return
+
+	# Keep the room light off so the unseen hunt-clock grace is verified
+	# independently from environmental-light immunity.
+	room_light.visible = false
+	await process_frame
 
 	# A hunt that only ends on a kill or a light death is a hunt that usually
 	# never ends - which left a whole night holding exactly one encounter. It
@@ -188,14 +201,15 @@ func _run() -> void:
 		_fail("A timed-out hunt did not schedule the next manifest.")
 		return
 	if not ghost.has_been_seen():
-		_fail("A retreat cleared the sighting that had already happened.")
+		_fail("The completed encounter lost its sighting latch before the next manifest.")
 		return
 	ghost._set_manifested(true)
 	ghost.encounter_phase = DarknessGhost.EncounterPhase.CHASING
+	room_light.visible = true
+	await process_frame
 
-	# Read off the export rather than a literal: this pair went from three
-	# seconds to one, and a test that hardcodes the old number fails for a
-	# reason that has nothing to do with what it is checking.
+	# The timer must still require one continuous exposure; briefly leaving the
+	# light resets it before the final 0.5-second hold.
 	ghost._update_light_exposure(ghost.light_death_seconds - 0.1)
 	if ghost.is_dead():
 		_fail("Environmental light killed the ghost before light_death_seconds elapsed.")
@@ -206,11 +220,14 @@ func _run() -> void:
 	room_light.visible = true
 	await process_frame
 	ghost._update_light_exposure(ghost.light_death_seconds + 0.01)
-	if not ghost.is_dead() or ghost.is_manifested() or ghost.auto_manifest:
-		_fail("A continuous light_death_seconds of environmental light did not permanently kill the ghost.")
+	if ghost.is_dead() or ghost.is_manifested() or not ghost.auto_manifest:
+		_fail("Environmental light did not end only the current Darkness hunt.")
+		return
+	if not is_equal_approx(ghost._next_manifest_in, ghost.manifest_interval):
+		_fail("Environmental-light defeat did not schedule the normal cooldown.")
 		return
 
-	print("Darkness light response smoke test passed: nerfed chase speeds, spatial footsteps, stacked per-flashlight slowdown, beam-count flashlight death ladder, unseen light immunity and half-rate hunt clock, continuous light_death_seconds environmental death once seen.")
+	print("Darkness light response smoke test passed: light immunity before each encounter's first sighting, half-rate unseen hunt clock, continuous 0.5-second environmental-light retreat, flashlight retreat, and normal remanifest cooldown.")
 	quit()
 
 
