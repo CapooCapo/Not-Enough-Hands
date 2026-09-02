@@ -310,8 +310,8 @@ avoidance_enabled = false
 [node name="TeleportAudio" type="AudioStreamPlayer3D" parent="."]
 stream = ExtResource("3_teleport")
 volume_db = -4.0
-unit_size = 4.0
-max_distance = 30.0
+unit_size = 40.0
+max_distance = 0.0
 
 [node name="AttackAudio" type="AudioStreamPlayer3D" parent="."]
 stream = ExtResource("4_attack")

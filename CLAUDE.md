@@ -120,6 +120,13 @@ counterpart to `try_pick_up_item()`; nothing reaches into the equipment slots.
 
 `player/player.gd` owns movement, camera, and stamina. All three ghosts report danger through `Player.set_threat_from(...)`, which the horror overlay (`ui/`) uses to always reflect whichever threat is currently worse — new ghosts/hazards should report through this same call rather than driving the overlay directly.
 
+Two of its systems are easy to break by writing the same node from a second place:
+
+- **The torch is a resource.** `flashlight_battery` drains while lit (faster while the right-mouse focus is held), `items/flashlight_battery.tscn` refills it, and only the *focused* beam is what the Darkness Ghost's `is_flashlight_focused()` seam reports. Only the authority spends charge — that is the side the ghost measures beams on. `_apply_flashlight_state()` is the single writer of the `SpotLight3D`: the toilet ghost's dimming and the focus beam compose there, and setting `light_energy` anywhere else means whichever ran last wins.
+- **The peek (Q/E) and the camera share one pivot.** `_update_camera_motion()` rewrites `camera_pivot.position` and `rotation.z` every frame for head bob and roll, so the lean is folded into *its* target as well as applied directly; a lean written only in `_update_lean()` is lerped straight back out. The lean rides the input stream to the authority because the server's camera is what the Statue and the Darkness Ghost read for "is this player looking at me".
+
+The key map moved to make room for the peek: **Q/E lean**, interact is **F**, drop is **G**, the torch switch is **L**, right mouse focuses the beam. `ui/interaction_prompt.gd` and `ui/downed_indicators.gd` read their key name out of `InputMap`, so prompts follow a rebind on their own.
+
 ### Multiplayer: one authority, three kinds of seam
 
 `network/` holds two autoloads. `NetworkManager` owns the *session* — roster, lobby, and `game_started`, which is also the door: `_register_player()` refuses newcomers while a night is running. `WorldReplicator` owns the *world* — it streams ghosts and loose items at 20 Hz, doors/power/the brazier at 5 Hz, and spawn/despawn/clock as reliable events. `WorldNet` is the one seam world scripts reach both through, because an autoload's identifier does not resolve in the `--script` smoke tests; **never name `NetworkManager` directly outside `network/`**.

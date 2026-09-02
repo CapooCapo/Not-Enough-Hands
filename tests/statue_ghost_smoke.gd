@@ -97,6 +97,25 @@ func _run() -> void:
 		_fail('Statue attack did not kill an unobserving nearby player.')
 		return
 
+	# The arrival cue has to survive the whole map, not just the room it lands
+	# in. `max_distance` is a hard cut, so any non-zero value silences every
+	# player past it outright - and the statue only ever ambushes one of them,
+	# so in the 80x60 m villa that is most of the team. Pinned here because the
+	# only evidence of the regression in play is a team that never heard it.
+	var teleport_audio := statue.get_node('TeleportAudio') as AudioStreamPlayer3D
+	if not is_zero_approx(teleport_audio.max_distance):
+		_fail(
+			'TeleportAudio.max_distance is %.1f m: every player past that hears the statue arrive in silence. It must be 0 (no cut).'
+				% teleport_audio.max_distance
+		)
+		return
+	if teleport_audio.unit_size < 30.0:
+		_fail(
+			'TeleportAudio.unit_size is %.1f, too small to carry across the villa; the Huntsman horn uses 40.'
+				% teleport_audio.unit_size
+		)
+		return
+
 	statue.get_node('TeleportAudio').stop()
 	statue.get_node('AttackAudio').stop()
 	statue.get_node('SpottedJumpscareAudio').stop()
@@ -104,7 +123,7 @@ func _run() -> void:
 	statue.get_node('AttackAudio').stream = null
 	statue.get_node('SpottedJumpscareAudio').stream = null
 	print(
-		'Statue ghost smoke test passed: freeze, grace period, %.2f m gained on a look-away, and attack.'
+		'Statue ghost smoke test passed: freeze, grace period, %.2f m gained on a look-away, attack, and an arrival cue with no distance cut.'
 			% unseen_distance
 	)
 	quit()

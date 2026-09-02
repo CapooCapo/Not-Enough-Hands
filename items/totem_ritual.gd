@@ -31,6 +31,7 @@ signal ritual_completed()
 
 const TOTEM_SCENE: PackedScene = preload("res://items/totem.tscn")
 const FIREWOOD_SCENE: PackedScene = preload("res://items/firewood.tscn")
+const BATTERY_SCENE: PackedScene = preload("res://items/flashlight_battery.tscn")
 const BRAZIER_SCENE: PackedScene = preload("res://items/totem_brazier.tscn")
 const MIN_TOTEMS_IN_WORLD := 5
 
@@ -46,6 +47,13 @@ const MIN_TOTEMS_IN_WORLD := 5
 ## with none. Never drops below the per-player count either, so a full room
 ## still gets a log each.
 @export_range(0, 12, 1) var firewood_in_world: int = 6
+## Spare torch batteries loose in the house. Not part of the ritual at all -
+## they live here because this node is already the thing that keeps a live item
+## population spread over both maps' room markers, and a second director would
+## be the same eighty lines of room-picking written twice. Spread like the
+## firewood rather than clustered near the team: a battery is something you find
+## on the way somewhere else, and finding it far from the fire is the point.
+@export_range(0, 12, 1) var batteries_in_world: int = 4
 ## What one burn pays the night, in in-game minutes. At the clock's default rate
 ## this is the real-time runway a burn buys: 45 minutes is about 67 seconds of
 ## night. It wants to sit a little above a round trip to the brazier, or the
@@ -185,6 +193,12 @@ func restock() -> void:
 		FIREWOOD_SCENE,
 		&"fire_fuel",
 		maxi(firewood_in_world, _players_in_run().size()),
+		false
+	)
+	_restock_group(
+		BATTERY_SCENE,
+		&"flashlight_batteries",
+		maxi(batteries_in_world, _players_in_run().size()),
 		false
 	)
 
@@ -329,7 +343,7 @@ func _check_completion() -> void:
 
 func _clear_remaining_items() -> void:
 	var players := get_tree().get_nodes_in_group(&"players")
-	for group: StringName in [&"totems", &"fire_fuel"]:
+	for group: StringName in [&"totems", &"fire_fuel", &"flashlight_batteries"]:
 		for node: Node in get_tree().get_nodes_in_group(group):
 			var item := node as Node3D
 			if item == null:

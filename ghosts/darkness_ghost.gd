@@ -24,7 +24,9 @@ enum EncounterPhase {
 ## come back. Without this the very first manifest never ends - it holds the
 ## pocket dark and chases until it kills somebody or dies in light - so a night
 ## contained exactly one encounter. A night is 547.5 real seconds, which at the
-## shipped warning/hunt/interval pacing is five.
+## shipped warning/hunt/interval pacing is five - four if every hunt runs out
+## its full unseen_hunt_time_scale grace without meeting anybody, which is the
+## trade that grace is worth making.
 @export_range(5.0, 300.0, 1.0) var hunt_duration := 40.0
 @export_range(2.0, 30.0, 0.5) var threat_range := 12.0
 @export_range(0.5, 4.0, 0.05) var kill_distance := 1.15
@@ -40,13 +42,42 @@ enum EncounterPhase {
 @export_range(0.0, 1.0, 0.05) var hunt_light_lock_chance := 0.4
 @export_range(0.5, 20.0, 0.05) var normal_speed := 4.0
 @export_range(0.5, 20.0, 0.05) var darkness_speed := 5.25
-## Powered world lights kill the ghost after one uninterrupted exposure.
-@export_range(0.1, 10.0, 0.1) var light_death_seconds := 3.0
+## Powered world lights kill the ghost after one uninterrupted exposure. One
+## second is short enough that a light switch flipped in its face is a weapon
+## rather than a war of attrition; the escape window it still leaves is the
+## unlit half of a doorway, not a lit room crossed slowly.
+@export_range(0.1, 10.0, 0.1) var light_death_seconds := 1.0
+## Grace held until a living player has actually laid eyes on the ghost: while
+## unseen it cannot be killed by world light, and its hunt clock ticks at
+## unseen_hunt_time_scale. Both ways an encounter used to end without anybody
+## meeting it are invisible from the player's side - the ghost can walk through
+## a lit corridor and die there, or search the wrong wing until hunt_duration
+## runs out, and either way the team saw a flicker and nothing else. The grace
+## latches off on the first sighting: it buys the encounter a meeting, it does
+## not make the fight easier once the meeting has happened.
+@export_range(0.05, 1.0, 0.05) var unseen_hunt_time_scale := 0.5
+@export_range(1.0, 60.0, 0.5) var sighting_distance := 30.0
+@export_range(5.0, 90.0, 1.0) var sighting_half_angle := 55.0
+@export_range(0.1, 2.5, 0.05) var sighting_point_height := 1.4
 ## Each distinct living player's flashlight applies this penalty while its
 ## unobstructed cone is actually on the ghost.
 @export_range(0.0, 10.0, 0.1) var flashlight_speed_penalty := 1.9
-@export_range(1, 8, 1) var flashlight_retreat_player_count := 3
-@export_range(0.1, 15.0, 0.1) var flashlight_retreat_seconds := 5.0
+## Massed flashlights kill it outright rather than driving it off, and every
+## extra beam shortens the hold. Under flashlight_death_player_count beams the
+## light only slows it - one player with a torch must not be able to solo the
+## encounter, which is the whole reason the ladder starts at two.
+@export_range(1, 8, 1) var flashlight_death_player_count := 2
+## Seconds that many simultaneous *focused* beams must hold it, read from
+## flashlight_death_player_count upward: two beams 8s, three 5s, four 3s. Past
+## the end of the table the last entry stands. This is a table rather than a
+## formula because the steps are deliberately uneven - the payoff for the third
+## torch is meant to be the biggest one. Shorter than the numbers a plain beam
+## would have earned, because a focused beam is paid for out of the battery: at
+## the player's default 4.0/s drain, a three-torch kill costs each of them a
+## fifth of a full charge.
+@export var flashlight_death_ladder: PackedFloat32Array = PackedFloat32Array(
+	[8.0, 5.0, 3.0]
+)
 @export_range(0.0, 5.0, 0.1) var minimum_illuminated_speed := 0.6
 @export_range(0.5, 15.0, 0.05) var patrol_speed := 3.25
 @export_range(0.5, 15.0, 0.1) var patrol_retarget_seconds := 3.0
@@ -101,6 +132,9 @@ var _stuck_reference_position := Vector3.ZERO
 var _unstick_direction := Vector3.ZERO
 var _unstick_seconds_left := 0.0
 var _environment_light_exposure := 0.0
+## Latched by the first player to see it and never reset by a retreat: "nobody
+## has met this ghost yet" is a fact about the night, not about one hunt.
+var _has_been_seen := false
 var _flashlight_focus_time := 0.0
 var _flashlight_player_count := 0
 var _is_dead := false
@@ -136,16 +170,21 @@ func _process(delta: float) -> void:
 	if not WorldNet.is_world_authority():
 		return
 	if _is_manifested:
+		# Checked in _process rather than in the chase code so the warning phase
+		# counts too: a player who walks in on it standing still in the flicker
+		# has met it just as much as one it ran at.
+		if not _has_been_seen and _is_seen_by_any_player():
+			_has_been_seen = true
 		if encounter_phase == EncounterPhase.WARNING:
 			_warning_time_left -= delta
 			if _warning_time_left <= 0.0:
 				_finish_warning()
 			return
 		# Restoring the grid no longer makes the ghost disappear instantly. It
-		# must remain inside light for light_death_seconds, giving it a chance to
-		# escape a briefly lit doorway while rewarding a sustained exposure.
+		# must remain inside light for light_death_seconds, which at one second
+		# still means a light it only clips the edge of does not finish it.
 		if encounter_phase == EncounterPhase.CHASING:
-			_hunt_time_left -= delta
+			_hunt_time_left -= delta * _hunt_clock_rate()
 			if _hunt_time_left <= 0.0:
 				retreat()
 		return
@@ -271,6 +310,12 @@ func is_manifested() -> bool:
 
 func is_dead() -> bool:
 	return _is_dead
+
+
+## True once any living player has seen this ghost tonight. Until then it is
+## immune to world light and hunts on the slowed clock.
+func has_been_seen() -> bool:
+	return _has_been_seen
 
 
 func get_replication_state() -> Array:
@@ -678,9 +723,18 @@ func _is_position_environmentally_lit(position: Vector3) -> bool:
 	return false
 
 
+## Only *focused* beams count, for the slowdown as well as for the kill. An
+## ordinary torch is how a player sees the room; it was never meant to be a
+## weapon that pins a chasing ghost in place for free. Holding the focus costs
+## battery - the one resource that is also the only way to see - so hurting it
+## is now a trade rather than a reflex. A player body with no focus of its own
+## (a test double) still counts, so the beam geometry stays testable alone.
 func _player_flashlight_count_at(position: Vector3) -> int:
 	var count := 0
 	for player: Node3D in _living_players():
+		if player.has_method(&"is_flashlight_focused") \
+			and not bool(player.call(&"is_flashlight_focused")):
+			continue
 		var flashlight := player.get_node_or_null(^"CameraPivot/Camera3D/Flashlight") as SpotLight3D
 		if flashlight and _light_reaches_position(flashlight, position):
 			count += 1
@@ -696,8 +750,58 @@ func _owning_player(node: Node) -> Node3D:
 	return null
 
 
+func _hunt_clock_rate() -> float:
+	return 1.0 if _has_been_seen else unseen_hunt_time_scale
+
+
+## How long `count` simultaneous beams must hold it, or INF for a count that
+## cannot kill at all - which is what keeps the threshold check below from
+## firing on a ghost nobody is lighting up.
+func _flashlight_death_seconds(count: int) -> float:
+	if count < flashlight_death_player_count or flashlight_death_ladder.is_empty():
+		return INF
+	var index := mini(
+		count - flashlight_death_player_count,
+		flashlight_death_ladder.size() - 1
+	)
+	return flashlight_death_ladder[index]
+
+
+## Same idiom as StatueGhost's observation check - facing cone, then an
+## occlusion ray from the camera - but kept local because the two ghosts read
+## sight for opposite reasons and share no base class that owns it.
+func _is_seen_by_any_player() -> bool:
+	var point := global_position + Vector3.UP * sighting_point_height
+	var cone_cosine := cos(deg_to_rad(sighting_half_angle))
+	for player: Node3D in _living_players():
+		var camera := player.get_node_or_null(^"CameraPivot/Camera3D") as Camera3D
+		if not camera:
+			continue
+		var offset := point - camera.global_position
+		var distance := offset.length()
+		if distance <= 0.01 or distance > sighting_distance:
+			continue
+		if (-camera.global_basis.z).dot(offset / distance) < cone_cosine:
+			continue
+		if not camera.is_position_in_frustum(point):
+			continue
+		var exclusions: Array[RID] = [get_rid()]
+		if player is CollisionObject3D:
+			exclusions.append((player as CollisionObject3D).get_rid())
+		var query := PhysicsRayQueryParameters3D.create(camera.global_position, point, 1)
+		query.exclude = exclusions
+		if get_world_3d().direct_space_state.intersect_ray(query).is_empty():
+			return true
+	return false
+
+
 func _update_light_exposure(delta: float) -> void:
-	if _is_position_environmentally_lit(global_position):
+	# An unseen ghost banks no exposure at all, rather than merely surviving it:
+	# otherwise the first sighting would land on a ghost that had already spent
+	# its light_death_seconds standing in a lit hallway, and being seen would
+	# itself be the killing blow. The clock starts when somebody is there to
+	# watch it burn.
+	if _has_been_seen and _is_position_environmentally_lit(global_position):
 		_environment_light_exposure += delta
 	else:
 		_environment_light_exposure = 0.0
@@ -705,13 +809,16 @@ func _update_light_exposure(delta: float) -> void:
 		_die_in_light()
 		return
 
+	# Held beams accumulate against a threshold that the current beam count sets,
+	# so a third torch joining at second five does not restart anything - it
+	# lowers the bar the time already banked is measured against.
 	_flashlight_player_count = _player_flashlight_count_at(global_position)
-	if _flashlight_player_count >= flashlight_retreat_player_count:
+	if _has_been_seen and _flashlight_player_count >= flashlight_death_player_count:
 		_flashlight_focus_time += delta
 	else:
 		_flashlight_focus_time = 0.0
-	if _flashlight_focus_time >= flashlight_retreat_seconds:
-		retreat()
+	if _flashlight_focus_time >= _flashlight_death_seconds(_flashlight_player_count):
+		_die_in_light()
 
 
 func _die_in_light() -> void:

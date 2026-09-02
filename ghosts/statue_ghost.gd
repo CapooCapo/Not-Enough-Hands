@@ -153,6 +153,19 @@ var model_bone_drivers: Array[Dictionary] = []
 @onready var right_shin_pivot: Node3D = $VisualRoot/RightLegPivot/ShinPivot
 @onready var dust: GPUParticles3D = $VisualRoot/Dust
 @onready var nav_agent: NavigationAgent3D = $NavigationAgent3D
+## Both halves of a hunt - the arrival in `_begin_ambush()` and the vanish in
+## `_disappear()`/`_enter_hidden()` - and deliberately authored house-wide:
+## `unit_size = 40`, `max_distance = 0`, the same pair the Huntsman's horn uses.
+##
+## `max_distance` is a hard cut in Godot, not a fade: at the old 30 m anyone
+## further than that heard *nothing at all*. The statue only ever ambushes one
+## player, so in the 80x60 m villa the rest of the team was routinely outside
+## that radius and the appearance was silent for them - while in House2, 18x12 m,
+## 30 m covers the whole map and it always played. That is the whole of the
+## "sometimes there is no sound" report; the network path is fine and
+## `tests/world_replication_pair_smoke.gd` proves the cue reaches a client.
+## `max_db` (3.0) still clamps the near field, so removing the cut costs only
+## about 3 dB at point blank and buys roughly -7 dB at sixty metres.
 @onready var teleport_audio: AudioStreamPlayer3D = $TeleportAudio
 @onready var attack_audio: AudioStreamPlayer3D = $AttackAudio
 @onready var spotted_jumpscare_audio: AudioStreamPlayer3D = $SpottedJumpscareAudio

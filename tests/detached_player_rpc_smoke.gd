@@ -59,7 +59,7 @@ func _run() -> void:
 	# Any input it accepted here would also be input applied to a body that is
 	# on its way to being freed.
 	_player._submit_network_input(
-		Vector2.ONE, true, true, true, true, 1.0, 0.5, 999
+		Vector2.ONE, true, true, true, true, 1.0, 0.5, 999, true, true, 0.0
 	)
 	if _player._last_processed_input_sequence == 999:
 		_failures.append("a detached body applied input from a packet that outlived its run")

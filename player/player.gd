@@ -98,6 +98,43 @@ var hunter_gaze_strength: float = 0.0
 @export var mouse_sensitivity: float = 0.002
 @export var max_interaction_range: float = 10.0
 
+@export_category("Peek")
+## Holding Q/E leans the head out sideways without moving the body, so a corner
+## can be checked before it is walked around. It is aimed squarely at the
+## Huntsman: it hunts by line of sight from any angle, so the corner you walk
+## blindly into is the one that kills you, and this is the way to spend a second
+## instead of a life on it.
+@export_range(0.0, 45.0, 0.5) var lean_max_angle: float = 18.0
+## How far the eye slides sideways. Far enough to clear a doorframe, short
+## enough that the body it belongs to is still behind cover.
+@export_range(0.0, 1.5, 0.01) var lean_side_offset: float = 0.42
+@export_range(0.5, 20.0, 0.1) var lean_speed: float = 7.0
+## Fraction of the way to an obstruction the head is allowed to travel. Without
+## it a lean pushes the camera through the very wall it is peeking around.
+@export_range(0.1, 1.0, 0.05) var lean_wall_margin: float = 0.75
+var _lean: float = 0.0
+var _lean_reach: float = 0.0
+var _network_lean: float = 0.0
+var _camera_pivot_base_x: float = 0.0
+
+@export_category("Flashlight")
+## The torch is the one light a player carries, and it is now the one light
+## they can run out of. A full battery is 200 seconds of ordinary beam against
+## a 547-second night, so the switch (F) is a real decision rather than a
+## formality, and the house's own lighting is the only free light there is.
+@export var flashlight_battery_max: float = 100.0
+@export_range(0.0, 20.0, 0.05) var flashlight_drain_per_second: float = 0.5
+## Holding the focus (right mouse) narrows the beam into something that can
+## actually kill the Darkness Ghost - and burns eight times the charge doing
+## it, so the kill is paid for out of the same tank as seeing where you are.
+@export_range(0.0, 40.0, 0.05) var flashlight_focus_drain_per_second: float = 4.0
+@export_range(1.0, 60.0, 0.5) var flashlight_focus_angle: float = 12.0
+@export_range(1.0, 6.0, 0.05) var flashlight_focus_energy_scale: float = 2.2
+@export_range(1.0, 4.0, 0.05) var flashlight_focus_range_scale: float = 1.4
+var flashlight_battery: float = 0.0
+var _flashlight_on: bool = true
+var _flashlight_focus_held: bool = false
+
 @export_category("Toilet Ghost Stun")
 ## Getting caught by the Toilet Ghost is a severe scare, not a death. The
 ## player keeps control but moves at 20% speed while the vision effect runs.
@@ -112,6 +149,7 @@ var toilet_ghost_stun_remaining: float = 0.0
 var _toilet_ghost_present: bool = false
 var _flashlight_base_energy: float = 0.0
 var _flashlight_base_range: float = 0.0
+var _flashlight_base_angle: float = 0.0
 
 @export_category("Bladder Pressure")
 ## Where needing to go stops being a bar and starts costing something. Below
@@ -300,6 +338,8 @@ var _network_run: bool = false
 ## Held rather than pressed: reviving a teammate is the one interaction that
 ## needs the key's continuous state on the server, not a single edge.
 var _network_interact: bool = false
+var _network_flashlight_on: bool = true
+var _network_flashlight_focus: bool = false
 var _previous_network_jump: bool = false
 var _network_yaw: float = 0.0
 var _network_pitch: float = 0.0
@@ -337,9 +377,13 @@ func _ready() -> void:
 		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 	if interact_ray:
 		interact_ray.target_position = Vector3(0, 0, -max_interaction_range)
+	flashlight_battery = flashlight_battery_max
+	_camera_pivot_base_x = camera_pivot.position.x
 	if flashlight:
 		_flashlight_base_energy = flashlight.light_energy
 		_flashlight_base_range = flashlight.spot_range
+		_flashlight_base_angle = flashlight.spot_angle
+		_apply_flashlight_state()
 	if jumpscare:
 		jumpscare.jumpscare_finished.connect(_on_hunter_jumpscare_finished)
 
@@ -567,6 +611,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			_request_drop_item.rpc_id(NETWORK_SERVER_PEER_ID)
 		else:
 			_drop_selected_item()
+	# No RPC of its own: the switch rides the input stream every peer already
+	# sends, so a press is felt locally on the frame it happens and reaches the
+	# authority on the next tick like movement does.
+	if event.is_action_pressed("flashlight_toggle"):
+		_flashlight_on = not _flashlight_on
+		_apply_flashlight_state()
 	if event.is_action_pressed("select_slot_1"):
 		_request_or_select_slot(0)
 	if event.is_action_pressed("select_slot_2"):
@@ -667,6 +717,7 @@ func _capture_and_send_network_input() -> void:
 	var crouch := Input.is_action_pressed("crouch")
 	var run_pressed := Input.is_action_pressed("run")
 	var interact_held := Input.is_action_pressed("interact")
+	var focus_held := Input.is_action_pressed("flashlight_focus")
 	var yaw := rotation.y
 	var pitch := camera_pivot.rotation.x
 	_local_input_sequence += 1
@@ -679,7 +730,10 @@ func _capture_and_send_network_input() -> void:
 			interact_held,
 			yaw,
 			pitch,
-			_local_input_sequence
+			_local_input_sequence,
+			_flashlight_on,
+			focus_held,
+			_lean
 		)
 	else:
 		_submit_network_input.rpc_id(
@@ -691,7 +745,10 @@ func _capture_and_send_network_input() -> void:
 			interact_held,
 			yaw,
 			pitch,
-			_local_input_sequence
+			_local_input_sequence,
+			_flashlight_on,
+			focus_held,
+			_lean
 		)
 
 
@@ -704,12 +761,15 @@ func _submit_network_input(
 	interact_held: bool,
 	yaw: float,
 	pitch: float,
-	input_sequence: int
+	input_sequence: int,
+	flashlight_on: bool,
+	flashlight_focus: bool,
+	lean: float
 ) -> void:
 	if not _rpc_reached_authority() or not _rpc_sender_owns_player():
 		return
 	if not is_finite(move.x) or not is_finite(move.y) \
-		or not is_finite(yaw) or not is_finite(pitch):
+		or not is_finite(yaw) or not is_finite(pitch) or not is_finite(lean):
 		return
 	if input_sequence <= _last_processed_input_sequence:
 		return
@@ -721,7 +781,10 @@ func _submit_network_input(
 		interact_held,
 		yaw,
 		pitch,
-		input_sequence
+		input_sequence,
+		flashlight_on,
+		flashlight_focus,
+		lean
 	)
 
 
@@ -733,13 +796,19 @@ func _apply_network_input(
 	interact_held: bool,
 	yaw: float,
 	pitch: float,
-	input_sequence: int = -1
+	input_sequence: int = -1,
+	flashlight_on: bool = true,
+	flashlight_focus: bool = false,
+	lean: float = 0.0
 ) -> void:
 	_network_move = move.limit_length(1.0)
 	_network_jump = jump
 	_network_crouch = crouch
 	_network_run = run_pressed
 	_network_interact = interact_held
+	_network_flashlight_on = flashlight_on
+	_network_flashlight_focus = flashlight_focus
+	_network_lean = clampf(lean, -1.0, 1.0)
 	_network_yaw = wrapf(yaw, -PI, PI)
 	_network_pitch = clampf(pitch, -PI * 0.5, PI * 0.5)
 	if input_sequence >= 0:
@@ -831,7 +900,10 @@ func _send_network_state(peer_id: int) -> void:
 		owner_bladder,
 		_last_processed_input_sequence,
 		_life_state_revision,
-		_last_applied_toilet_report
+		_last_applied_toilet_report,
+		flashlight_battery,
+		_flashlight_on,
+		_flashlight_focus_held
 	)
 
 
@@ -851,10 +923,21 @@ func _receive_network_state(
 	server_bladder: float,
 	ack_input_sequence: int,
 	server_life_state_revision: int,
-	server_toilet_ack: int
+	server_toilet_ack: int,
+	server_flashlight_battery: float,
+	server_flashlight_on: bool,
+	server_flashlight_focus: bool
 ) -> void:
 	if not _network_is_reachable() or multiplayer.is_server():
 		return
+	flashlight_battery = clampf(server_flashlight_battery, 0.0, flashlight_battery_max)
+	# The owner's own switch and focus are felt on the frame they are pressed
+	# and confirmed a tick later; taking them back from the server here would
+	# make the torch stutter at exactly the rate snapshots arrive.
+	if not is_local_player():
+		_flashlight_on = server_flashlight_on
+		_flashlight_focus_held = server_flashlight_focus
+	_apply_flashlight_state()
 	_snapshot_position = server_position
 	_snapshot_yaw = server_yaw
 	_snapshot_pitch = server_pitch
@@ -1273,6 +1356,10 @@ func release_held_item(item: Node3D) -> bool:
 
 
 func _physics_process(delta: float) -> void:
+	# Ahead of every early return below: a downed, dead, spectating or purely
+	# interpolated body still casts the torch its owner left switched on.
+	_update_flashlight(delta)
+	_update_lean(delta)
 	if _is_network_session():
 		if multiplayer.is_server():
 			if owner_peer_id == NETWORK_SERVER_PEER_ID and not _is_dedicated_server():
@@ -1748,19 +1835,149 @@ func _set_toilet_ghost_stun_visual(strength: float) -> void:
 ## Called by the Toilet Ghost only while its body is actually visible. The
 ## narrowed, dim flashlight makes finding it a visual task; it does not reveal
 ## a lurch through an audio cue.
+## The lean is smoothed by whoever owns the body and sent as one number, not
+## re-derived from the key on the far side: the authority has to end up with the
+## exact camera the player is looking through, because that camera is what the
+## Statue reads to decide it is being watched and what the Darkness Ghost reads
+## for its first sighting. A server that leaned a frame behind would let a
+## player see a ghost the server believes is unobserved.
+func _update_lean(delta: float) -> void:
+	if is_local_player():
+		var target := 0.0
+		if _can_lean():
+			if Input.is_action_pressed(&"lean_left"):
+				target -= 1.0
+			if Input.is_action_pressed(&"lean_right"):
+				target += 1.0
+		_lean = move_toward(_lean, target, lean_speed * delta)
+	elif _is_network_session() and multiplayer.is_server():
+		_lean = _network_lean
+	else:
+		# A remote body on a client: nothing here reads its camera, and the head
+		# is not modelled, so there is nothing for a lean to move.
+		return
+	_lean_reach = _clamped_lean_reach()
+	_apply_lean()
+
+
+func _can_lean() -> bool:
+	return is_alive and not is_downed and not is_spectator and not _is_any_minigame_active()
+
+
+## How far of the wanted lean the head can actually travel. Peeking round a
+## corner means putting the camera exactly where a wall is, so without this the
+## peek sees through the cover instead of past it.
+func _clamped_lean_reach() -> float:
+	if absf(_lean) <= 0.001:
+		return 0.0
+	var eye := camera_pivot.global_position
+	var sideways := global_basis.x * (_lean * lean_side_offset)
+	var query := PhysicsRayQueryParameters3D.create(eye, eye + sideways, 1)
+	query.exclude = [get_rid()]
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	if hit.is_empty():
+		return _lean
+	var clear: float = eye.distance_to(hit["position"] as Vector3)
+	var wanted := absf(_lean) * lean_side_offset
+	if wanted <= 0.001:
+		return _lean
+	return _lean * clampf(clear / wanted, 0.0, 1.0) * lean_wall_margin
+
+
+## Written here as well as folded into _update_camera_motion()'s target, and the
+## two agree by construction. Camera motion owns the pivot on an ordinary tick
+## and would lerp a lean written here straight back out; the branches that skip
+## it - a minigame, a death - would otherwise leave the head stuck out at the
+## angle it was leaning when they started.
+func _apply_lean() -> void:
+	camera_pivot.position.x = _camera_pivot_base_x + _lean_reach * lean_side_offset
+	camera_pivot.rotation.z = -_lean_reach * deg_to_rad(lean_max_angle)
+
+
+## Only the authority spends charge, because the authority is where the
+## Darkness Ghost reads the beams that kill it - a client draining its own copy
+## would disagree with the body the ghost is actually measuring. Every peer
+## still runs _apply_flashlight_state(), so the light itself is correct
+## everywhere from the replicated switch/focus flags.
+func _update_flashlight(delta: float) -> void:
+	_refresh_flashlight_input()
+	if not _is_network_client() and _flashlight_on and flashlight_battery > 0.0:
+		var drain := (
+			flashlight_focus_drain_per_second
+			if _flashlight_focus_held
+			else flashlight_drain_per_second
+		)
+		flashlight_battery = maxf(0.0, flashlight_battery - drain * delta)
+	_apply_flashlight_state()
+
+
+## Three bodies, three sources, and mixing them up is what makes a torch flicker
+## on somebody else's screen: the body you steer reads the real keyboard, a
+## remote body on the authority reads the input stream that body's owner sends,
+## and a remote body on a client is told by _receive_network_state() and must
+## not be overwritten here.
+func _refresh_flashlight_input() -> void:
+	if is_local_player():
+		_flashlight_focus_held = Input.is_action_pressed(&"flashlight_focus")
+	elif _is_network_session() and multiplayer.is_server():
+		_flashlight_on = _network_flashlight_on
+		_flashlight_focus_held = _network_flashlight_focus
+
+
+## The single place the SpotLight3D is written. The toilet ghost's dimming and
+## the focus beam both land here rather than each setting light_energy from the
+## base value, which is how two of them at once used to mean whichever ran last.
+func _apply_flashlight_state() -> void:
+	if not flashlight:
+		return
+	var lit := _flashlight_on and flashlight_battery > 0.0
+	flashlight.visible = lit
+	var energy := _flashlight_base_energy
+	var beam_range := _flashlight_base_range
+	var angle := _flashlight_base_angle
+	if lit and _flashlight_focus_held:
+		energy *= flashlight_focus_energy_scale
+		beam_range *= flashlight_focus_range_scale
+		angle = flashlight_focus_angle
+	if _toilet_ghost_present:
+		energy *= toilet_ghost_flashlight_energy_multiplier
+		beam_range *= toilet_ghost_flashlight_range_multiplier
+	flashlight.light_energy = energy
+	flashlight.spot_range = beam_range
+	flashlight.spot_angle = angle
+
+
+func is_flashlight_on() -> bool:
+	return _flashlight_on and flashlight_battery > 0.0
+
+
+## What the Darkness Ghost's kill and slow both read. A beam that is merely on
+## does neither: the ghost is hurt by the focused beam or by nothing.
+func is_flashlight_focused() -> bool:
+	return is_flashlight_on() and _flashlight_focus_held
+
+
+func get_flashlight_battery_ratio() -> float:
+	return clampf(flashlight_battery / maxf(flashlight_battery_max, 0.001), 0.0, 1.0)
+
+
+## Returns how much charge was actually taken, so a battery pickup can stay on
+## the floor for somebody who needs it instead of being spent topping up a tank
+## that is already full.
+func add_flashlight_battery(amount: float) -> float:
+	if amount <= 0.0:
+		return 0.0
+	var accepted := minf(amount, flashlight_battery_max - flashlight_battery)
+	if accepted <= 0.0:
+		return 0.0
+	flashlight_battery += accepted
+	_apply_flashlight_state()
+	return accepted
+
+
 func set_toilet_ghost_presence(present: bool) -> void:
 	_toilet_ghost_present = present
-	if flashlight:
-		flashlight.light_energy = (
-			_flashlight_base_energy * toilet_ghost_flashlight_energy_multiplier
-			if present
-			else _flashlight_base_energy
-		)
-		flashlight.spot_range = (
-			_flashlight_base_range * toilet_ghost_flashlight_range_multiplier
-			if present
-			else _flashlight_base_range
-		)
+	_apply_flashlight_state()
 	var overlay_material := horror_overlay_rect.material as ShaderMaterial
 	if overlay_material:
 		overlay_material.set_shader_parameter("toilet_presence", 1.0 if present else 0.0)
@@ -2371,10 +2588,14 @@ func _update_camera_motion(delta: float) -> void:
 	var target_position := Vector3(bob_offset.x, target_height + bob_offset.y, 0.0)
 	var threat_wave := sin(Time.get_ticks_msec() * 0.019) * statue_threat
 	target_position.x += threat_wave * 0.008
+	# The peek is part of where the head is meant to be, not a second opinion
+	# about it. Left out of this target, the lerp below spends every frame
+	# pulling the lean back to the centreline it does not know about.
+	target_position.x += _lean_reach * lean_side_offset
 	var blend := minf(crouch_transition_speed * delta, 1.0)
 	# A modest roll is enough to read as "lying on the floor". Anything closer
 	# to a real 90 degrees fights mouse-look, which downed players keep.
-	var target_roll := threat_wave * 0.006
+	var target_roll := threat_wave * 0.006 - _lean_reach * deg_to_rad(lean_max_angle)
 	if is_downed:
 		target_roll += deg_to_rad(downed_camera_roll_degrees)
 	camera_pivot.position = camera_pivot.position.lerp(target_position, blend)
