@@ -108,6 +108,13 @@ player. Where no room clears that bar - House2 is 18 x 12 m - `_pick_far_room()`
 falls back to a random pick from the farthest quarter of the rooms, so the rule
 degrades to "the farthest there is", never to "underfoot".
 
+The night is priced per head: `burns_per_player` (3) is the only authored
+number, and `get_minutes_per_totem()` derives what one burn pays from it, so a
+solo run is three totems and a full room of four is twelve, both buying exactly
+one night. `_sync_runway_pricing()` pushes the matching opening tank and bank
+ceiling onto `NightClock` - **those two exports are overwritten at runtime**, so
+tuning them in the inspector does nothing while a ritual is in the scene.
+
 The 4:00 AM ceiling lives in `NightClock.skip_minutes()` (group `night_clock`),
 not in the ritual: it grants only the minutes left below `skip_limit_hour` and
 returns how many it actually gave. `items/ritual_item.gd` is the shared pickup
@@ -125,7 +132,7 @@ Two of its systems are easy to break by writing the same node from a second plac
 - **The torch is a resource.** `flashlight_battery` drains while lit (faster while the right-mouse focus is held), `items/flashlight_battery.tscn` refills it, and only the *focused* beam is what the Darkness Ghost's `is_flashlight_focused()` seam reports. Only the authority spends charge — that is the side the ghost measures beams on. `_apply_flashlight_state()` is the single writer of the `SpotLight3D`: the toilet ghost's dimming and the focus beam compose there, and setting `light_energy` anywhere else means whichever ran last wins.
 - **The peek (Q/E) and the camera share one pivot.** `_update_camera_motion()` rewrites `camera_pivot.position` and `rotation.z` every frame for head bob and roll, so the lean is folded into *its* target as well as applied directly; a lean written only in `_update_lean()` is lerped straight back out. The lean rides the input stream to the authority because the server's camera is what the Statue and the Darkness Ghost read for "is this player looking at me".
 
-The key map moved to make room for the peek: **Q/E lean**, interact is **F**, drop is **G**, the torch switch is **L**, right mouse focuses the beam. `ui/interaction_prompt.gd` and `ui/downed_indicators.gd` read their key name out of `InputMap`, so prompts follow a rebind on their own.
+Key map: **Z/C** (or the mouse's side buttons) lean, **E** interacts, **G** drops, **F** switches the torch, right mouse focuses the beam. `ui/interaction_prompt.gd` and `ui/downed_indicators.gd` read their key name out of `InputMap`, so prompts follow a rebind on their own.
 
 ### Multiplayer: one authority, three kinds of seam
 

@@ -29,12 +29,16 @@ func _run() -> void:
 		return
 	if not await _check_spawn_rules():
 		return
+	if not _check_per_player_pricing():
+		return
 	if not await _check_completion():
 		return
 
 	print(
 		"Totem ritual smoke test passed: 4:00 AM ceiling, two-handed totem, "
-		+ "burn/relight loop, wall-blocked highlight, five random totems, and "
+		+ "burn/relight loop, wall-blocked highlight, five random totems, an "
+		+ "easier battery population on its own radius, three burns per player at "
+		+ "every head count, a ceiling a whole team can cash into at once, and "
 		+ "end-of-ritual cleanup."
 	)
 	quit()
@@ -261,6 +265,22 @@ func _check_spawn_rules() -> bool:
 		if spawned.global_position.distance_to(first.global_position) < 70.0:
 			return _fail("An item was dropped %.1f m from a player, under the 70 m rule." % spawned.global_position.distance_to(first.global_position))
 
+	# Batteries are the one population that is not the objective, and they are
+	# held to their own much smaller radius on purpose - the 70 m rule above is
+	# what makes a totem a trip, and applying it to the thing that lets you see
+	# would make every trip worse rather than longer.
+	var batteries := get_nodes_in_group(&"flashlight_batteries")
+	if batteries.size() != director.batteries_in_world:
+		return _fail(
+			"The map should carry %d torch batteries, found %d."
+			% [director.batteries_in_world, batteries.size()]
+		)
+	for item: Node in batteries:
+		var cell := item as Node3D
+		var gap := cell.global_position.distance_to(first.global_position)
+		if gap < director.battery_spawn_distance:
+			return _fail("A battery landed %.1f m from a player, inside its own radius." % gap)
+
 	var second := _fake_player(stage, Vector3(0, 0, 4))
 	director.restock()
 	if get_nodes_in_group(&"totems").size() != TotemRitual.MIN_TOTEMS_IN_WORLD:
@@ -318,6 +338,85 @@ func _fake_room(stage: Node3D, point: Vector3) -> Marker3D:
 	stage.add_child(room)
 	room.global_position = point
 	return room
+
+
+## The night costs the same amount of night whoever is carrying it: three burns
+## per head, each worth proportionally less, so a full room does not finish in
+## three trips and a solo player is not asked for twelve. The arithmetic that
+## has to hold at every head count is "the burns owed, plus the free opening
+## tank, add up to at least the whole night" - a run priced a minute short is a
+## run nobody can finish.
+func _check_per_player_pricing() -> bool:
+	var stage := Node3D.new()
+	root.add_child(stage)
+	var ritual := TotemRitual.new()
+	var clock := (load("res://ui/night_clock.tscn") as PackedScene).instantiate() as NightClock
+	clock.set_process(false)
+	root.add_child(clock)
+	stage.add_child(ritual)
+	ritual._clock = clock
+	var night := clock.get_total_night_minutes()
+
+	for heads: int in [1, 2, 3, 4]:
+		while stage.get_child_count() - 1 < heads:
+			_fake_player(stage, Vector3(float(stage.get_child_count()) * 2.0, 0.0, 0.0))
+		var burns := ritual.get_burns_required()
+		if burns != ritual.burns_per_player * heads:
+			stage.free()
+			clock.free()
+			return _fail(
+				"%d player(s) should owe %d burns, got %d."
+				% [heads, ritual.burns_per_player * heads, burns]
+			)
+		var unit := ritual.get_minutes_per_totem()
+		# The arithmetic being right is not the same as the clock being told. It
+		# was not: the clock resets with the solo tank before this node counts
+		# the room, add_fuel() can only add, and a two-player night therefore
+		# opened 39 minutes over-fuelled and finished in fewer burns than it
+		# owed. Assert the tank the night actually starts with, not the formula.
+		ritual._sync_runway_pricing()
+		if clock.fuel_minutes != unit or clock.max_fuel_minutes != unit * (heads + 1):
+			stage.free()
+			clock.free()
+			return _fail(
+				"%d player(s) should open on %d runway under a %d ceiling, got %d under %d."
+				% [heads, unit, unit * (heads + 1), clock.fuel_minutes, clock.max_fuel_minutes]
+			)
+		# A round of trips finished together, which is how a team actually plays:
+		# from an empty tank every player's burn has to land whole. Against the
+		# old flat two-unit ceiling the third and fourth of them were granted
+		# nothing - a totem carried across the villa for zero minutes of night.
+		clock.set_opening_runway(0)
+		for _burn: int in heads:
+			if clock.add_fuel(unit) != unit:
+				stage.free()
+				clock.free()
+				return _fail(
+					"%d player(s) burning together lost a burn to the %d-minute ceiling."
+					% [heads, clock.max_fuel_minutes]
+				)
+		clock.set_opening_runway(unit)
+
+		var bought := unit * burns + unit
+		if bought < night:
+			stage.free()
+			clock.free()
+			return _fail(
+				"%d player(s) burning %d totems buy %d of a %d-minute night - unfinishable."
+				% [heads, burns, bought, night]
+			)
+		# And not so generous that the night is over before the burns are.
+		if unit * burns > night:
+			stage.free()
+			clock.free()
+			return _fail(
+				"%d player(s) reach dawn on %d burns without spending the free tank."
+				% [heads, burns]
+			)
+
+	stage.free()
+	clock.free()
+	return true
 
 
 func _fake_player(stage: Node3D, point: Vector3) -> CharacterBody3D:

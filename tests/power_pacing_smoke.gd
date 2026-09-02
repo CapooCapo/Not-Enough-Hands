@@ -9,8 +9,10 @@ extends SceneTree
 ## honest: it drains the real House2 map at a fixed timestep for exactly one
 ## night and counts the outages.
 
-## 23:55 -> 06:00 is 365 in-game minutes at 1.5 real seconds each.
-const NIGHT_SECONDS := 365.0 * 1.5
+## 23:55 -> 06:00 is 365 in-game minutes. Read the tick off NightClock rather
+## than restating it: the number this test cares about is how many outages fit
+## in a night, and it must keep answering that when the night is relengthened.
+const NIGHT_MINUTES := 365.0
 const STEP := 0.25
 
 
@@ -19,6 +21,9 @@ func _initialize() -> void:
 
 
 func _run() -> void:
+	var clock := (load("res://ui/night_clock.tscn") as PackedScene).instantiate() as NightClock
+	var night_seconds := NIGHT_MINUTES * clock.real_seconds_per_game_minute
+	clock.free()
 	var house := (load("res://house2/house2.tscn") as PackedScene).instantiate()
 	root.add_child(house)
 	var manager := house.get_node("PowerManager") as PowerManager
@@ -34,7 +39,7 @@ func _run() -> void:
 	var outages := 0
 	var elapsed := 0.0
 	manager.set_process(false)
-	while elapsed < NIGHT_SECONDS:
+	while elapsed < night_seconds:
 		manager._process(STEP)
 		elapsed += STEP
 		if manager.is_blackout:
@@ -49,7 +54,7 @@ func _run() -> void:
 	_assert(
 		outages >= 1 and outages <= 3,
 		"A fully-lit night should go dark about twice, got %d outages in %.0f seconds."
-			% [outages, NIGHT_SECONDS]
+			% [outages, night_seconds]
 	)
 
 	# Running the house dark has to buy real time, or switching lights off is

@@ -23,8 +23,8 @@ enum EncounterPhase {
 ## How long one hunt lasts before the ghost gives up and the circuits it cut
 ## come back. Without this the very first manifest never ends - it holds the
 ## pocket dark and chases until it kills somebody or dies in light - so a night
-## contained exactly one encounter. A night is 547.5 real seconds, which at the
-## shipped warning/hunt/interval pacing is five - four if every hunt runs out
+## contained exactly one encounter. A night is 605 real seconds, which at the
+## shipped warning/hunt/interval pacing is six - five if every hunt runs out
 ## its full unseen_hunt_time_scale grace without meeting anybody, which is the
 ## trade that grace is worth making.
 @export_range(5.0, 300.0, 1.0) var hunt_duration := 40.0
@@ -73,8 +73,8 @@ enum EncounterPhase {
 ## formula because the steps are deliberately uneven - the payoff for the third
 ## torch is meant to be the biggest one. Shorter than the numbers a plain beam
 ## would have earned, because a focused beam is paid for out of the battery: at
-## the player's default 4.0/s drain, a three-torch kill costs each of them a
-## fifth of a full charge.
+## the player's default focus drain, a three-torch kill costs each of them
+## about a seventh of a full charge.
 @export var flashlight_death_ladder: PackedFloat32Array = PackedFloat32Array(
 	[8.0, 5.0, 3.0]
 )

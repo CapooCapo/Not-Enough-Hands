@@ -50,17 +50,29 @@ const MIN_TOTEMS_IN_WORLD := 5
 ## Spare torch batteries loose in the house. Not part of the ritual at all -
 ## they live here because this node is already the thing that keeps a live item
 ## population spread over both maps' room markers, and a second director would
-## be the same eighty lines of room-picking written twice. Spread like the
-## firewood rather than clustered near the team: a battery is something you find
-## on the way somewhere else, and finding it far from the fire is the point.
-@export_range(0, 12, 1) var batteries_in_world: int = 4
-## What one burn pays the night, in in-game minutes. At the clock's default rate
-## this is the real-time runway a burn buys: 45 minutes is about 67 seconds of
-## night. It wants to sit a little above a round trip to the brazier, or the
-## clock spends most of the night stopped - this is the first knob to tune after
-## a playtest, and it was raised from 30 when burning became the only thing
-## keeping the night moving rather than an optional shortcut.
-@export_range(0, 240, 5) var minutes_per_totem: int = 45
+## be the same eighty lines of room-picking written twice.
+##
+## Deliberately the easiest population of the three to find. A totem is the
+## objective and is *meant* to be a trip; a battery is what lets you see on the
+## way there, so hiding it makes the trip worse rather than harder in any way
+## worth having. It gets the near slice of the rooms and almost no exclusion
+## radius - see `battery_spawn_distance`.
+@export_range(0, 12, 1) var batteries_in_world: int = 6
+## Exclusion radius for batteries alone, and it exists only so one does not pop
+## into existence in the room you are standing in. Everything past it is fair
+## game, near slice included, which is the whole difference between this and the
+## totems' 22 m.
+@export_range(0.0, 60.0, 0.5) var battery_spawn_distance: float = 6.0
+## Burns each player owes the night, and the only number here that is authored:
+## what one burn is *worth* is derived from it so the night always costs the
+## same amount of night, however many people are carrying it. Three each means
+## three totems solo, six for a pair, twelve for a full room of four - the work
+## scales with the hands available instead of the clock doing it.
+##
+## It buys runway, not a jump, so the night still has to be played through
+## between burns: paying for the whole night in the first two minutes is not
+## possible, and idling still stops the clock dead.
+@export_range(1, 10, 1) var burns_per_player: int = 3
 ## How far a fresh item has to be from every player. This is an exclusion
 ## radius and nothing more - it exists so an item never appears at somebody's
 ## feet, not to make the trip long. It was 40 m, which in an 80 x 60 m villa
@@ -128,6 +140,7 @@ func begin() -> void:
 	_clock = get_tree().get_first_node_in_group(&"night_clock")
 	if _clock and _clock.has_signal(&"minute_changed"):
 		_clock.connect(&"minute_changed", _on_minute_changed)
+	_sync_runway_pricing()
 	_ensure_brazier()
 	restock()
 	_check_completion()
@@ -144,7 +157,7 @@ func _process(delta: float) -> void:
 
 ## Called by the brazier once a totem has actually gone into the fire. Returns
 ## the in-game minutes the burn was really worth, which is less than
-## `minutes_per_totem` near the runway ceiling and near dawn.
+## `get_minutes_per_totem()` near the runway ceiling and near dawn.
 ##
 ## This is the night's first objective, and it pays the clock the way every
 ## later one will: `add_fuel()`, not `skip_minutes()`. The difference is the
@@ -153,7 +166,7 @@ func _process(delta: float) -> void:
 func on_totem_burned() -> int:
 	var granted := 0
 	if _clock and _clock.has_method(&"add_fuel"):
-		granted = int(_clock.call(&"add_fuel", minutes_per_totem))
+		granted = int(_clock.call(&"add_fuel", get_minutes_per_totem()))
 	totems_burned += 1
 	totem_burned.emit(granted)
 	_check_completion()
@@ -169,6 +182,68 @@ func totems_remaining() -> int:
 	return get_tree().get_nodes_in_group(&"totems").size()
 
 
+## Burns the whole team owes tonight: three each, recounted live. A player
+## leaving or dying lowers it, which is deliberate - the survivors inherit a
+## night that is still exactly one night long, not one priced for a team they
+## no longer have.
+func get_burns_required() -> int:
+	return maxi(burns_per_player * _head_count(), 1)
+
+
+func _head_count() -> int:
+	return maxi(_players_in_run().size(), 1)
+
+
+## What one burn pays, in in-game minutes: the night split into one unit per
+## burn owed, plus one the night hands over free at the start. Derived rather
+## than authored so the payout and the requirement can never drift - a fixed
+## payout against a scaling requirement is how a four-player run ends up either
+## unfinishable or over in three minutes.
+##
+## So a solo night is four units: one given, three burned. That +1 is also what
+## keeps the older design intact - the opening tank is exactly one objective's
+## worth, the bank holds exactly two, and the first burn of the run fills it to
+## the brim rather than being clipped by the ceiling.
+func get_minutes_per_totem() -> int:
+	var units := get_burns_required() + 1
+	return maxi(int(ceil(float(_total_night_minutes()) / float(units))), 1)
+
+
+func _total_night_minutes() -> int:
+	if _clock and _clock.has_method(&"get_total_night_minutes"):
+		return maxi(int(_clock.call(&"get_total_night_minutes")), 1)
+	# 23:55 -> 06:00. Only reached with no clock in the scene, which is a test
+	# harness rather than a run.
+	return 365
+
+
+## The opening tank and the bank ceiling belong to the same arithmetic as the
+## payout, and a payout that moves with the head count against fixed ones would
+## either clip every burn or bank half the night. The ritual is what knows the
+## price, so the ritual is what tells the clock.
+##
+## The ceiling is one unit per player plus one, not a flat two. A team that
+## finishes a round of trips together arrives at the fire together, and against
+## a two-unit bank the third and fourth of them would be handed nothing at all -
+## a totem carried across the villa and burned for zero minutes. Nobody should
+## lose a trip they actually made to a number they cannot see. One unit each
+## plus one of slack is still far from banking the night: four players can hold
+## 145 of a 365-minute night, which is a round of work in hand and no more.
+func _sync_runway_pricing() -> void:
+	if _clock == null or not "max_fuel_minutes" in _clock:
+		return
+	var unit := get_minutes_per_totem()
+	_clock.set("max_fuel_minutes", unit * (_head_count() + 1))
+	_clock.set("start_fuel_minutes", unit)
+	# The clock reset itself before this node ran, so the tank it opened with is
+	# the authored solo default whatever the room actually holds. Setting it
+	# rather than topping it up is the whole point: for two players or more the
+	# authored tank is too *large*, and a night that opens over-fuelled is a
+	# night finished in fewer burns than the team owes.
+	if _clock.has_method(&"set_opening_runway"):
+		_clock.call(&"set_opening_runway", unit)
+
+
 ## Brings the shared totem population back to at least five and replenishes the flat log
 ## supply. Public so tests and map setup can force a pass without waiting.
 ##
@@ -178,6 +253,10 @@ func totems_remaining() -> int:
 func restock() -> void:
 	if is_complete or not WorldNet.is_world_authority():
 		return
+	# The head count is read here anyway, and this is the pass that runs every
+	# two seconds - so it is also where a player joining, dying or leaving gets
+	# the night repriced, without a second timer to keep in step with this one.
+	_sync_runway_pricing()
 	# The two populations want opposite distributions. A totem is a destination,
 	# so it is drawn from the rooms nearest the team - the trip should be a trip,
 	# not a sweep of the villa. Firewood is a convenience the fire needs after
@@ -199,7 +278,8 @@ func restock() -> void:
 		BATTERY_SCENE,
 		&"flashlight_batteries",
 		maxi(batteries_in_world, _players_in_run().size()),
-		false
+		true,
+		battery_spawn_distance
 	)
 
 
@@ -209,7 +289,8 @@ func _restock_group(
 	scene: PackedScene,
 	group: StringName,
 	target: int,
-	cluster_near: bool = true
+	cluster_near: bool = true,
+	exclusion_radius: float = -1.0
 ) -> void:
 	var existing: Array[Node] = []
 	for node: Node in get_tree().get_nodes_in_group(group):
@@ -217,7 +298,7 @@ func _restock_group(
 			existing.append(node)
 	var used: Array[Node3D] = []
 	for i: int in maxi(target - existing.size(), 0):
-		var room := _pick_far_room(used, cluster_near)
+		var room := _pick_far_room(used, cluster_near, exclusion_radius)
 		if room == null:
 			return
 		used.append(room)
@@ -239,13 +320,22 @@ func _restock_group(
 ## is left, preferring one `exclude` does not already name. Both halves matter -
 ## the first is what stops an item landing underfoot, the second is what stops
 ## the trip being a sweep of the whole villa.
-func _pick_far_room(exclude: Array[Node3D] = [], cluster_near: bool = true) -> Node3D:
+##
+## `exclusion_radius` defaults to `min_spawn_distance`; a population that is not
+## the objective passes its own, much smaller one. How hard something is to find
+## is a property of that item, not of the picker.
+func _pick_far_room(
+	exclude: Array[Node3D] = [],
+	cluster_near: bool = true,
+	exclusion_radius: float = -1.0
+) -> Node3D:
+	var radius := min_spawn_distance if exclusion_radius < 0.0 else exclusion_radius
 	var players := _players_in_run()
 	var qualifying: Array[Dictionary] = []
 	var rest: Array[Dictionary] = []
 	for room: Node3D in _spawn_rooms():
 		var distance := _distance_to_nearest(_room_floor_point(room), players)
-		if distance >= min_spawn_distance:
+		if distance >= radius:
 			qualifying.append({"room": room, "distance": distance})
 		else:
 			rest.append({"room": room, "distance": distance})

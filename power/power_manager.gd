@@ -12,10 +12,10 @@ signal regional_blackout_ended
 
 @export_category("Power Configuration")
 @export_range(1.0, 100000.0, 1.0)
-var max_power: float = 1500.0
+var max_power: float = 1000.0
 
 @export_range(0.0, 100000.0, 1.0)
-var current_power: float = 1500.0
+var current_power: float = 1000.0
 
 
 @export_category("Debug")
@@ -29,10 +29,16 @@ var current_power: float = 1500.0
 ## lasts this long at the house's peak load, whatever that load happens to be,
 ## and proportionally longer once players switch rooms off.
 ##
-## One night is 547.5 real seconds (23:55 -> 06:00 at 1.5 s per game minute), so
-## 220 puts two outages in a fully-lit night - at roughly 3:40 and 7:20 in - and
-## fewer if the house is run dark on purpose.
-@export_range(10.0, 3600.0, 5.0) var full_load_reserve_seconds: float = 220.0
+## This is the knob that paces the dark, and `max_power` is not: it sits in the
+## numerator of `_calculate_drain()`, so halving the battery halves the drain
+## with it and the night goes dark at exactly the same moments. Change this one.
+##
+## One night is 605 real seconds (23:55 -> 06:00 at 1.6575 s per game minute), so
+## 200 puts three outages in a fully-lit night - at 3:20, 6:40 and 10:00 in,
+## the last landing five seconds before dawn - and fewer if the house is run
+## dark on purpose, or if the repairs in between take any real time at all,
+## which they do: the third is the one a slow team never sees.
+@export_range(10.0, 3600.0, 5.0) var full_load_reserve_seconds: float = 200.0
 
 
 @export_category("House Lighting")

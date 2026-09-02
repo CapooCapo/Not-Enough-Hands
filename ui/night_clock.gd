@@ -44,21 +44,38 @@ signal runway_changed(fuel_minutes: int, is_frozen: bool)
 ## to jump it there.
 @export_range(0, 23, 1) var skip_limit_hour: int = 4
 @export_range(0, 59, 1) var skip_limit_minute: int = 0
-## The night advances one in-game minute every 1.5 seconds of real time.
-@export var real_seconds_per_game_minute: float = 1.5
+## Real seconds per in-game minute, and therefore the length of a whole match:
+## 23:55 -> 06:00 is 365 in-game minutes, so 1.6575 makes a night 604.99
+## real seconds - 605 to within 13 milliseconds, and 605 exactly is not on the
+## table: 605/365 is 1.65753424657..., a repeating decimal no export can hold.
+## Raised from 1.5 (547.5 s) to buy the extra minute back.
+##
+## This one number scales everything the night is measured in - a burn's runway,
+## the bladder, the Huntsman's in-game hours - because those are all counted in
+## game minutes. What it does *not* scale is anything counted in real seconds:
+## the power reserve and the Darkness Ghost's cycle both keep their own clock,
+## so lengthening the night gives the house one more chance to go dark and the
+## ghost one more haunting. That asymmetry is the point of changing it here
+## rather than by moving dawn.
+@export var real_seconds_per_game_minute: float = 1.6575
 
 @export_category("Runway")
 ## What the night opens with, so the first objective is done under a running
-## clock rather than a frozen one. One objective's worth (see
-## `TotemRitual.minutes_per_totem`), which at the default rate is about 67
-## seconds of real time to find the first job in.
-@export_range(0, 240, 5) var start_fuel_minutes: int = 45
-## Ceiling on banked runway, in in-game minutes. Deliberately exactly two
-## objectives' worth, and deliberately a multiple of one: a team can work a
-## single job ahead and no further, and - since the night opens with one in the
-## tank - the first completion fills the bank exactly rather than being clipped.
-## Any cap that is not a whole number of objectives robs somebody's burn.
-@export_range(0, 480, 5) var max_fuel_minutes: int = 90
+## clock rather than a frozen one: one objective's worth.
+##
+## Both this and the ceiling below are **overwritten at runtime** by
+## `TotemRitual._sync_runway_pricing()`, because what an objective is worth now
+## depends on how many people are in the run - three burns each, so the more
+## hands there are the less one burn buys. The values authored here are the
+## solo case and the fallback for a scene with no ritual in it.
+@export_range(0, 240, 5) var start_fuel_minutes: int = 92
+## Ceiling on banked runway, in in-game minutes. One objective per player plus
+## one, so a whole team finishing a round of trips together can cash in without
+## the last of them being handed nothing, and a multiple of one objective so
+## that - since the night opens with one in the tank - the first completion
+## fills the bank exactly rather than being clipped. It is still a round of
+## work in hand and no more: four players can bank 145 of a 365-minute night.
+@export_range(0, 480, 5) var max_fuel_minutes: int = 184
 
 @export_category("Game state")
 @export var player_path: NodePath = NodePath("../Player")
@@ -180,6 +197,14 @@ func get_minutes_remaining() -> int:
 	return maxi(_minutes_until_victory - elapsed_game_minutes, 0)
 
 
+## The whole night, start to dawn, in in-game minutes - not what is left of it.
+## An objective that prices itself against the night needs the total, and
+## deriving it from start_hour/victory_hour at the call site would mean every
+## caller re-implementing the midnight rollover this already handles.
+func get_total_night_minutes() -> int:
+	return _minutes_until_victory
+
+
 ## Runway the night could still take, after the bank ceiling and the amount of
 ## night actually left. Banking more than there is night to spend it on is worth
 ## nothing, so an objective finished at 5:50 AM is handed the ten minutes that
@@ -208,6 +233,26 @@ func add_fuel(minutes: int) -> int:
 	_update_time_label()
 	runway_changed.emit(fuel_minutes, is_frozen)
 	return granted
+
+
+## Replaces the opening tank outright, for whichever objective prices the night
+## (TotemRitual). `add_fuel()` cannot do this job: it only ever adds, so a clock
+## that reset with the solo default before the ritual counted the room kept a
+## tank sized for one player and handed a four-player team an hour and a half of
+## night nobody burned for.
+##
+## Legal only while the night has not spent a minute. After that the runway is
+## the team's and is added to, never overwritten - otherwise a late joiner would
+## reprice the night out from under the people already playing it.
+func set_opening_runway(minutes: int) -> void:
+	if not WorldNet.is_world_authority() or elapsed_game_minutes != 0:
+		return
+	var wanted := clampi(minutes, 0, max_fuel_minutes)
+	if wanted == fuel_minutes:
+		return
+	fuel_minutes = wanted
+	_update_time_label()
+	runway_changed.emit(fuel_minutes, is_frozen)
 
 
 ## Stops the night until `source` releases it, without spending runway. Holds

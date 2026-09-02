@@ -69,6 +69,30 @@ func _run() -> void:
 		_fail("Focusing must cost more than an ordinary beam, or it is free.")
 		return
 
+	# The view closes in with the beam. Through _update_bladder_pressure(),
+	# which is the one line in the game that owns camera.fov - a second writer
+	# would mean the zoom and an accident's tunnel vision erasing each other.
+	var camera := player.get_node_or_null(^"CameraPivot/Camera3D") as Camera3D
+	if camera == null:
+		_fail("The player has no camera to zoom.")
+		return
+	player._update_bladder_pressure(0.016)
+	var open_fov: float = player._camera_base_fov
+	for _step: int in 60:
+		player._update_bladder_pressure(0.05)
+	if camera.fov >= open_fov - player.flashlight_focus_fov_loss * 0.99:
+		_fail("Holding the focus did not zoom the view in.")
+		return
+	Input.action_release(&"flashlight_focus")
+	player._update_flashlight(0.0)
+	for _step: int in 60:
+		player._update_bladder_pressure(0.05)
+	if not is_equal_approx(camera.fov, open_fov):
+		_fail("Releasing the focus did not open the view back up.")
+		return
+	Input.action_press(&"flashlight_focus")
+	player._update_flashlight(0.0)
+
 	# Switched off: no light, no drain, and the ghost reads no beam.
 	player._flashlight_on = false
 	player._update_flashlight(5.0)
@@ -100,7 +124,7 @@ func _run() -> void:
 	world.add_child(battery)
 	await physics_frame
 	battery._on_interacted(player)
-	if not is_equal_approx(player.flashlight_battery, minf(battery.charge_amount, player.flashlight_battery_max)):
+	if not is_equal_approx(player.flashlight_battery, player.flashlight_battery_max):
 		_fail("Interacting with a battery did not refill the torch.")
 		return
 	if not battery.is_queued_for_deletion():
@@ -125,7 +149,7 @@ func _run() -> void:
 		_fail("A battery was consumed by a player whose torch was already full.")
 		return
 
-	print("Flashlight battery smoke test passed: drain, focus cost, off/empty states, and pickup refill.")
+	print("Flashlight battery smoke test passed: drain, focus cost and zoom, off/empty states, and pickup refill.")
 	quit()
 
 

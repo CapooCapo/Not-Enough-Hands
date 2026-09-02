@@ -119,18 +119,34 @@ var _camera_pivot_base_x: float = 0.0
 
 @export_category("Flashlight")
 ## The torch is the one light a player carries, and it is now the one light
-## they can run out of. A full battery is 200 seconds of ordinary beam against
-## a 547-second night, so the switch (F) is a real decision rather than a
+## they can run out of. A full battery is 215 seconds of ordinary beam against
+## a 605-second night, so the switch (F) is a real decision rather than a
 ## formality, and the house's own lighting is the only free light there is.
-@export var flashlight_battery_max: float = 100.0
-@export_range(0.0, 20.0, 0.05) var flashlight_drain_per_second: float = 0.5
+##
+## One unit is one second of ordinary beam, because the ordinary drain below is
+## 1.0/s. That is the whole reason it is 1.0: these numbers get retuned every
+## playtest, and a tank measured in seconds can be read straight off the design
+## conversation instead of being divided out of it every time.
+@export var flashlight_battery_max: float = 215.0
+@export_range(0.0, 20.0, 0.05) var flashlight_drain_per_second: float = 1.0
 ## Holding the focus (right mouse) narrows the beam into something that can
-## actually kill the Darkness Ghost - and burns eight times the charge doing
-## it, so the kill is paid for out of the same tank as seeing where you are.
-@export_range(0.0, 40.0, 0.05) var flashlight_focus_drain_per_second: float = 4.0
+## actually kill the Darkness Ghost, and burns just over six times the charge
+## doing it: 35 seconds of focus out of a full tank, against 215 of plain light.
+## The kill is paid for out of the same tank as seeing where you are, which is
+## the point - but it is one third of the tank for a three-torch kill, not the
+## whole evening.
+@export_range(0.0, 40.0, 0.05) var flashlight_focus_drain_per_second: float = 6.15
 @export_range(1.0, 60.0, 0.5) var flashlight_focus_angle: float = 12.0
 @export_range(1.0, 6.0, 0.05) var flashlight_focus_energy_scale: float = 2.2
 @export_range(1.0, 4.0, 0.05) var flashlight_focus_range_scale: float = 1.4
+## Degrees of field of view the focus closes in. The beam narrowing on its own
+## reads as the torch changing; the view narrowing with it is what reads as the
+## player leaning into the thing they are burning, and it costs peripheral
+## vision at exactly the moment something is walking at them.
+@export_range(0.0, 40.0, 0.5) var flashlight_focus_fov_loss: float = 16.0
+## How fast the zoom eases in and out. Instant would be a flinch, not a focus.
+@export_range(0.5, 20.0, 0.1) var flashlight_focus_zoom_speed: float = 6.0
+var _focus_zoom: float = 0.0
 var flashlight_battery: float = 0.0
 var _flashlight_on: bool = true
 var _flashlight_focus_held: bool = false
@@ -413,7 +429,7 @@ func _process(delta: float) -> void:
 ##
 ## Local-only, exactly like the hunter-gaze vignette above: this is one player's
 ## own camera and their own stamina drain is applied where the movement is.
-func _update_bladder_pressure(_delta: float) -> void:
+func _update_bladder_pressure(delta: float) -> void:
 	# Two states, not one curve. Approaching full scales with how full it is;
 	# an accident is flat and much worse, for the whole of its duration.
 	var fov_loss := bladder_debuff_fov_loss * get_bladder_pressure()
@@ -421,6 +437,18 @@ func _update_bladder_pressure(_delta: float) -> void:
 	if is_wetting():
 		fov_loss = wetting_fov_loss
 		vignette = wetting_vignette
+
+	# The focus zoom is added here rather than written to the camera on its own,
+	# because this is the only line in the game that owns camera.fov: a second
+	# writer would mean the zoom and an accident's tunnel vision each erasing
+	# the other, whichever ran last. Added, not maxed - focusing a torch while
+	# wetting yourself should be the worst view in the game, not the same one.
+	_focus_zoom = move_toward(
+		_focus_zoom,
+		1.0 if is_flashlight_focused() else 0.0,
+		flashlight_focus_zoom_speed * delta
+	)
+	fov_loss += flashlight_focus_fov_loss * _focus_zoom
 
 	var camera := camera_pivot.get_node_or_null("Camera3D") as Camera3D
 	if camera:

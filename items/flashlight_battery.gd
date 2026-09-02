@@ -11,17 +11,17 @@ extends RitualItem
 ## supposed to charge, not something a consumable should tax - so picking it up
 ## spends it on the spot and the item leaves the world. A player whose torch is
 ## already full takes nothing and leaves it where it is, for whoever needs it.
-
-## Charge one cell restores, in the same units as Player.flashlight_battery_max.
-## A full one on purpose: a battery is a find, and a find that gives back a
-## third of a tank is an errand.
-@export_range(1.0, 500.0, 1.0) var charge_amount: float = 100.0
+##
+## One cell is always a whole tank, asked for as the player's own maximum rather
+## than carried here as a number that happens to match it. Retuning the torch's
+## capacity must never quietly turn a battery into a partial refill.
 
 
 func _on_interacted(player: Node) -> void:
 	if not player.has_method(&"add_flashlight_battery"):
 		return
-	if float(player.call(&"add_flashlight_battery", charge_amount)) <= 0.0:
+	var full := float(player.get(&"flashlight_battery_max"))
+	if float(player.call(&"add_flashlight_battery", full)) <= 0.0:
 		return
 	# Consumed on the authority only, which is also the only side that runs
 	# _try_interact(): the replicator turns this into a despawn every client

@@ -15,56 +15,65 @@ func _run() -> void:
 	clock.pause_on_victory = false
 	root.add_child(clock)
 	clock.set_process(false)
-	if not is_equal_approx(clock.real_seconds_per_game_minute, 1.5):
-		_fail("Night clock should default to 1.5 real seconds per game minute.")
+	var tick: float = clock.real_seconds_per_game_minute
+	# 605 exactly is not reachable - 605/365 repeats - so a second either way is
+	# the honest tolerance for "one match is 605 seconds".
+	if absf(tick * 365.0 - 605.0) > 1.0:
+		_fail("A 365-minute night should run 605 real seconds, got %.1f." % (tick * 365.0))
 		return
 	if clock.get_formatted_time() != "11:55 PM":
 		_fail("Night clock did not start at 11:55 PM.")
 		return
 
-	clock.advance_real_seconds(1.499)
+	clock.advance_real_seconds(tick - 0.001)
 	if clock.get_formatted_time() != "11:55 PM":
-		_fail("Clock advanced before a full 1.5 real seconds elapsed.")
+		_fail("The clock advanced before a whole tick had elapsed.")
 		return
 	clock.advance_real_seconds(0.001)
 	if clock.get_formatted_time() != "11:56 PM":
-		_fail("1.5 real seconds did not advance exactly one game minute.")
+		_fail("One tick did not advance exactly one game minute.")
 		return
 
-	clock.advance_real_seconds(1.5 * 5.0)
+	clock.advance_real_seconds(tick * 5.0)
 	if clock.get_formatted_time() != "12:01 AM":
 		_fail("Clock did not roll from 11:59 PM to 12:00 AM correctly.")
 		return
-	clock.advance_real_seconds(1.5)
+	clock.advance_real_seconds(tick)
 	if clock.get_formatted_time() != "12:02 AM":
-		_fail("12:01 AM to 12:02 AM did not take exactly 1.5 seconds.")
+		_fail("12:01 AM to 12:02 AM did not take exactly one tick.")
 		return
 
 	# --- Runway ---------------------------------------------------------------
 	# The night is bought, not waited out. Spend what it opened with and it stops
 	# where it stands, however much real time is pumped into it afterwards.
-	clock.advance_real_seconds(float(clock.fuel_minutes) * 1.5)
+	clock.advance_real_seconds(float(clock.fuel_minutes) * tick)
 	if clock.fuel_minutes != 0:
 		_fail("Running the night did not spend its runway minute for minute.")
 		return
 	var stalled_at := clock.get_formatted_time()
-	clock.advance_real_seconds(1.5 * 20.0)
+	clock.advance_real_seconds(tick * 20.0)
 	if clock.get_formatted_time() != stalled_at:
 		_fail("The night kept running with no runway left.")
 		return
 
 	# Grants accumulate rather than replacing: a team that works ahead has to be
 	# buying a buffer, or waiting until empty becomes the optimal play.
-	if clock.add_fuel(30) != 30 or clock.fuel_minutes != 30:
-		_fail("A first 30-minute grant did not land whole.")
+	# Measured in thirds of the ceiling rather than in minutes: what an objective
+	# pays now scales with the head count, so TotemRitual moves this ceiling to
+	# match and any literal here would be describing a one-player night only.
+	var step: int = maxi(clock.max_fuel_minutes / 3, 1)
+	if clock.add_fuel(step) != step or clock.fuel_minutes != step:
+		_fail("A first grant did not land whole.")
 		return
-	if clock.add_fuel(30) != 30 or clock.fuel_minutes != 60:
+	if clock.add_fuel(step) != step or clock.fuel_minutes != step * 2:
 		_fail("Runway did not accumulate; a second grant must add, never reset.")
 		return
-	if clock.add_fuel(90) != 30 or clock.fuel_minutes != clock.max_fuel_minutes:
+	var to_ceiling: int = clock.max_fuel_minutes - step * 2
+	if clock.add_fuel(clock.max_fuel_minutes) != to_ceiling \
+			or clock.fuel_minutes != clock.max_fuel_minutes:
 		_fail("Runway was allowed past its bank ceiling.")
 		return
-	clock.advance_real_seconds(1.5)
+	clock.advance_real_seconds(tick)
 	if clock.get_formatted_time() == stalled_at \
 			or clock.fuel_minutes != clock.max_fuel_minutes - 1:
 		_fail("Buying runway did not restart the night at a minute per minute.")
@@ -76,7 +85,7 @@ func _run() -> void:
 	clock.hold(&"blackout")
 	var frozen_at := clock.get_formatted_time()
 	var fuel_at_freeze := clock.fuel_minutes
-	clock.advance_real_seconds(1.5 * 10.0)
+	clock.advance_real_seconds(tick * 10.0)
 	if clock.get_formatted_time() != frozen_at:
 		_fail("A frozen night still advanced.")
 		return
@@ -85,12 +94,12 @@ func _run() -> void:
 		return
 	clock.hold(&"second_source")
 	clock.release(&"blackout")
-	clock.advance_real_seconds(1.5 * 2.0)
+	clock.advance_real_seconds(tick * 2.0)
 	if clock.get_formatted_time() != frozen_at:
 		_fail("Releasing one hold restarted the night while another still held it.")
 		return
 	clock.release(&"second_source")
-	clock.advance_real_seconds(1.5)
+	clock.advance_real_seconds(tick)
 	if clock.get_formatted_time() == frozen_at:
 		_fail("The night did not resume once the last hold was released.")
 		return
@@ -103,7 +112,7 @@ func _run() -> void:
 	while not clock.won and passes < 200:
 		passes += 1
 		clock.add_fuel(clock.max_fuel_minutes)
-		clock.advance_real_seconds(float(maxi(clock.fuel_minutes, 1)) * 1.5)
+		clock.advance_real_seconds(float(maxi(clock.fuel_minutes, 1)) * tick)
 	if clock.get_formatted_time() != "6:00 AM" or not clock.won:
 		_fail("Night clock did not declare victory at 6:00 AM.")
 		return
@@ -112,7 +121,7 @@ func _run() -> void:
 		return
 
 	print(
-		"Night clock smoke test passed: 1.5-second tick, midnight rollover, "
+		"Night clock smoke test passed: 605-second night, midnight rollover, "
 		+ "runway spend/stall/accumulate/cap, freeze holds, and 6:00 AM victory."
 	)
 	quit()
