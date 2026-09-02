@@ -82,7 +82,7 @@ func _process(delta: float) -> void:
 ## through the ritual, and puts the fire out. Public because the hold is only
 ## the gate: the burn itself is one step the smoke test drives directly.
 func burn_totem(player: Node, totem: Node3D) -> bool:
-	if not is_lit or not _ritual_accepts_burn() or not _take_from(player, totem):
+	if not is_lit or not _take_from(player, totem):
 		return false
 	totem.queue_free()
 	_flare = 1.0
@@ -124,10 +124,6 @@ func get_hold_ratio(seconds: float) -> float:
 ## not depend on which node _process happens to reach first.
 func _find_user() -> Dictionary:
 	if _ritual_is_complete():
-		return {}
-	# Refused before the hold rather than after it: three seconds of holding a
-	# bar that then does nothing is worse feedback than never starting.
-	if is_lit and not _ritual_accepts_burn():
 		return {}
 	for node: Node in get_tree().get_nodes_in_group(&"players"):
 		if not _player_can_use(node):
@@ -215,10 +211,6 @@ func _update_prompt(use: Dictionary) -> void:
 	var text := ""
 	if _ritual_is_complete():
 		text = "NGHI LỄ ĐÃ HOÀN TẤT"
-	elif is_lit and not _ritual_accepts_burn():
-		# Said out loud, because a hold that silently refuses to start reads as a
-		# broken interaction rather than as a rule.
-		text = "ĐÊM KHÔNG CÒN ĐỦ DÀI CHO MỘT TOTEM NỮA"
 	elif use.is_empty():
 		text = "CẦN MANG TOTEM TỚI ĐÂY" if is_lit else "LỬA ĐÃ TẮT - CẦN CỦI MỒI"
 	else:
@@ -231,15 +223,6 @@ func _update_prompt(use: Dictionary) -> void:
 	interactable.prompt_text = text
 
 
-## The fire still knows nothing about the clock - it asks the ritual, which is
-## the node that owns what a burn is worth and therefore the only one that can
-## say whether this one would be paid in full. A burn that would be clipped is
-## refused outright rather than swallowing the totem for part of its value.
-func _ritual_accepts_burn() -> bool:
-	var ritual := _ritual()
-	if ritual == null or not ritual.has_method(&"can_accept_burn"):
-		return true
-	return bool(ritual.call(&"can_accept_burn"))
 
 
 ## Resolved lazily rather than in _ready(): a map is free to add the brazier to

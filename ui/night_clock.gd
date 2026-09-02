@@ -376,7 +376,13 @@ func _update_time_label() -> void:
 	if time_label:
 		time_label.text = get_formatted_time()
 	if runway_bar:
-		runway_bar.max_value = maxf(float(max_fuel_minutes), 1.0)
+		# Measured against the night that is *left*, not against the whole night
+		# or the bank ceiling. Nothing stops a team burning one totem too many,
+		# so the bar has to be the thing they judge it on: full means the runway
+		# already reaches dawn and the next totem would buy nothing. Against a
+		# fixed maximum that moment is invisible, and the only way to find it is
+		# to waste the trip that discovers it.
+		runway_bar.max_value = maxf(float(get_minutes_remaining()), 1.0)
 		runway_bar.value = clampf(float(fuel_minutes), 0.0, runway_bar.max_value)
 	var stalled_reason := ""
 	var tint := RUNNING_TIME_COLOR

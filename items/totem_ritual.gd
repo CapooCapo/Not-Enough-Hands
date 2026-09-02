@@ -22,8 +22,9 @@ extends Node
 ## burn is worth is still decided here; how it is spent is NightClock's business
 ## (`add_fuel()`, never `skip_minutes()` - see the class docs there for why the
 ## difference matters). The bank has no ceiling: work already done is never
-## deleted, and the one thing that could still clip a burn - dawn - makes the
-## fire refuse the totem instead (`can_accept_burn()`).
+## deleted. The one thing that can still clip a burn is dawn, and nothing stops
+## a team burning one totem too many into it - that call is theirs to read off
+## the runway bar and take.
 ##
 ## When the night finally ends, every totem and log still lying around is cleared
 ## out of the world.
@@ -214,22 +215,6 @@ func get_totems_in_world() -> int:
 	return maxi(totems_by_player_count[index], MIN_TOTEMS_IN_WORLD)
 
 
-## Whether the fire may take a totem at all. False only when the night left is
-## worth less than the burn, which is the one case a burn can still be clipped
-## now that the bank has no ceiling: near dawn the clock can accept 12 minutes
-## against a 29-minute totem, and the other 17 simply vanish.
-##
-## Refusing is the kinder half of "no work is ever wasted". A totem that cannot
-## be spent in full stays in the player's hands, and by then the run is inside
-## its last objective anyway - there is nothing left to spend it on.
-func can_accept_burn() -> bool:
-	if is_complete:
-		return false
-	if _clock == null or not _clock.has_method(&"get_fuel_headroom"):
-		return true
-	return int(_clock.call(&"get_fuel_headroom")) >= get_minutes_per_totem()
-
-
 ## What one burn pays, in in-game minutes: the night split into one unit per
 ## burn owed, plus one the night hands over free at the start. Derived rather
 ## than authored so the payout and the requirement can never drift - a fixed
@@ -263,8 +248,10 @@ func _total_night_minutes() -> int:
 ## nothing at all - a totem carried across the villa for zero minutes of night.
 ## Work already done is not something a number the player cannot see gets to
 ## delete, so the ceiling is set to the whole night: the only thing that can
-## still clip a burn is dawn itself, and `can_accept_burn()` refuses the burn
-## rather than eating it when that happens.
+## still clip a burn is dawn, which is left as the player's own gamble: the
+## runway bar is drawn against the night remaining, so a full bar says plainly
+## that another totem would buy nothing, and going anyway is a decision rather
+## than a trap.
 func _sync_runway_pricing() -> void:
 	if _clock == null or not "max_fuel_minutes" in _clock:
 		return

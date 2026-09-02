@@ -111,9 +111,16 @@ degrades to "the farthest there is", never to "underfoot".
 The night is priced per head: `burns_per_player` (3) is the only authored
 number, and `get_minutes_per_totem()` derives what one burn pays from it, so a
 solo run is three totems and a full room of four is twelve, both buying exactly
-one night. `_sync_runway_pricing()` pushes the matching opening tank and bank
-ceiling onto `NightClock` - **those two exports are overwritten at runtime**, so
-tuning them in the inspector does nothing while a ritual is in the scene.
+one night. `_sync_runway_pricing()` pushes the matching opening tank onto
+`NightClock`, and sets its bank ceiling to the whole night - **both exports are
+overwritten at runtime**, so tuning them in the inspector does nothing while a
+ritual is in the scene.
+
+Nothing refuses a burn. The burns owed plus the free opening tank deliberately
+overshoot the night, so the *last* burn of every run is clipped by dawn - a rule
+that refused clipped burns made the game unfinishable at two totems solo. A team
+is free to spend a trip on a totem worth nothing; the runway bar is drawn
+against the night remaining so a full bar says so plainly.
 
 The 4:00 AM ceiling lives in `NightClock.skip_minutes()` (group `night_clock`),
 not in the ritual: it grants only the minutes left below `skip_limit_hour` and

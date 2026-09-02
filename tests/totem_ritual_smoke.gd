@@ -39,7 +39,7 @@ func _run() -> void:
 		+ "burn/relight loop, wall-blocked highlight, five random totems, an "
 		+ "easier battery population on its own radius, three burns per player at "
 		+ "every head count, an uncapped bank a whole team can cash into at once, "
-		+ "a burn refused rather than clipped at dawn, and "
+		+ "every owed burn worth something including the clipped last one, and "
 		+ "end-of-ritual cleanup."
 	)
 	quit()
@@ -402,23 +402,36 @@ func _check_per_player_pricing() -> bool:
 				)
 		clock.set_opening_runway(unit)
 
-		# Dawn is the one thing that can still clip a burn, and the answer there
-		# is to refuse it rather than swallow the totem for part of its worth.
-		if not ritual.can_accept_burn():
-			stage.free()
-			clock.free()
-			return _fail("A burn with a whole night ahead of it was refused.")
-		clock.skip_limit_hour = 6
-		clock.skip_minutes(night - maxi(unit / 2, 1))
-		if ritual.can_accept_burn():
+		# Burning is never blocked - a team is free to spend a trip on a totem
+		# that buys nothing, and the runway bar is what they judge that on. What
+		# must hold is that the burns they owe are all still worth something: the
+		# last one is clipped by design (the burns plus the free tank overshoot
+		# the night), so a rule that refused clipped burns refused the winning
+		# one every time, at two totems for a solo player.
+		clock.set_opening_runway(unit)
+		for burn: int in burns:
+			var granted := clock.add_fuel(unit)
+			if granted <= 0:
+				stage.free()
+				clock.free()
+				return _fail(
+					"%d player(s): burn %d of %d bought no night at all."
+					% [heads, burn + 1, burns]
+				)
+		if clock.fuel_minutes != clock.get_minutes_remaining():
 			stage.free()
 			clock.free()
 			return _fail(
-				"A burn worth %d minutes was accepted with less than that much night left."
-				% unit
+				"%d player(s): every owed burn should leave the night paid to dawn, got %d of %d."
+				% [heads, clock.fuel_minutes, clock.get_minutes_remaining()]
 			)
-		clock.reset_clock()
-		clock.skip_limit_hour = 4
+		# And past that point a burn is simply worth nothing, rather than an
+		# error or a negative: their gamble, cleanly lost.
+		if clock.add_fuel(unit) != 0:
+			stage.free()
+			clock.free()
+			return _fail("%d player(s): a burn past dawn's worth still paid out." % heads)
+		clock.set_opening_runway(unit)
 
 		var bought := unit * burns + unit
 		if bought < night:
