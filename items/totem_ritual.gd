@@ -9,10 +9,10 @@ extends Node
 ## maps publish, so the same node works in House2 and in the villa with no
 ## map-specific coordinates anywhere.
 ##
-## Nothing is scattered once at boot. The world always holds at least five
-## totems and a
-## flat handful of logs; each burned totem is replaced at a new random drop, and
-## every drop point is chosen at random from the
+## Nothing is scattered once at boot. The world holds a handful of totems sized
+## to the room - three solo, five for a full team - plus a
+## flat handful of logs; each burned totem is replaced at a new random drop,
+## and every drop point is chosen at random from the
 ## rooms that are far from *everybody* - the objective is a trip, so an item is
 ## never allowed to appear at somebody's feet. Within one restock pass the rooms
 ## already used are avoided, so a handful of logs is a handful of places.
@@ -21,8 +21,10 @@ extends Node
 ## to dawn on its own any more, it runs on the runway burns pay for. How much a
 ## burn is worth is still decided here; how it is spent is NightClock's business
 ## (`add_fuel()`, never `skip_minutes()` - see the class docs there for why the
-## difference matters). Both ceilings live over there too: a burn near dawn, or
-## with the bank already full, is handed what is left rather than its full price.
+## difference matters). The bank has no ceiling: work already done is never
+## deleted, and the one thing that could still clip a burn - dawn - makes the
+## fire refuse the totem instead (`can_accept_burn()`).
+##
 ## When the night finally ends, every totem and log still lying around is cleared
 ## out of the world.
 
@@ -33,12 +35,20 @@ const TOTEM_SCENE: PackedScene = preload("res://items/totem.tscn")
 const FIREWOOD_SCENE: PackedScene = preload("res://items/firewood.tscn")
 const BATTERY_SCENE: PackedScene = preload("res://items/flashlight_battery.tscn")
 const BRAZIER_SCENE: PackedScene = preload("res://items/totem_brazier.tscn")
-const MIN_TOTEMS_IN_WORLD := 5
+## Floor for `totems_by_player_count`, so an emptied or mis-authored table can
+## never leave the map with nothing to find.
+const MIN_TOTEMS_IN_WORLD := 3
 
-## Fixed shared population. Picking one up still counts it; burning it is what
-## creates a replacement elsewhere on the map. Five is a hard gameplay floor,
-## including if an older scene or runtime tool still supplies a lower value.
-@export_range(5, 12, 1) var totems_in_world: int = MIN_TOTEMS_IN_WORLD
+## How many totems are loose in the world, indexed by how many players are in
+## the run: three solo, four for a pair, five from three players up. Picking one
+## up still counts it; burning it is what creates a replacement elsewhere.
+##
+## It grows more slowly than the head count on purpose. Four players do not need
+## four times the totems - what they need is not to be queueing at the same
+## three - and a map carpeted in them turns the objective from a trip into a
+## pickup. Past four players the fifth is enough; the shortage that creates is
+## the coordination, which is the interesting part.
+@export var totems_by_player_count: PackedInt32Array = PackedInt32Array([3, 4, 5, 5])
 ## Logs kept in the world at once, as a flat count rather than one per player.
 ## The fire needs one after every burn, so a log has to be findable from
 ## wherever the last totem left you rather than being a second search on top of
@@ -194,6 +204,32 @@ func _head_count() -> int:
 	return maxi(_players_in_run().size(), 1)
 
 
+## Totems the map should be holding right now. The table is indexed from one
+## player, and its last entry stands for every larger team, so a five-player
+## lobby is not a five-entry table's problem.
+func get_totems_in_world() -> int:
+	if totems_by_player_count.is_empty():
+		return MIN_TOTEMS_IN_WORLD
+	var index := mini(_head_count(), totems_by_player_count.size()) - 1
+	return maxi(totems_by_player_count[index], MIN_TOTEMS_IN_WORLD)
+
+
+## Whether the fire may take a totem at all. False only when the night left is
+## worth less than the burn, which is the one case a burn can still be clipped
+## now that the bank has no ceiling: near dawn the clock can accept 12 minutes
+## against a 29-minute totem, and the other 17 simply vanish.
+##
+## Refusing is the kinder half of "no work is ever wasted". A totem that cannot
+## be spent in full stays in the player's hands, and by then the run is inside
+## its last objective anyway - there is nothing left to spend it on.
+func can_accept_burn() -> bool:
+	if is_complete:
+		return false
+	if _clock == null or not _clock.has_method(&"get_fuel_headroom"):
+		return true
+	return int(_clock.call(&"get_fuel_headroom")) >= get_minutes_per_totem()
+
+
 ## What one burn pays, in in-game minutes: the night split into one unit per
 ## burn owed, plus one the night hands over free at the start. Derived rather
 ## than authored so the payout and the requirement can never drift - a fixed
@@ -217,23 +253,23 @@ func _total_night_minutes() -> int:
 	return 365
 
 
-## The opening tank and the bank ceiling belong to the same arithmetic as the
-## payout, and a payout that moves with the head count against fixed ones would
-## either clip every burn or bank half the night. The ritual is what knows the
+## The opening tank belongs to the same arithmetic as the payout, and a payout
+## that moves with the head count against a fixed tank would either clip every
+## burn or hand the team a night it never bought. The ritual is what knows the
 ## price, so the ritual is what tells the clock.
 ##
-## The ceiling is one unit per player plus one, not a flat two. A team that
-## finishes a round of trips together arrives at the fire together, and against
-## a two-unit bank the third and fourth of them would be handed nothing at all -
-## a totem carried across the villa and burned for zero minutes. Nobody should
-## lose a trip they actually made to a number they cannot see. One unit each
-## plus one of slack is still far from banking the night: four players can hold
-## 145 of a 365-minute night, which is a round of work in hand and no more.
+## There is no bank ceiling any more. It was a flat two objectives, which meant
+## a team finishing a round of trips together had its last arrivals handed
+## nothing at all - a totem carried across the villa for zero minutes of night.
+## Work already done is not something a number the player cannot see gets to
+## delete, so the ceiling is set to the whole night: the only thing that can
+## still clip a burn is dawn itself, and `can_accept_burn()` refuses the burn
+## rather than eating it when that happens.
 func _sync_runway_pricing() -> void:
 	if _clock == null or not "max_fuel_minutes" in _clock:
 		return
 	var unit := get_minutes_per_totem()
-	_clock.set("max_fuel_minutes", unit * (_head_count() + 1))
+	_clock.set("max_fuel_minutes", _total_night_minutes())
 	_clock.set("start_fuel_minutes", unit)
 	# The clock reset itself before this node ran, so the tank it opened with is
 	# the authored solo default whatever the room actually holds. Setting it
@@ -266,7 +302,7 @@ func restock() -> void:
 	_restock_group(
 		TOTEM_SCENE,
 		&"totems",
-		maxi(totems_in_world, MIN_TOTEMS_IN_WORLD)
+		get_totems_in_world()
 	)
 	_restock_group(
 		FIREWOOD_SCENE,

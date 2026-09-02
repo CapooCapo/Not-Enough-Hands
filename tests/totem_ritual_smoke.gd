@@ -38,7 +38,8 @@ func _run() -> void:
 		"Totem ritual smoke test passed: 4:00 AM ceiling, two-handed totem, "
 		+ "burn/relight loop, wall-blocked highlight, five random totems, an "
 		+ "easier battery population on its own radius, three burns per player at "
-		+ "every head count, a ceiling a whole team can cash into at once, and "
+		+ "every head count, an uncapped bank a whole team can cash into at once, "
+		+ "a burn refused rather than clipped at dawn, and "
 		+ "end-of-ritual cleanup."
 	)
 	quit()
@@ -91,7 +92,7 @@ func _build_world() -> bool:
 	# every item in by name, so this director cannot create its own population;
 	# keeping the normal target also prevents its deferred burn restock from
 	# treating the next test's manually created totem as surplus.
-	_ritual.totems_in_world = TotemRitual.MIN_TOTEMS_IN_WORLD
+	# One fake player is in the group by now, so the table would give three.
 	_ritual.firewood_in_world = 0
 	_root.add_child(_ritual)
 	await _ritual.begin()
@@ -147,10 +148,13 @@ func _check_burn_loop() -> bool:
 	# difference between this and the old skip_minutes() jump.
 	if _clock.get_formatted_time() != "11:55 PM":
 		return _fail("A burn moved the clock directly instead of paying runway, got %s." % _clock.get_formatted_time())
-	if _clock.fuel_minutes != _clock.max_fuel_minutes:
+	# There is no bank ceiling any more, so a burn is worth its whole price on
+	# top of whatever was already banked - never "up to the cap".
+	var unit: int = _ritual.get_minutes_per_totem()
+	if _clock.fuel_minutes != unit * 2:
 		return _fail(
-			"A burn should have topped the runway up to %d, got %d."
-			% [_clock.max_fuel_minutes, _clock.fuel_minutes]
+			"The opening tank plus one burn should be %d runway, got %d."
+			% [unit * 2, _clock.fuel_minutes]
 		)
 	_clock.advance_real_seconds(30.0 * _clock.real_seconds_per_game_minute)
 	if _clock.get_formatted_time() != "12:25 AM":
@@ -177,13 +181,13 @@ func _check_burn_loop() -> bool:
 	_player.try_pick_up_item(second)
 	if not _brazier.burn_totem(_player, second):
 		return _fail("The relit fire should accept the next totem.")
-	# Thirty of the first burn's ninety minutes were spent above, so the second
-	# tops the bank back up rather than being wasted - runway accumulates, and a
-	# team that burns before it is empty keeps the difference.
-	if _clock.fuel_minutes != _clock.max_fuel_minutes:
+	# Thirty minutes were spent above, so the second burn adds a whole unit on
+	# top of what was left rather than being clipped: runway accumulates, and a
+	# team that burns before it is empty keeps every minute of the difference.
+	if _clock.fuel_minutes != unit * 3 - 30:
 		return _fail(
-			"The second burn should have refilled the runway to %d, got %d."
-			% [_clock.max_fuel_minutes, _clock.fuel_minutes]
+			"The second burn should have brought the runway to %d, got %d."
+			% [unit * 3 - 30, _clock.fuel_minutes]
 		)
 	_clock.advance_real_seconds(30.0 * _clock.real_seconds_per_game_minute)
 	if _clock.get_formatted_time() != "12:55 AM":
@@ -244,15 +248,15 @@ func _check_spawn_rules() -> bool:
 	var first := _fake_player(stage, Vector3(2, 0, 0))
 
 	var director := TotemRitual.new()
-	# Old scenes/tools may still supply the previous population. The runtime
-	# floor must upgrade it to five rather than silently preserving scarcity.
-	director.totems_in_world = 4
+	# An emptied table must still leave something findable rather than nothing:
+	# the runtime floor is what upgrades it.
+	director.totems_by_player_count = PackedInt32Array()
 	director.min_spawn_distance = 70.0
 	stage.add_child(director)
 	await director.begin()
 
 	if get_nodes_in_group(&"totems").size() != TotemRitual.MIN_TOTEMS_IN_WORLD:
-		return _fail("The map should hold at least five totems with one player.")
+		return _fail("An empty population table should fall back to the floor of three.")
 	# Logs are a flat population, not one per player: the fire needs one after
 	# every burn, so the map always carries a handful of them.
 	if get_nodes_in_group(&"fire_fuel").size() != director.firewood_in_world:
@@ -317,7 +321,7 @@ func _check_spawn_rules() -> bool:
 	await process_frame
 	var replacements := get_nodes_in_group(&"totems")
 	if replacements.size() != TotemRitual.MIN_TOTEMS_IN_WORLD:
-		return _fail("Burning one totem did not immediately restore the population to five.")
+		return _fail("Burning one totem did not immediately restore the population.")
 	var found_new := false
 	for node: Node in replacements:
 		if not old_ids.has(node.get_instance_id()):
@@ -375,27 +379,46 @@ func _check_per_player_pricing() -> bool:
 		# opened 39 minutes over-fuelled and finished in fewer burns than it
 		# owed. Assert the tank the night actually starts with, not the formula.
 		ritual._sync_runway_pricing()
-		if clock.fuel_minutes != unit or clock.max_fuel_minutes != unit * (heads + 1):
+		if clock.fuel_minutes != unit or clock.max_fuel_minutes != night:
 			stage.free()
 			clock.free()
 			return _fail(
 				"%d player(s) should open on %d runway under a %d ceiling, got %d under %d."
-				% [heads, unit, unit * (heads + 1), clock.fuel_minutes, clock.max_fuel_minutes]
+				% [heads, unit, night, clock.fuel_minutes, clock.max_fuel_minutes]
 			)
 		# A round of trips finished together, which is how a team actually plays:
 		# from an empty tank every player's burn has to land whole. Against the
-		# old flat two-unit ceiling the third and fourth of them were granted
+		# old two-unit ceiling the third and fourth of them were granted
 		# nothing - a totem carried across the villa for zero minutes of night.
+		# The bank has no ceiling at all now, so a whole team's worth of burns
+		# banked at once is still worth every minute of itself.
 		clock.set_opening_runway(0)
 		for _burn: int in heads:
 			if clock.add_fuel(unit) != unit:
 				stage.free()
 				clock.free()
 				return _fail(
-					"%d player(s) burning together lost a burn to the %d-minute ceiling."
-					% [heads, clock.max_fuel_minutes]
+					"%d player(s) burning together lost a burn to the bank." % heads
 				)
 		clock.set_opening_runway(unit)
+
+		# Dawn is the one thing that can still clip a burn, and the answer there
+		# is to refuse it rather than swallow the totem for part of its worth.
+		if not ritual.can_accept_burn():
+			stage.free()
+			clock.free()
+			return _fail("A burn with a whole night ahead of it was refused.")
+		clock.skip_limit_hour = 6
+		clock.skip_minutes(night - maxi(unit / 2, 1))
+		if ritual.can_accept_burn():
+			stage.free()
+			clock.free()
+			return _fail(
+				"A burn worth %d minutes was accepted with less than that much night left."
+				% unit
+			)
+		clock.reset_clock()
+		clock.skip_limit_hour = 4
 
 		var bought := unit * burns + unit
 		if bought < night:
