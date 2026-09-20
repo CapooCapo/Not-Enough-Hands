@@ -65,7 +65,7 @@ func _process(delta: float) -> void:
 		if use["player"] != _hold_player:
 			_hold_player = use["player"]
 			hold_progress = 0.0
-		hold_progress += delta
+		hold_progress += delta * (1.0 + 0.5 * _helpers(use["player"]))
 		if hold_progress >= float(use["seconds"]):
 			hold_progress = 0.0
 			_hold_player = null
@@ -82,6 +82,11 @@ func _process(delta: float) -> void:
 ## through the ritual, and puts the fire out. Public because the hold is only
 ## the gate: the burn itself is one step the smoke test drives directly.
 func burn_totem(player: Node, totem: Node3D) -> bool:
+	if not WorldNet.is_world_authority() or _ritual_is_complete() or not is_instance_valid(totem) or not totem.is_in_group(&"totems"):
+		return false
+	var objective := _ritual()
+	if objective and objective.totems_burned >= objective.get_burns_required():
+		return false
 	if not is_lit or not _take_from(player, totem):
 		return false
 	totem.queue_free()
@@ -96,6 +101,8 @@ func burn_totem(player: Node, totem: Node3D) -> bool:
 ## Spends a piece of firewood to bring the fire back, which is the only way a
 ## second totem ever goes in.
 func relight(player: Node, fuel: Node3D) -> bool:
+	if not WorldNet.is_world_authority() or not is_instance_valid(fuel) or not fuel.is_in_group(&"fire_fuel"):
+		return false
 	if is_lit or not _take_from(player, fuel):
 		return false
 	fuel.queue_free()
@@ -212,7 +219,7 @@ func _update_prompt(use: Dictionary) -> void:
 	if _ritual_is_complete():
 		text = "NGHI LỄ ĐÃ HOÀN TẤT"
 	elif use.is_empty():
-		text = "CẦN MANG TOTEM TỚI ĐÂY" if is_lit else "LỬA ĐÃ TẮT - CẦN CỦI MỒI"
+		text = "MANG TOTEM TỚI / GIỮ TƯƠNG TÁC ĐỂ HỖ TRỢ" if is_lit else "LỬA ĐÃ TẮT - CẦN CỦI MỒI"
 	else:
 		var ratio := get_hold_ratio(float(use["seconds"]))
 		var verb := "ĐỐT TOTEM" if int(use["mode"]) == Use.BURN else "NHÓM LỬA"
@@ -236,3 +243,13 @@ func _ritual() -> Node:
 func _ritual_is_complete() -> bool:
 	var ritual := _ritual()
 	return ritual != null and bool(ritual.get("is_complete"))
+
+
+## Teammates who hold interact at the same fire help complete the exposed hold.
+## Uses server-replicated input, so every peer contributes to one shared timer.
+func _helpers(carrier: Node) -> int:
+	var count := 0
+	for player: Node in get_tree().get_nodes_in_group(&"players"):
+		if player != carrier and _player_can_use(player) and player.has_method("is_holding_interact") and bool(player.call("is_holding_interact")):
+			count += 1
+	return mini(count, 2)

@@ -39,6 +39,17 @@ The complete export, container, registry, App Version, and join checklist is in
 3. Move with WASD, sprint with Shift, crouch with Ctrl, jump with Space, interact
    with E, and press Alt to show or recapture the mouse.
 
+The totem ritual requires **N + 1 burns** for the starting team (five with four
+players). The opening bank runs first. Whenever it empties, one totem appears
+in the farthest room cluster from the team and brazier. Both destinations are
+marked through walls; carrying the totem keeps its marker on the carrier.
+Picking it up provokes earlier ghost hunts and repeated noise pulses until it
+is burned, even if it is dropped. The carrier needs both hands, so teammates
+can handle light, batteries, doors and firewood. Each burn extinguishes the
+fire; bring wood to relight it. Up to two teammates can hold interact at the
+brazier to help burn or relight faster (+50% each). Burns refill the time bank;
+the team wins when the final bank has played through to dawn.
+
 The toilet minigame starts peeing automatically, building pressure for 0.75
 seconds before it reaches full flow. Move the mouse to aim the stream and look
 around at the same time; press **E** at any time to stop and leave the toilet.

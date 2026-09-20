@@ -5,6 +5,16 @@ extends SceneTree
 ## actually pays now (runway, not a jump), the two-handed carry rule, and the
 ## burn -> fire out -> firewood -> relight loop the brazier enforces.
 
+class EscortGhost extends Node3D:
+	var hunts := 0
+	var noises := 0
+	func request_hunt_soon(_seconds: float) -> bool:
+		hunts += 1
+		return true
+	func report_noise(_position: Vector3, _loudness: float, _source: Node) -> void:
+		noises += 1
+
+
 var _root: Node3D
 var _clock: NightClock
 var _brazier: TotemBrazier
@@ -34,14 +44,7 @@ func _run() -> void:
 	if not await _check_completion():
 		return
 
-	print(
-		"Totem ritual smoke test passed: 4:00 AM ceiling, two-handed totem, "
-		+ "burn/relight loop, wall-blocked seen glow, 77-second x-ray hint, five random totems, "
-		+ "nine logs and nine batteries, three burns per player at "
-		+ "every head count, an uncapped bank a whole team can cash into at once, "
-		+ "every owed burn worth something including the clipped last one, and "
-		+ "end-of-ritual cleanup."
-	)
+	print("Totem ritual smoke passed: escort, bank gating, N+1 burns, guidance and cleanup.")
 	quit()
 
 
@@ -150,7 +153,7 @@ func _check_burn_loop() -> bool:
 		return _fail("A burn moved the clock directly instead of paying runway, got %s." % _clock.get_formatted_time())
 	# There is no bank ceiling any more, so a burn is worth its whole price on
 	# top of whatever was already banked - never "up to the cap".
-	var unit: int = _ritual.get_minutes_per_totem()
+	var unit: int = _clock.get_total_night_minutes() / (_ritual.get_burns_required() + 1)
 	if _clock.fuel_minutes != unit * 2:
 		return _fail(
 			"The opening tank plus one burn should be %d runway, got %d."
@@ -184,7 +187,7 @@ func _check_burn_loop() -> bool:
 	# Thirty minutes were spent above, so the second burn adds a whole unit on
 	# top of what was left rather than being clipped: runway accumulates, and a
 	# team that burns before it is empty keeps every minute of the difference.
-	if _clock.fuel_minutes != unit * 3 - 30:
+	if _clock.fuel_minutes != _clock.get_minutes_remaining():
 		return _fail(
 			"The second burn should have brought the runway to %d, got %d."
 			% [unit * 3 - 30, _clock.fuel_minutes]
@@ -236,119 +239,59 @@ func _check_line_of_sight() -> bool:
 ## Restocking on a stage of its own: two rooms, one under the players' feet and
 ## one 120 m away, so "at least 70 m from everybody" has exactly one answer.
 func _check_spawn_rules() -> bool:
-	# The burn-loop player is done with; it would otherwise count towards the
-	# population this stage is measuring. One frame flushes it and every item
-	# queued for deletion above.
 	_player.free()
 	await process_frame
 	var stage := Node3D.new()
 	root.add_child(stage)
-	var near_room := _fake_room(stage, Vector3(0, 0, 0))
+	_fake_room(stage, Vector3.ZERO)
 	var far_room := _fake_room(stage, Vector3(120, 0, 0))
-	var first := _fake_player(stage, Vector3(2, 0, 0))
-
+	var player := _fake_player(stage, Vector3(2, 0, 0))
 	var director := TotemRitual.new()
-	# An emptied table must still leave something findable rather than nothing:
-	# the runtime floor is what upgrades it.
-	director.totems_by_player_count = PackedInt32Array()
-	director.min_spawn_distance = 70.0
 	stage.add_child(director)
 	await director.begin()
-
-	if get_nodes_in_group(&"totems").size() != TotemRitual.MIN_TOTEMS_IN_WORLD:
-		return _fail("An empty population table should fall back to the floor of five.")
-	# Logs are a flat population, not one per player: the fire needs one after
-	# every burn, so the map always carries a handful of them.
-	if get_nodes_in_group(&"fire_fuel").size() != director.firewood_in_world:
-		return _fail(
-			"The map should always carry %d logs, found %d."
-			% [director.firewood_in_world, get_nodes_in_group(&"fire_fuel").size()]
-		)
-	if director.firewood_in_world != 9 or director.batteries_in_world != 9:
-		return _fail("The expanded item supply must keep nine logs and nine batteries in the map.")
-	for item: Node in get_nodes_in_group(&"totems") + get_nodes_in_group(&"fire_fuel"):
-		var spawned := item as Node3D
-		if spawned.global_position.distance_to(first.global_position) < 70.0:
-			return _fail("An item was dropped %.1f m from a player, under the 70 m rule." % spawned.global_position.distance_to(first.global_position))
-
-	# Batteries are the one population that is not the objective, and they are
-	# held to their own much smaller radius on purpose - the 70 m rule above is
-	# what makes a totem a trip, and applying it to the thing that lets you see
-	# would make every trip worse rather than longer.
-	var batteries := get_nodes_in_group(&"flashlight_batteries")
-	if batteries.size() != director.batteries_in_world:
-		return _fail(
-			"The map should carry %d torch batteries, found %d."
-			% [director.batteries_in_world, batteries.size()]
-		)
-	for item: Node in batteries:
-		var cell := item as Node3D
-		var gap := cell.global_position.distance_to(first.global_position)
-		if gap < director.battery_spawn_distance:
-			return _fail("A battery landed %.1f m from a player, inside its own radius." % gap)
-
-	# The authority starts one shared objective beacon every 77 seconds. Calling
-	# the same process step the runtime uses proves the interval and one-at-a-time
-	# rule without making the smoke actually wait 77 real seconds.
-	for item: Node in get_nodes_in_group(&"totems"):
-		item.call(&"clear_guidance_highlight")
-	director._totem_hint_timer = 0.01
-	director._process(0.02)
-	var hinted := 0
-	for item: Node in get_nodes_in_group(&"totems"):
-		if bool(item.call(&"is_guidance_highlight_active")):
-			hinted += 1
-	if hinted != 1:
-		return _fail("A 77-second hint tick must highlight exactly one loose totem, got %d." % hinted)
-	if not is_equal_approx(director._totem_hint_timer, 77.0):
-		return _fail("The totem hint timer did not reset to 77 seconds.")
-
-	var second := _fake_player(stage, Vector3(0, 0, 4))
-	director.restock()
-	if get_nodes_in_group(&"totems").size() != TotemRitual.MIN_TOTEMS_IN_WORLD:
-		return _fail("Adding a player changed the fixed five-totem population.")
-
-	second.queue_free()
-	await process_frame
-	director.restock()
-	await process_frame
-	if get_nodes_in_group(&"totems").size() != TotemRitual.MIN_TOTEMS_IN_WORLD:
-		return _fail("Losing a player changed the fixed five-totem population.")
-
-	# Nothing on this stage is 500 m from anybody, so the rule has to fall back
-	# to the farthest room there is rather than give up or drop it underfoot.
-	director.min_spawn_distance = 500.0
-	for item: Node in get_nodes_in_group(&"totems"):
-		item.free()
+	director.set_process(false)
+	if not get_nodes_in_group(&"totems").is_empty():
+		return _fail("A funded bank must not spawn a totem.")
+	_clock.fuel_minutes = 0
 	director.restock()
 	var totems := get_nodes_in_group(&"totems")
-	if totems.size() != TotemRitual.MIN_TOTEMS_IN_WORLD:
-		return _fail("An impossible distance rule must still restock, not stall.")
-	for node: Node in totems:
-		if (node as Node3D).global_position.distance_to(far_room.global_position) > 3.0:
-			return _fail("With no room 500 m away the farthest room should have been used.")
-
-	# Burning one queues it out of the world and asks the authority to replace it.
-	# The count returns to five without waiting for the periodic restock timer.
-	var old_ids: Array[int] = []
-	for node: Node in totems:
-		old_ids.append(node.get_instance_id())
-	(totems[0] as Node).queue_free()
+	if totems.size() != 1:
+		return _fail("An empty bank must spawn exactly one totem.")
+	var totem := totems[0] as Node3D
+	if totem.global_position.distance_to(far_room.global_position) > 3.0:
+		return _fail("The objective must use the farthest room.")
+	director._update_objective_markers()
+	if not totem.is_guidance_highlight_active() or director._markers.size() != 2:
+		return _fail("Both objective and brazier need through-wall guidance.")
+	var ghost := EscortGhost.new()
+	stage.add_child(ghost)
+	ghost.add_to_group(&"hostile_ghosts")
+	totem.reparent(player)
+	director._update_escort(0.1)
+	if ghost.hunts != 1 or ghost.noises != 1:
+		return _fail("Picking up the totem must shorten hunts and attract listening ghosts.")
+	director.restock()
+	if not director.escort_active or get_nodes_in_group(&"totems").size() != 1:
+		return _fail("Pickup must escalate the escort without spawning another totem.")
+	totem.reparent(stage)
+	director._update_escort(0.1)
+	if not director.escort_active:
+		return _fail("Dropping the totem must not cancel escort pressure.")
+	totem.queue_free()
 	director.on_totem_burned()
 	await process_frame
-	await process_frame
-	var replacements := get_nodes_in_group(&"totems")
-	if replacements.size() != TotemRitual.MIN_TOTEMS_IN_WORLD:
-		return _fail("Burning one totem did not immediately restore the population.")
-	var found_new := false
-	for node: Node in replacements:
-		if not old_ids.has(node.get_instance_id()):
-			found_new = true
-			break
-	if not found_new:
-		return _fail("Totem restock did not create a new random replacement instance.")
-
-	stage.free()
+	director.restock()
+	director._update_objective_markers()
+	if not director._markers.is_empty():
+		return _fail("Burned objectives must clear both route markers.")
+	if director.escort_active or not get_nodes_in_group(&"totems").is_empty():
+		return _fail("Burning must end pressure and wait for the bank to empty.")
+	_clock.fuel_minutes = 0
+	director.restock()
+	if get_nodes_in_group(&"totems").size() != 1:
+		return _fail("The next empty bank must release one objective.")
+	director._clear_remaining_items()
+	stage.queue_free()
 	await process_frame
 	return true
 
@@ -362,114 +305,37 @@ func _fake_room(stage: Node3D, point: Vector3) -> Marker3D:
 	return room
 
 
-## The night costs the same amount of night whoever is carrying it: three burns
-## per head, each worth proportionally less, so a full room does not finish in
-## three trips and a solo player is not asked for twelve. The arithmetic that
-## has to hold at every head count is "the burns owed, plus the free opening
-## tank, add up to at least the whole night" - a run priced a minute short is a
-## run nobody can finish.
+## Run a complete funded night at every supported lobby size.
 func _check_per_player_pricing() -> bool:
-	var stage := Node3D.new()
-	root.add_child(stage)
-	var ritual := TotemRitual.new()
-	var clock := (load("res://ui/night_clock.tscn") as PackedScene).instantiate() as NightClock
-	clock.set_process(false)
-	root.add_child(clock)
-	stage.add_child(ritual)
-	ritual._clock = clock
-	var night := clock.get_total_night_minutes()
-
 	for heads: int in [1, 2, 3, 4]:
-		while stage.get_child_count() - 1 < heads:
-			_fake_player(stage, Vector3(float(stage.get_child_count()) * 2.0, 0.0, 0.0))
-		var burns := ritual.get_burns_required()
-		if burns != ritual.burns_per_player * heads:
-			stage.free()
-			clock.free()
-			return _fail(
-				"%d player(s) should owe %d burns, got %d."
-				% [heads, ritual.burns_per_player * heads, burns]
-			)
-		var unit := ritual.get_minutes_per_totem()
-		# The arithmetic being right is not the same as the clock being told. It
-		# was not: the clock resets with the solo tank before this node counts
-		# the room, add_fuel() can only add, and a two-player night therefore
-		# opened 39 minutes over-fuelled and finished in fewer burns than it
-		# owed. Assert the tank the night actually starts with, not the formula.
+		var stage := Node3D.new()
+		root.add_child(stage)
+		for i: int in heads:
+			_fake_player(stage, Vector3(i, 0, 0))
+		var ritual := TotemRitual.new()
+		stage.add_child(ritual)
+		ritual.set_process(false)
+		var clock := (load("res://ui/night_clock.tscn") as PackedScene).instantiate() as NightClock
+		clock.pause_on_victory = false
+		stage.add_child(clock)
+		clock.set_process(false)
+		ritual._clock = clock
+		ritual._burns_required = ritual._head_count() + 1
+		if ritual.get_burns_required() != heads + 1:
+			return _fail("Quota must be N + 1.")
 		ritual._sync_runway_pricing()
-		if clock.fuel_minutes != unit or clock.max_fuel_minutes != night:
-			stage.free()
-			clock.free()
-			return _fail(
-				"%d player(s) should open on %d runway under a %d ceiling, got %d under %d."
-				% [heads, unit, night, clock.fuel_minutes, clock.max_fuel_minutes]
-			)
-		# A round of trips finished together, which is how a team actually plays:
-		# from an empty tank every player's burn has to land whole. Against the
-		# old two-unit ceiling the third and fourth of them were granted
-		# nothing - a totem carried across the villa for zero minutes of night.
-		# The bank has no ceiling at all now, so a whole team's worth of burns
-		# banked at once is still worth every minute of itself.
-		clock.set_opening_runway(0)
-		for _burn: int in heads:
-			if clock.add_fuel(unit) != unit:
-				stage.free()
-				clock.free()
-				return _fail(
-					"%d player(s) burning together lost a burn to the bank." % heads
-				)
-		clock.set_opening_runway(unit)
-
-		# Burning is never blocked - a team is free to spend a trip on a totem
-		# that buys nothing, and the runway bar is what they judge that on. What
-		# must hold is that the burns they owe are all still worth something: the
-		# last one is clipped by design (the burns plus the free tank overshoot
-		# the night), so a rule that refused clipped burns refused the winning
-		# one every time, at two totems for a solo player.
-		clock.set_opening_runway(unit)
-		for burn: int in burns:
-			var granted := clock.add_fuel(unit)
-			if granted <= 0:
-				stage.free()
-				clock.free()
-				return _fail(
-					"%d player(s): burn %d of %d bought no night at all."
-					% [heads, burn + 1, burns]
-				)
-		if clock.fuel_minutes != clock.get_minutes_remaining():
-			stage.free()
-			clock.free()
-			return _fail(
-				"%d player(s): every owed burn should leave the night paid to dawn, got %d of %d."
-				% [heads, clock.fuel_minutes, clock.get_minutes_remaining()]
-			)
-		# And past that point a burn is simply worth nothing, rather than an
-		# error or a negative: their gamble, cleanly lost.
-		if clock.add_fuel(unit) != 0:
-			stage.free()
-			clock.free()
-			return _fail("%d player(s): a burn past dawn's worth still paid out." % heads)
-		clock.set_opening_runway(unit)
-
-		var bought := unit * burns + unit
-		if bought < night:
-			stage.free()
-			clock.free()
-			return _fail(
-				"%d player(s) burning %d totems buy %d of a %d-minute night - unfinishable."
-				% [heads, burns, bought, night]
-			)
-		# And not so generous that the night is over before the burns are.
-		if unit * burns > night:
-			stage.free()
-			clock.free()
-			return _fail(
-				"%d player(s) reach dawn on %d burns without spending the free tank."
-				% [heads, burns]
-			)
-
-	stage.free()
-	clock.free()
+		# A death cannot lower the already committed quota.
+		stage.get_child(0).remove_from_group(&"players")
+		if ritual.get_burns_required() != heads + 1:
+			return _fail("The quota changed after losing a player.")
+		clock.advance_real_seconds(clock.fuel_minutes * clock.real_seconds_per_game_minute)
+		for burn: int in heads + 1:
+			if clock.won or ritual.on_totem_burned() <= 0:
+				return _fail("Every owed burn must be needed and buy time.")
+			clock.advance_real_seconds(clock.fuel_minutes * clock.real_seconds_per_game_minute)
+		if not clock.won or ritual.on_totem_burned() != 0:
+			return _fail("Exactly N + 1 burns must pay through dawn.")
+		stage.free()
 	return true
 
 

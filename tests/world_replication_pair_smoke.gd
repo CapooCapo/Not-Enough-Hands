@@ -173,7 +173,7 @@ func _build_world() -> void:
 	_clock.name = "NightClock"
 	world.add_child(_clock)
 
-	# Authored on both peers at matching paths; the authority's 77-second hint
+	# Authored on both peers at matching paths; the authority's explicit hint
 	# event must select this totem and make the client's copy glow as well.
 	var brazier_placeholder := (
 		(load("res://items/totem_brazier.tscn") as PackedScene).instantiate()
@@ -268,6 +268,7 @@ func _drive_world() -> void:
 		)
 	if not _totem_hint_sent and _elapsed > 3.5:
 		_totem_hint_sent = _ritual._trigger_next_totem_hint()
+		_ritual._sync_objective.rpc(5, 2, true)
 
 
 func _write_client_verdict() -> void:
@@ -294,6 +295,8 @@ func _write_client_verdict() -> void:
 		failures.append("no door durability arrived on the slow channel")
 	if _clock.elapsed_game_minutes <= 0:
 		failures.append("the night never arrived on the clock channel")
+	if _ritual.get_burns_required() != 5 or _ritual.totems_burned != 2 or not _ritual.escort_active:
+		failures.append("the shared escort quota/progress did not replicate")
 	if not _hint_totem.is_guidance_highlight_active():
 		failures.append("the authority's totem hint did not highlight the same client totem")
 	if not _heard_statue_spawn_cue:

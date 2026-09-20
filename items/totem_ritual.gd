@@ -1,33 +1,9 @@
 class_name TotemRitual
 extends Node
 
-## Director for the shared "find the totems and burn them" objective.
-##
-## It owns the bookkeeping the brazier deliberately does not: how many items
-## exist and where they are, what a burn is worth in night-time, and when the
-## ritual is over. Placement goes through the `house2_rooms` marker group both
-## maps publish, so the same node works in House2 and in the villa with no
-## map-specific coordinates anywhere.
-##
-## Nothing is scattered once at boot. The world always holds at least five
-## totems plus a
-## flat handful of logs; each burned totem is replaced at a new random drop,
-## and every drop point is chosen at random from the
-## rooms that are far from *everybody* - the objective is a trip, so an item is
-## never allowed to appear at somebody's feet. Within one restock pass the rooms
-## already used are avoided, so a handful of logs is a handful of places.
-##
-## This is the night's first and, for now, only objective: the clock does not run
-## to dawn on its own any more, it runs on the runway burns pay for. How much a
-## burn is worth is still decided here; how it is spent is NightClock's business
-## (`add_fuel()`, never `skip_minutes()` - see the class docs there for why the
-## difference matters). The bank has no ceiling: work already done is never
-## deleted. The one thing that can still clip a burn is dawn, and nothing stops
-## a team burning one totem too many into it - that call is theirs to read off
-## the runway bar and take.
-##
-## When the night finally ends, every totem and log still lying around is cleared
-## out of the world.
+## One shared escort objective. A new totem appears only with an empty bank.
+## The starting team owes N + 1 burns; deaths do not discount the objective.
+## Burns buy playable night minutes, never a time skip.
 
 signal totem_burned(granted_minutes: int)
 signal ritual_completed()
@@ -36,20 +12,6 @@ const TOTEM_SCENE: PackedScene = preload("res://items/totem.tscn")
 const FIREWOOD_SCENE: PackedScene = preload("res://items/firewood.tscn")
 const BATTERY_SCENE: PackedScene = preload("res://items/flashlight_battery.tscn")
 const BRAZIER_SCENE: PackedScene = preload("res://items/totem_brazier.tscn")
-## Floor for `totems_by_player_count`, so an emptied or mis-authored table can
-## never leave the map with nothing to find.
-const MIN_TOTEMS_IN_WORLD := 5
-
-## How many totems are loose in the world, indexed by how many players are in
-## the run. The hard five-totem floor upgrades legacy lower entries; picking one
-## up still counts it, and burning it creates the replacement.
-##
-## It grows more slowly than the head count on purpose. Four players do not need
-## four times the totems - what they need is not to be queueing at the same
-## five - and a map carpeted in them turns the objective from a trip into a
-## pickup. Past four players the fifth is enough; the shortage that creates is
-## the coordination, which is the interesting part.
-@export var totems_by_player_count: PackedInt32Array = PackedInt32Array([3, 4, 5, 5])
 ## Logs kept in the world at once, as a flat count rather than one per player.
 ## The fire needs one after every burn, so a log has to be findable from
 ## wherever the last totem left you rather than being a second search on top of
@@ -74,36 +36,13 @@ const MIN_TOTEMS_IN_WORLD := 5
 @export_range(0.0, 60.0, 0.5) var battery_spawn_distance: float = 6.0
 
 @export_category("Totem guidance")
-## Periodically reveal exactly one loose totem to every peer. The reveal is an
-## x-ray beacon rather than the normal line-of-sight glow and expires well
-## before the next hint, preserving the search between pulses.
-@export_range(5.0, 300.0, 1.0) var totem_hint_interval: float = 77.0
+## Duration for explicit guidance requests (normal objective markers persist).
 @export_range(1.0, 60.0, 1.0) var totem_hint_duration: float = 12.0
-## Burns each player owes the night, and the only number here that is authored:
-## what one burn is *worth* is derived from it so the night always costs the
-## same amount of night, however many people are carrying it. Three each means
-## three totems solo, six for a pair, twelve for a full room of four - the work
-## scales with the hands available instead of the clock doing it.
-##
-## It buys runway, not a jump, so the night still has to be played through
-## between burns: paying for the whole night in the first two minutes is not
-## possible, and idling still stops the clock dead.
-@export_range(1, 10, 1) var burns_per_player: int = 3
-## How far a fresh item has to be from every player. This is an exclusion
-## radius and nothing more - it exists so an item never appears at somebody's
-## feet, not to make the trip long. It was 40 m, which in an 80 x 60 m villa
-## meant almost the whole building qualified and every totem was a search of the
-## entire map; the objective is a trip, not a hunt. Where a map cannot honour it
-## at all - House2 is 18 x 12 m - the rooms as far away as that map gets are
-## used instead, so the rule degrades to "the farthest there is", never back to
-## "next to the player".
-@export_range(0.0, 200.0, 1.0) var min_spawn_distance: float = 22.0
-## Of the rooms that clear the exclusion radius, only the nearest slice is drawn
-## from. This is what turns "somewhere in the villa" into "two or three rooms
-## that way": without it the pick was uniform across everything beyond the
-## radius, so the far corner of the map was as likely as the next corridor. Kept
-## as a fraction rather than a count so a small map still offers a choice.
+## Objective placement uses the farthest rooms from both team and brazier.
+@export_range(0.0, 200.0, 1.0) var min_spawn_distance: float = 40.0
 @export_range(0.1, 1.0, 0.05) var near_room_fraction: float = 0.4
+@export_range(1.0, 60.0, 1.0) var escort_pressure_interval: float = 12.0
+
 ## Marker group the drop points come from. Both maps publish their rooms into
 ## `house2_rooms`; the villa adds its own markers to it as well.
 @export var spawn_room_group: StringName = &"house2_rooms"
@@ -133,9 +72,13 @@ var totems_burned: int = 0
 var _clock: Node = null
 var _rng := RandomNumberGenerator.new()
 var _restock_timer: float = 0.0
-var _totem_hint_timer: float = 0.0
 var _last_hinted_totem_path := NodePath()
 var _started: bool = false
+var _initialized: bool = false
+var _burns_required: int = 0
+var escort_active: bool = false
+var _pressure_timer: float = 0.0
+var _markers: Dictionary = {}
 
 
 func _ready() -> void:
@@ -158,25 +101,24 @@ func begin() -> void:
 	_clock = get_tree().get_first_node_in_group(&"night_clock")
 	if _clock and _clock.has_signal(&"minute_changed"):
 		_clock.connect(&"minute_changed", _on_minute_changed)
+	_burns_required = _head_count() + 1
 	_sync_runway_pricing()
 	_ensure_brazier()
+	_initialized = true
 	restock()
-	_totem_hint_timer = totem_hint_interval
 	_check_completion()
 
 
 func _process(delta: float) -> void:
-	if is_complete or not _started:
+	if is_complete or not _initialized:
 		return
 	_restock_timer -= delta
 	if _restock_timer <= 0.0:
 		_restock_timer = restock_interval
 		restock()
-	if WorldNet.is_world_authority() and totem_hint_interval > 0.0:
-		_totem_hint_timer -= delta
-		if _totem_hint_timer <= 0.0:
-			_totem_hint_timer = totem_hint_interval
-			_trigger_next_totem_hint()
+	_update_objective_markers()
+	if WorldNet.is_world_authority():
+		_update_escort(delta)
 
 
 ## Authority chooses the destination once; clients only render that choice.
@@ -232,6 +174,9 @@ func _network_session_active() -> bool:
 ## whole design - a burn buys minutes the team then *plays through* while the
 ## clock runs, rather than deleting them with a jump.
 func on_totem_burned() -> int:
+	if not WorldNet.is_world_authority() or is_complete or totems_burned >= get_burns_required():
+		return 0
+	escort_active = false
 	var granted := 0
 	if _clock and _clock.has_method(&"add_fuel"):
 		granted = int(_clock.call(&"add_fuel", get_minutes_per_totem()))
@@ -250,41 +195,29 @@ func totems_remaining() -> int:
 	return get_tree().get_nodes_in_group(&"totems").size()
 
 
-## Burns the whole team owes tonight: three each, recounted live. A player
-## leaving or dying lowers it, which is deliberate - the survivors inherit a
-## night that is still exactly one night long, not one priced for a team they
-## no longer have.
+## Lock the quota at begin so deaths/disconnects cannot remove owed burns.
 func get_burns_required() -> int:
-	return maxi(burns_per_player * _head_count(), 1)
+	return _burns_required if _burns_required > 0 else _head_count() + 1
 
 
 func _head_count() -> int:
+	# The roster exists before remote player replicas finish loading.
+	if _network_session_active():
+		var manager := get_node("/root/NetworkManager")
+		return maxi((manager.get("players") as Dictionary).size(), 1)
 	return maxi(_players_in_run().size(), 1)
 
 
-## Totems the map should be holding right now. The table is indexed from one
-## player, and its last entry stands for every larger team, so a five-player
-## lobby is not a five-entry table's problem.
 func get_totems_in_world() -> int:
-	if totems_by_player_count.is_empty():
-		return MIN_TOTEMS_IN_WORLD
-	var index := mini(_head_count(), totems_by_player_count.size()) - 1
-	return maxi(totems_by_player_count[index], MIN_TOTEMS_IN_WORLD)
+	return 1
 
 
-## What one burn pays, in in-game minutes: the night split into one unit per
-## burn owed, plus one the night hands over free at the start. Derived rather
-## than authored so the payout and the requirement can never drift - a fixed
-## payout against a scaling requirement is how a four-player run ends up either
-## unfinishable or over in three minutes.
-##
-## So a solo night is four units: one given, three burned. That +1 is also what
-## keeps the older design intact - the opening tank is exactly one objective's
-## worth, the bank holds exactly two, and the first burn of the run fills it to
-## the brim rather than being clipped by the ceiling.
 func get_minutes_per_totem() -> int:
-	var units := get_burns_required() + 1
-	return maxi(int(ceil(float(_total_night_minutes()) / float(units))), 1)
+	# The final payment absorbs integer rounding, ensuring exactly N + 1 burns.
+	var unit := maxi(_total_night_minutes() / (get_burns_required() + 1), 1)
+	if totems_burned == get_burns_required() - 1 and _clock:
+		return maxi(int(_clock.call(&"get_minutes_remaining")) - int(_clock.get("fuel_minutes")), 0)
+	return unit
 
 
 func _total_night_minutes() -> int:
@@ -295,22 +228,9 @@ func _total_night_minutes() -> int:
 	return 365
 
 
-## The opening tank belongs to the same arithmetic as the payout, and a payout
-## that moves with the head count against a fixed tank would either clip every
-## burn or hand the team a night it never bought. The ritual is what knows the
-## price, so the ritual is what tells the clock.
-##
-## There is no bank ceiling any more. It was a flat two objectives, which meant
-## a team finishing a round of trips together had its last arrivals handed
-## nothing at all - a totem carried across the villa for zero minutes of night.
-## Work already done is not something a number the player cannot see gets to
-## delete, so the ceiling is set to the whole night: the only thing that can
-## still clip a burn is dawn, which is left as the player's own gamble: the
-## runway bar is drawn against the night remaining, so a full bar says plainly
-## that another totem would buy nothing, and going anyway is a decision rather
-## than a trap.
+## Configure the opening bank once, before any objective is consumed.
 func _sync_runway_pricing() -> void:
-	if _clock == null or not "max_fuel_minutes" in _clock:
+	if not WorldNet.is_world_authority() or _clock == null or not "max_fuel_minutes" in _clock:
 		return
 	var unit := get_minutes_per_totem()
 	_clock.set("max_fuel_minutes", _total_night_minutes())
@@ -324,30 +244,14 @@ func _sync_runway_pricing() -> void:
 		_clock.call(&"set_opening_runway", unit)
 
 
-## Brings the shared totem population back to at least five and replenishes the flat log
-## supply. Public so tests and map setup can force a pass without waiting.
-##
-## Only the authority scatters. The items are replicated entities, so a client
-## that ran its own restock would put a second, invisible-to-everyone-else totem
-## in a different room and then be sent the server's on top of it.
+## Only the authority creates replicated items. Carried totems still count.
 func restock() -> void:
 	if is_complete or not WorldNet.is_world_authority():
 		return
-	# The head count is read here anyway, and this is the pass that runs every
-	# two seconds - so it is also where a player joining, dying or leaving gets
-	# the night repriced, without a second timer to keep in step with this one.
-	_sync_runway_pricing()
-	# The two populations want opposite distributions. A totem is a destination,
-	# so it is drawn from the rooms nearest the team - the trip should be a trip,
-	# not a sweep of the villa. Firewood is a convenience the fire needs after
-	# every burn, so it is spread over the whole house instead: six logs all
-	# drawn from the near quarter would sit in one wing and leave the other two
-	# storeys with none, which is the search the near rule exists to prevent.
-	_restock_group(
-		TOTEM_SCENE,
-		&"totems",
-		get_totems_in_world()
-	)
+	if totems_burned < get_burns_required() and (_clock == null or int(_clock.get("fuel_minutes")) <= 0):
+		_restock_group(TOTEM_SCENE, &"totems", 1)
+	if _network_session_active():
+		_sync_objective.rpc(get_burns_required(), totems_burned, escort_active)
 	_restock_group(
 		FIREWOOD_SCENE,
 		&"fire_fuel",
@@ -364,7 +268,7 @@ func restock() -> void:
 
 
 ## Carried items count towards the population: picking a totem up is not what
-## puts the next one on the map, burning it is.
+## releases another objective; the next empty bank does.
 func _restock_group(
 	scene: PackedScene,
 	group: StringName,
@@ -378,7 +282,7 @@ func _restock_group(
 			existing.append(node)
 	var used: Array[Node3D] = []
 	for i: int in maxi(target - existing.size(), 0):
-		var room := _pick_far_room(used, cluster_near, exclusion_radius)
+		var room := _pick_objective_room() if group == &"totems" else _pick_far_room(used, cluster_near, exclusion_radius)
 		if room == null:
 			return
 		used.append(room)
@@ -504,6 +408,9 @@ func _check_completion() -> void:
 	if int(_clock.call(&"get_minutes_remaining")) > 0:
 		return
 	is_complete = true
+	for marker: Label3D in _markers.values():
+		marker.queue_free()
+	_markers.clear()
 	# The sweep is a despawn like any other: the authority frees the items and
 	# every client is told. A client doing it itself would race the packet.
 	if WorldNet.is_world_authority():
@@ -599,3 +506,79 @@ func _room_floor_point(room: Node3D) -> Vector3:
 	if room.has_meta(&"clear_point") and parent:
 		return parent.to_global(room.get_meta(&"clear_point") as Vector3)
 	return room.global_position
+
+
+func _pick_objective_room() -> Node3D:
+	var anchors := _players_in_run()
+	for node: Node in get_tree().get_nodes_in_group(&"totem_braziers"):
+		if node is Node3D:
+			anchors.append(node)
+	var rooms := _spawn_rooms()
+	rooms.sort_custom(func(a: Node3D, b: Node3D) -> bool:
+		return _distance_to_nearest(_room_floor_point(a), anchors) > _distance_to_nearest(_room_floor_point(b), anchors)
+	)
+	# Cleared room tiles remain reachable; distance never bypasses map geometry.
+	return _random_room(rooms.slice(0, maxi(1, int(ceil(rooms.size() * 0.15)))))
+
+
+@rpc("authority", "call_remote", "reliable")
+func _sync_objective(required: int, burned: int, escort: bool) -> void:
+	_burns_required = required
+	totems_burned = burned
+	escort_active = escort
+
+
+func _update_escort(delta: float) -> void:
+	var objective: Node3D = null
+	for node: Node in get_tree().get_nodes_in_group(&"totems"):
+		if node is Node3D and not node.is_queued_for_deletion():
+			objective = node
+			if not _is_loose(objective):
+				escort_active = true
+	if not escort_active or objective == null:
+		_pressure_timer = 0.0
+		return
+	_pressure_timer -= delta
+	if _pressure_timer > 0.0:
+		return
+	_pressure_timer = escort_pressure_interval
+	for ghost: Node in get_tree().get_nodes_in_group(&"hostile_ghosts"):
+		if ghost.has_method(&"request_hunt_soon"):
+			ghost.call(&"request_hunt_soon", 3.0)
+		if ghost.has_method(&"report_noise"):
+			ghost.call(&"report_noise", _objective_position(objective), 1.0, objective.get_parent())
+
+
+## Local presentation follows replicated item transforms, including the carrier.
+## Separate labels remain visible even when a held pickup hides its own meshes.
+func _update_objective_markers() -> void:
+	var targets: Array[Node] = get_tree().get_nodes_in_group(&"totems")
+	var show_route := not targets.is_empty()
+	if show_route:
+		targets.append_array(get_tree().get_nodes_in_group(&"totem_braziers"))
+	for target in _markers.keys():
+		if not is_instance_valid(target) or target not in targets or target.is_queued_for_deletion():
+			_markers[target].queue_free()
+			_markers.erase(target)
+	for target: Node3D in targets:
+		if target.is_queued_for_deletion():
+			continue
+		if not _markers.has(target):
+			var marker := Label3D.new()
+			marker.no_depth_test = true
+			marker.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+			marker.fixed_size = true
+			marker.font_size = 28
+			marker.modulate = Color(1.0, 0.7, 0.25)
+			add_child(marker)
+			_markers[target] = marker
+		var label: Label3D = _markers[target]
+		label.global_position = _objective_position(target) + Vector3.UP * 1.8
+		label.text = "TOTEM — HỘ TỐNG" if target.is_in_group(&"totems") else "LÒ ĐỐT  %d/%d" % [totems_burned, get_burns_required()]
+		if target.has_method(&"show_guidance_highlight"):
+			target.call(&"show_guidance_highlight", 1.0)
+
+
+func _objective_position(item: Node3D) -> Vector3:
+	var holder := item.get_parent() as Node3D
+	return holder.global_position if holder and holder.is_in_group(&"players") else item.global_position
